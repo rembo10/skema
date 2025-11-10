@@ -1,0 +1,53 @@
+# Haskell
+dist
+dist-*
+cabal-dev
+*.o
+*.hi
+*.hie
+*.chi
+*.chs.h
+*.dyn_o
+*.dyn_hi
+.hpc
+.hsenv
+.cabal-sandbox/
+cabal.sandbox.config
+*.prof
+*.aux
+*.hp
+*.eventlog
+.stack-work/
+cabal.project.local
+cabal.project.local~
+.HTF/
+.ghc.environment.*
+
+# Nix
+result
+result-*
+
+# Direnv
+.direnv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test artifacts
+.hspec-failures
+
+# Local configuration, database, logs
+config.yaml
+skema.db
+node_modules/
+*.log
+
+# Development data directories (used by dev.sh)
+/data/
+/cache/
+/state/
