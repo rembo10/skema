@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Development mode - auto-reload server on code changes using watchexec
-# Supports launching backend server, frontend, or both in tmux
 
 set -e
 
 # Default config path (relative to root)
 CONFIG_PATH="../config.yaml"
-PORT=""
-MODE=""
+BACKEND_PORT=""
+FRONTEND_PORT=""
+MODE="server"
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -16,22 +16,34 @@ while [[ $# -gt 0 ]]; do
       CONFIG_PATH="$2"
       shift 2
       ;;
-    -p)
-      PORT="$2"
+    -p|--backend-port)
+      BACKEND_PORT="$2"
+      shift 2
+      ;;
+    --frontend-port)
+      FRONTEND_PORT="$2"
       shift 2
       ;;
     -h|--help)
-      echo "Usage: $0 [OPTIONS] [MODE]"
+      echo "Usage: $0 [OPTIONS] MODE"
       echo ""
       echo "Modes:"
-      echo "  server    Launch only the backend server (default if no mode specified)"
-      echo "  web       Launch only the frontend dev server"
-      echo "  (empty)   Launch both server and web in a tmux session"
+      echo "  server    Launch the backend server with auto-reload (default)"
+      echo "  web       Launch the frontend dev server"
+      echo ""
+      echo "Run in two separate terminals:"
+      echo "  Terminal 1: ./dev.sh server"
+      echo "  Terminal 2: ./dev.sh web"
       echo ""
       echo "Options:"
-      echo "  -c PATH   Path to config file (default: ../config.yaml from server/)"
-      echo "  -p PORT   Override port (default: read from config, or 8182 if not set)"
-      echo "  -h, --help    Show this help message"
+      echo "  -c PATH              Path to config file (default: ../config.yaml)"
+      echo "  -p, --backend-port   Backend port (default: read from config, or 8182)"
+      echo "  --frontend-port      Frontend port (default: 3000)"
+      echo "  -h, --help           Show this help message"
+      echo ""
+      echo "Examples:"
+      echo "  ./dev.sh server -p 8080"
+      echo "  ./dev.sh web -p 8080 --frontend-port 4000"
       exit 0
       ;;
     server|web)
@@ -61,10 +73,10 @@ get_port_from_config() {
   return 1
 }
 
-# Determine the port to use
-if [[ -n "$PORT" ]]; then
+# Determine the backend port to use
+if [[ -n "$BACKEND_PORT" ]]; then
   # Port explicitly provided via -p flag
-  SKEMA_PORT="$PORT"
+  SKEMA_PORT="$BACKEND_PORT"
 else
   # Try to read from config file
   cd server
@@ -72,10 +84,19 @@ else
   cd ..
 fi
 
+# Determine frontend port
+if [[ -n "$FRONTEND_PORT" ]]; then
+  SKEMA_FRONTEND_PORT="$FRONTEND_PORT"
+else
+  SKEMA_FRONTEND_PORT="3000"
+fi
+
 export SKEMA_PORT
+export SKEMA_FRONTEND_PORT
 
 echo "🔧 Skema Development Environment"
-echo "   Port: $SKEMA_PORT"
+echo "   Backend Port:  $SKEMA_PORT"
+echo "   Frontend Port: $SKEMA_FRONTEND_PORT"
 echo ""
 
 # Function to launch server
@@ -112,103 +133,13 @@ launch_server() {
 # Function to launch web
 launch_web() {
   echo "🌐 Starting frontend dev server..."
+  echo "   Frontend on port $SKEMA_FRONTEND_PORT"
+  echo "   Proxying API requests to backend on port $SKEMA_PORT"
+  echo ""
   cd web
   echo "📦 Installing dependencies..."
   npm install
   exec npm run dev
-}
-
-# Function to launch both in tmux
-launch_both() {
-  # Check if tmux is available
-  if ! command -v tmux &> /dev/null; then
-    echo "❌ tmux is not installed. Please install tmux or run server/web separately."
-    echo "   To run separately:"
-    echo "   Terminal 1: ./dev.sh server"
-    echo "   Terminal 2: ./dev.sh web"
-    exit 1
-  fi
-
-  SESSION_NAME="skema-dev"
-
-  # Check if we're already inside a tmux session
-  if [[ -n "$TMUX" ]]; then
-    echo "📺 Already in tmux session, creating new window..."
-    echo "   Backend on port $SKEMA_PORT, frontend on port 3000"
-    echo ""
-
-    # Create a new window for skema
-    tmux new-window -n "skema"
-
-    # Set environment variables
-    tmux send-keys "export SKEMA_PORT=$SKEMA_PORT" C-m
-    tmux send-keys "export SKEMA_DATA_DIR=\"$PWD/data\"" C-m
-    tmux send-keys "export SKEMA_CACHE_DIR=\"$PWD/cache\"" C-m
-    tmux send-keys "export SKEMA_STATE_DIR=\"$PWD/state\"" C-m
-
-    # Start server
-    tmux send-keys "cd server && echo '🚀 Backend Server (port $SKEMA_PORT)' && sleep 1" C-m
-    tmux send-keys "cabal build exe:skema && watchexec --restart --clear --watch src --watch skema.cabal --exts hs,cabal -- cabal run exe:skema -- -c $CONFIG_PATH" C-m
-
-    # Split window horizontally
-    tmux split-window -h
-
-    # Set environment in second pane
-    tmux send-keys "export SKEMA_PORT=$SKEMA_PORT" C-m
-
-    # Start web
-    tmux send-keys "cd web && echo '🌐 Frontend Dev Server (port 3000 -> proxies to $SKEMA_PORT)' && sleep 1" C-m
-    tmux send-keys "npm install && npm run dev" C-m
-
-    echo "✅ Skema dev environment started in new window"
-    echo "   Use Ctrl+b then 'n' to switch to the skema window"
-    exit 0
-  fi
-
-  # Not in tmux, so create new session or attach to existing
-
-  # Check if session already exists
-  if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-    echo "📺 Attaching to existing tmux session: $SESSION_NAME"
-    exec tmux attach-session -t "$SESSION_NAME"
-  fi
-
-  echo "📺 Creating new tmux session: $SESSION_NAME"
-  echo "   Backend on port $SKEMA_PORT, frontend on port 3000"
-  echo ""
-  echo "💡 Tmux shortcuts:"
-  echo "   Ctrl+b then \"%\"  - Split pane vertically"
-  echo "   Ctrl+b then arrow - Navigate between panes"
-  echo "   Ctrl+b then d    - Detach from session"
-  echo "   Ctrl+b then x    - Kill current pane"
-  echo ""
-  sleep 2
-
-  # Create new session with server
-  tmux new-session -d -s "$SESSION_NAME" -n "skema"
-
-  # Set environment in tmux session
-  tmux send-keys -t "$SESSION_NAME:0" "export SKEMA_PORT=$SKEMA_PORT" C-m
-  tmux send-keys -t "$SESSION_NAME:0" "export SKEMA_DATA_DIR=\"$PWD/data\"" C-m
-  tmux send-keys -t "$SESSION_NAME:0" "export SKEMA_CACHE_DIR=\"$PWD/cache\"" C-m
-  tmux send-keys -t "$SESSION_NAME:0" "export SKEMA_STATE_DIR=\"$PWD/state\"" C-m
-
-  # Start server in first pane
-  tmux send-keys -t "$SESSION_NAME:0" "cd server && echo '🚀 Backend Server (port $SKEMA_PORT)' && sleep 1" C-m
-  tmux send-keys -t "$SESSION_NAME:0" "cabal build exe:skema && watchexec --restart --clear --watch src --watch skema.cabal --exts hs,cabal -- cabal run exe:skema -- -c $CONFIG_PATH" C-m
-
-  # Split window horizontally
-  tmux split-window -h -t "$SESSION_NAME:0"
-
-  # Set environment in second pane
-  tmux send-keys -t "$SESSION_NAME:0.1" "export SKEMA_PORT=$SKEMA_PORT" C-m
-
-  # Start web in second pane
-  tmux send-keys -t "$SESSION_NAME:0.1" "cd web && echo '🌐 Frontend Dev Server (port 3000 -> proxies to $SKEMA_PORT)' && sleep 1" C-m
-  tmux send-keys -t "$SESSION_NAME:0.1" "npm install && npm run dev" C-m
-
-  # Attach to session
-  exec tmux attach-session -t "$SESSION_NAME"
 }
 
 # Execute based on mode
@@ -220,7 +151,9 @@ case "$MODE" in
     launch_web
     ;;
   *)
-    # Default: launch both in tmux
-    launch_both
+    echo "❌ Please specify a mode: server or web"
+    echo "   Terminal 1: ./dev.sh server"
+    echo "   Terminal 2: ./dev.sh web"
+    exit 1
     ;;
 esac

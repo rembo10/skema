@@ -12,15 +12,15 @@ skema is a music library management/acquisition system.
 # Enter development shell with all dependencies
 nix develop
 
-# Run both backend and frontend with auto-reload (requires tmux)
-./dev.sh
+# Run backend and frontend in separate terminals:
+# Terminal 1:
+./dev.sh server  # Backend with auto-reload
 
-# Or run them separately:
-./dev.sh server  # Backend only
-./dev.sh web     # Frontend only
+# Terminal 2:
+./dev.sh web     # Frontend dev server
 ```
 
-The `dev.sh` script provides auto-reload on code changes and runs both services in a tmux session for convenience.
+The `dev.sh` script provides auto-reload on code changes for the backend and hot-reload for the frontend.
 
 ### Manual Setup
 
@@ -55,7 +55,7 @@ npm install
 npm run dev
 ```
 
-The backend will run on `http://localhost:8181` and the frontend on `http://localhost:3000`.
+The backend will run on `http://localhost:8182` and the frontend on `http://localhost:3000`.
 
 ## License
 

@@ -52,7 +52,6 @@ library
     Skema.Config.Discovery
     Skema.Config.Directories
     Skema.Config.PathExpansion
-    Skema.Config.Defaults
     Skema.Config.Validation
     Skema.Config.SchemaClass
     Skema.Config.SchemaInstances

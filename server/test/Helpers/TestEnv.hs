@@ -20,8 +20,7 @@ import Skema.Events.Bus (EventBus, newEventBus)
 import Skema.Services.Types (ServiceContext(..))
 import Skema.HTTP.Client (HttpClient, newHttpClient, defaultHttpConfig, defaultUserAgentData)
 import Skema.MusicBrainz.Client (MBClientEnv, newMBClientEnv)
-import Skema.Config.Types (Config, musicbrainz)
-import qualified Skema.Config.Defaults as Defaults
+import Skema.Config.Types (Config, musicbrainz, defaultConfig)
 import Control.Exception (bracket)
 import System.IO.Temp (withSystemTempFile, withSystemTempDirectory)
 import Katip
@@ -73,7 +72,7 @@ withTestEnv action = do
           bus <- newEventBus
 
           -- Create default config
-          configVar <- STM.newTVarIO Defaults.defaultConfig
+          configVar <- STM.newTVarIO defaultConfig
 
           -- Create HTTP client
           httpClient <- newHttpClient le defaultHttpConfig defaultUserAgentData

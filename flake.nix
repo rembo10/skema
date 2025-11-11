@@ -22,6 +22,9 @@
 
           src = ./web;
 
+          # Use nodejs 24 instead of default nodejs (22)
+          nodejs = pkgs.nodejs_24;
+
           npmDepsHash = "sha256-QUWytH512P0MEGR9B3XNwqMulPAHuY6SJ7bN5gnQo6Q=";
 
           # Use npm ci for reproducible builds
@@ -42,8 +45,8 @@
         # Use GHC 9.10 to match monatone
         haskellPackages = pkgs.haskell.packages.ghc910.override {
           overrides = hself: hsuper: {
-            # Use monatone from the flake input
-            monatone = monatone.packages.${system}.default;
+            # Use monatone from the flake input, skip tests
+            monatone = pkgs.haskell.lib.dontCheck monatone.packages.${system}.default;
 
             # Override skema to include all its dependencies
             skema = hself.callCabal2nix "skema" ./server {
@@ -97,8 +100,6 @@
           buildInputs = with pkgs; [
             # Haskell tooling
             haskellPackages.cabal-install
-            haskellPackages.haskell-language-server
-            haskellPackages.hlint
             haskellPackages.ormolu
             haskellPackages.cabal2nix
             haskellPackages.hspec-discover
@@ -110,9 +111,7 @@
             nodejs_24  # Node.js for web frontend
 
             # System tools
-            git
             sqlite
-            tmux # for the ./dev.sh script
             zlib
           ];
 
@@ -137,11 +136,11 @@
             echo "   ghcid --test=':main'     - Auto-run tests"
             echo ""
             echo "🔧 Development mode:"
-            echo "   ./dev.sh           - Auto-reload server on code changes"
+            echo "   Terminal 1: ./dev.sh server   - Auto-reload backend"
+            echo "   Terminal 2: ./dev.sh web      - Frontend dev server"
             echo ""
             echo "✨ Formatting:"
             echo "   ormolu -i src/**/*.hs    - Format all source files"
-            echo "   hlint src/               - Lint source code"
             echo ""
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           '';

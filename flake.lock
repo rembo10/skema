@@ -44,11 +44,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1761711513,
-        "narHash": "sha256-mc7xXPHSuVv437tZCJlOerL6ERjz6mYkvIaTKbYh+bI=",
+        "lastModified": 1762840873,
+        "narHash": "sha256-oe3fex6jk0WAq8wRa38NVqVIGDS9AEnLMzULPnAOU68=",
         "owner": "rembo10",
         "repo": "monatone",
-        "rev": "f6ee3ba3b75a56c004041fba0ba8cec2a1c6fd78",
+        "rev": "3dc36fece1c7de24b6fb130d6ae879ce232f037d",
         "type": "github"
       },
       "original": {

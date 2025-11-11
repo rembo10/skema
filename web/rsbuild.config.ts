@@ -1,8 +1,9 @@
 import { defineConfig } from '@rsbuild/core';
 import { pluginReact } from '@rsbuild/plugin-react';
 
-// Read backend port from environment or default to 8181
+// Read ports from environment or use defaults
 const backendPort = process.env.SKEMA_PORT || '8181';
+const frontendPort = parseInt(process.env.SKEMA_FRONTEND_PORT || '3000', 10);
 
 export default defineConfig({
   plugins: [pluginReact()],
@@ -10,7 +11,7 @@ export default defineConfig({
     template: './index.html',
   },
   server: {
-    port: 3000,
+    port: frontendPort,
     proxy: {
       '/api': {
         target: `http://localhost:${backendPort}`,

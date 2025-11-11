@@ -17,7 +17,6 @@
 module Skema.Config.SchemaInstances () where
 
 import Skema.Config.Types
-import Skema.Config.Defaults
 import Skema.Config.SchemaClass
 import Data.Aeson (object, (.=), (.:?), (.!=), withObject)
 import qualified System.OsPath as OP

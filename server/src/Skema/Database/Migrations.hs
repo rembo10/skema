@@ -3,7 +3,7 @@
 
 -- | Database migrations.
 --
--- Migrations are run automatically on application startup.
+-- Creates the database schema on first run.
 module Skema.Database.Migrations
   ( runMigrations
   ) where
@@ -13,7 +13,6 @@ import Skema.Database.Types (sourceTypeToText, SourceType(..))
 import Katip
 import Database.SQLite.Simple (Only(..))
 import qualified Database.SQLite.Simple as SQLite
-import Control.Monad ()
 
 -- | Run all pending migrations.
 runMigrations :: LogEnv -> ConnectionPool -> IO ()
@@ -23,24 +22,21 @@ runMigrations le connPool = do
 
   runKatipContextT le initialContext initialNamespace $ do
     liftIO $ withConnection connPool $ \conn -> do
-      -- Run SQLite migrations
-      runSQLiteMigrations conn
+      -- Create schema
+      createSchema conn
 
-      -- Create default acquisition source if it doesn't exist
+      -- Create default data
       createDefaultAcquisitionSource conn
-
-      -- Create Best New Music sources if they don't exist
       createBestNewMusicSources conn
-
-      -- Fix existing default sources that have no filters (migration)
-      fixDefaultAcquisitionSourceFilters conn
+      createDefaultQualityProfiles conn
+      initializeSettings conn
 
     $(logTM) InfoS $ logStr ("Database migrations completed successfully" :: Text)
 
--- | Run SQLite-specific migrations.
-runSQLiteMigrations :: SQLite.Connection -> IO ()
-runSQLiteMigrations conn = do
-  -- Create library_tracks table (formerly files)
+-- | Create the complete database schema.
+createSchema :: SQLite.Connection -> IO ()
+createSchema conn = do
+  -- Create library_tracks table
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS library_tracks ( \
     \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
@@ -64,7 +60,7 @@ runSQLiteMigrations conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_library_tracks_mb_release_id ON library_tracks(mb_release_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_library_tracks_mb_recording_id ON library_tracks(mb_recording_id)"
 
-  -- Create library_track_metadata table
+  -- Create library_track_metadata table with all fields
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS library_track_metadata ( \
     \  track_id INTEGER PRIMARY KEY REFERENCES library_tracks(id) ON DELETE CASCADE, \
@@ -87,6 +83,19 @@ runSQLiteMigrations conn = do
     \  mb_release_id TEXT, \
     \  mb_release_group_id TEXT, \
     \  mb_artist_id TEXT, \
+    \  format TEXT, \
+    \  total_tracks INTEGER, \
+    \  total_discs INTEGER, \
+    \  publisher TEXT, \
+    \  comment TEXT, \
+    \  bits_per_sample INTEGER, \
+    \  release_status TEXT, \
+    \  release_type TEXT, \
+    \  mb_album_artist_id TEXT, \
+    \  mb_work_id TEXT, \
+    \  mb_disc_id TEXT, \
+    \  acoustid_fingerprint TEXT, \
+    \  acoustid_id TEXT, \
     \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
     \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
     \)"
@@ -110,7 +119,7 @@ runSQLiteMigrations conn = do
 
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_scan_history_started_at ON scan_history(started_at DESC)"
 
-  -- Create metadata_diffs table (formerly metadata_diff)
+  -- Create metadata_diffs table
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS metadata_diffs ( \
     \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
@@ -124,7 +133,7 @@ runSQLiteMigrations conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_metadata_diffs_track_id ON metadata_diffs(track_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_metadata_diffs_field_name ON metadata_diffs(field_name)"
 
-  -- Create clusters table (formerly file_groups)
+  -- Create clusters table with caching columns
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS clusters ( \
     \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
@@ -135,6 +144,8 @@ runSQLiteMigrations conn = do
     \  mb_release_id TEXT, \
     \  mb_release_group_id TEXT, \
     \  mb_confidence REAL, \
+    \  mb_release_data TEXT, \
+    \  mb_candidates TEXT, \
     \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
     \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
     \  last_identified_at TIMESTAMP \
@@ -143,7 +154,7 @@ runSQLiteMigrations conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_clusters_metadata_hash ON clusters(metadata_hash)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_clusters_mb_release_id ON clusters(mb_release_id)"
 
-  -- Create metadata_change_history table to track applied changes for undo
+  -- Create metadata_change_history table
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS metadata_change_history ( \
     \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
@@ -158,8 +169,7 @@ runSQLiteMigrations conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_metadata_change_history_track_id ON metadata_change_history(track_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_metadata_change_history_applied_at ON metadata_change_history(applied_at DESC)"
 
-  -- Create acquisition_rules table (stores acquisition sources)
-  -- Note: Table named "acquisition_rules" for backward compatibility, but semantically represents "sources"
+  -- Create acquisition_rules table
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS acquisition_rules ( \
     \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
@@ -178,13 +188,14 @@ runSQLiteMigrations conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_acquisition_rules_rule_type ON acquisition_rules(rule_type)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_acquisition_rules_artist_mbid ON acquisition_rules(artist_mbid)"
 
-  -- Create tracked_artists table
+  -- Create tracked_artists table (legacy, still needed for old data)
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS tracked_artists ( \
     \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
     \  artist_mbid TEXT NOT NULL UNIQUE, \
     \  artist_name TEXT NOT NULL, \
     \  image_url TEXT, \
+    \  thumbnail_url TEXT, \
     \  added_by_rule_id INTEGER NOT NULL REFERENCES acquisition_rules(id) ON DELETE CASCADE, \
     \  source_cluster_id INTEGER REFERENCES clusters(id) ON DELETE SET NULL, \
     \  last_checked_at TIMESTAMP, \
@@ -197,7 +208,7 @@ runSQLiteMigrations conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_tracked_artists_source_cluster_id ON tracked_artists(source_cluster_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_tracked_artists_last_checked_at ON tracked_artists(last_checked_at)"
 
-  -- Create wanted_albums table
+  -- Create wanted_albums table (legacy)
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS wanted_albums ( \
     \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
@@ -219,11 +230,7 @@ runSQLiteMigrations conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_wanted_albums_added_by_rule_id ON wanted_albums(added_by_rule_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_wanted_albums_matched_cluster_id ON wanted_albums(matched_cluster_id)"
 
-  -- Add columns for caching MusicBrainz release data and candidates
-  addColumnIfNotExists conn "clusters" "mb_release_data" "TEXT"
-  addColumnIfNotExists conn "clusters" "mb_candidates" "TEXT"
-
-  -- Create catalog_artists table (replaces tracked_artists with followed flag)
+  -- Create catalog_artists table with all fields
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS catalog_artists ( \
     \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
@@ -236,6 +243,7 @@ runSQLiteMigrations conn = do
     \  added_by_rule_id INTEGER REFERENCES acquisition_rules(id) ON DELETE SET NULL, \
     \  source_cluster_id INTEGER REFERENCES clusters(id) ON DELETE SET NULL, \
     \  last_checked_at TIMESTAMP, \
+    \  quality_profile_id INTEGER REFERENCES quality_profiles(id) ON DELETE SET NULL, \
     \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
     \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
     \)"
@@ -246,21 +254,26 @@ runSQLiteMigrations conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_artists_source_cluster_id ON catalog_artists(source_cluster_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_artists_last_checked_at ON catalog_artists(last_checked_at)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_artists_created_at ON catalog_artists(created_at DESC)"
+  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_artists_quality_profile_id ON catalog_artists(quality_profile_id)"
 
-  -- Create catalog_albums table (replaces wanted_albums with wanted flag)
+  -- Create catalog_albums table with all fields
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS catalog_albums ( \
     \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
     \  release_group_mbid TEXT NOT NULL UNIQUE, \
     \  title TEXT NOT NULL, \
-    \  artist_id INTEGER NOT NULL REFERENCES catalog_artists(id) ON DELETE CASCADE, \
+    \  artist_id INTEGER REFERENCES catalog_artists(id) ON DELETE CASCADE, \
     \  artist_mbid TEXT NOT NULL, \
     \  artist_name TEXT NOT NULL, \
     \  album_type TEXT, \
     \  first_release_date TEXT, \
     \  album_cover_url TEXT, \
+    \  album_cover_thumbnail_url TEXT, \
     \  wanted INTEGER NOT NULL DEFAULT 0, \
+    \  user_unwanted INTEGER NOT NULL DEFAULT 0, \
     \  matched_cluster_id INTEGER REFERENCES clusters(id) ON DELETE SET NULL, \
+    \  quality_profile_id INTEGER REFERENCES quality_profiles(id) ON DELETE SET NULL, \
+    \  current_quality TEXT, \
     \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
     \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
     \)"
@@ -271,21 +284,10 @@ runSQLiteMigrations conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_wanted ON catalog_albums(wanted)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_matched_cluster_id ON catalog_albums(matched_cluster_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_created_at ON catalog_albums(created_at DESC)"
+  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_quality_profile_id ON catalog_albums(quality_profile_id)"
+  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_current_quality ON catalog_albums(current_quality)"
 
-  -- Add album cover URL to catalog_albums (migration for existing databases)
-  addColumnIfNotExists conn "catalog_albums" "album_cover_url" "TEXT"
-
-  -- Add thumbnail URLs for images (migration for existing databases)
-  addColumnIfNotExists conn "tracked_artists" "thumbnail_url" "TEXT"
-  addColumnIfNotExists conn "catalog_albums" "album_cover_thumbnail_url" "TEXT"
-
-  -- Add acquisition-related fields to catalog_artists (migration for existing databases)
-  addColumnIfNotExists conn "catalog_artists" "thumbnail_url" "TEXT"
-  addColumnIfNotExists conn "catalog_artists" "added_by_rule_id" "INTEGER REFERENCES acquisition_rules(id) ON DELETE SET NULL"
-  addColumnIfNotExists conn "catalog_artists" "source_cluster_id" "INTEGER REFERENCES clusters(id) ON DELETE SET NULL"
-  addColumnIfNotExists conn "catalog_artists" "last_checked_at" "TIMESTAMP"
-
-  -- Create downloads table for tracking NZB/torrent downloads
+  -- Create downloads table with all fields
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS downloads ( \
     \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
@@ -296,6 +298,8 @@ runSQLiteMigrations conn = do
     \  download_client_id TEXT, \
     \  status TEXT NOT NULL DEFAULT 'queued', \
     \  download_path TEXT, \
+    \  library_path TEXT, \
+    \  matched_cluster_id INTEGER REFERENCES clusters(id) ON DELETE SET NULL, \
     \  title TEXT NOT NULL, \
     \  size_bytes INTEGER, \
     \  quality TEXT, \
@@ -315,21 +319,7 @@ runSQLiteMigrations conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_downloads_download_client_id ON downloads(download_client_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_downloads_queued_at ON downloads(queued_at DESC)"
 
-  -- Add user_unwanted flag to catalog_albums to track explicitly unwanted albums
-  addColumnIfNotExists conn "catalog_albums" "user_unwanted" "INTEGER NOT NULL DEFAULT 0"
-
-  -- Add artist_id FK to catalog_albums for internal ID references (migration)
-  -- Note: For existing databases, this column will be added but initially NULL for existing rows.
-  -- Services should populate it when they next update albums.
-  addColumnIfNotExists conn "catalog_albums" "artist_id" "INTEGER REFERENCES catalog_artists(id) ON DELETE CASCADE"
-
-  -- Add matched_cluster_id to link downloads to the clusters they created when imported
-  addColumnIfNotExists conn "downloads" "matched_cluster_id" "INTEGER REFERENCES clusters(id) ON DELETE SET NULL"
-
-  -- Add library_path to store the destination path where files were imported to
-  addColumnIfNotExists conn "downloads" "library_path" "TEXT"
-
-  -- Create quality_profiles table for managing download quality preferences
+  -- Create quality_profiles table
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS quality_profiles ( \
     \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
@@ -343,7 +333,7 @@ runSQLiteMigrations conn = do
 
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_quality_profiles_name ON quality_profiles(name)"
 
-  -- Create settings table (singleton for global configuration)
+  -- Create settings table
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS settings ( \
     \  id INTEGER PRIMARY KEY CHECK (id = 1), \
@@ -352,71 +342,15 @@ runSQLiteMigrations conn = do
     \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
     \)"
 
-  -- Add quality profile relationships to catalog entities
-  addColumnIfNotExists conn "catalog_artists" "quality_profile_id" "INTEGER REFERENCES quality_profiles(id) ON DELETE SET NULL"
-  addColumnIfNotExists conn "catalog_albums" "quality_profile_id" "INTEGER REFERENCES quality_profiles(id) ON DELETE SET NULL"
-
-  -- Add current quality tracking to catalog albums
-  addColumnIfNotExists conn "catalog_albums" "current_quality" "TEXT"
-
-  -- Create indexes for quality profile lookups
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_artists_quality_profile_id ON catalog_artists(quality_profile_id)"
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_quality_profile_id ON catalog_albums(quality_profile_id)"
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_current_quality ON catalog_albums(current_quality)"
-
-  -- Add extended metadata fields to library_track_metadata (migration for existing databases)
-  addColumnIfNotExists conn "library_track_metadata" "format" "TEXT"
-  addColumnIfNotExists conn "library_track_metadata" "total_tracks" "INTEGER"
-  addColumnIfNotExists conn "library_track_metadata" "total_discs" "INTEGER"
-  addColumnIfNotExists conn "library_track_metadata" "publisher" "TEXT"
-  addColumnIfNotExists conn "library_track_metadata" "comment" "TEXT"
-  addColumnIfNotExists conn "library_track_metadata" "bits_per_sample" "INTEGER"
-  addColumnIfNotExists conn "library_track_metadata" "release_status" "TEXT"
-  addColumnIfNotExists conn "library_track_metadata" "release_type" "TEXT"
-  addColumnIfNotExists conn "library_track_metadata" "mb_album_artist_id" "TEXT"
-  addColumnIfNotExists conn "library_track_metadata" "mb_work_id" "TEXT"
-  addColumnIfNotExists conn "library_track_metadata" "mb_disc_id" "TEXT"
-  addColumnIfNotExists conn "library_track_metadata" "acoustid_fingerprint" "TEXT"
-  addColumnIfNotExists conn "library_track_metadata" "acoustid_id" "TEXT"
-
-  -- Rename columns for clarity (SQLite doesn't support RENAME COLUMN before 3.25.0, so we check)
-  -- Note: These renames are optional and only happen for new databases via CREATE TABLE IF NOT EXISTS
-  -- Existing databases will continue to use the old column names (label, country)
-
-  -- Create default quality profiles
-  createDefaultQualityProfiles conn
-
-  -- Initialize settings table with default profile
-  initializeSettings conn
-
--- | Helper to add a column to SQLite table if it doesn't already exist.
-addColumnIfNotExists :: SQLite.Connection -> Text -> Text -> Text -> IO ()
-addColumnIfNotExists conn tableName columnName columnType = do
-  -- Check if column exists by querying table info
-  rows <- queryRows conn
-    "SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?"
-    (tableName, columnName) :: IO [Only Int]
-
-  case viaNonEmpty head rows of
-    Just (Only count) | count == 0 -> do
-      -- Column doesn't exist, add it
-      let sql = "ALTER TABLE " <> tableName <> " ADD COLUMN " <> columnName <> " " <> columnType
-      executeQuery_ conn sql
-    _ -> pure ()  -- Column exists, skip
-
 -- | Create the default acquisition source if it doesn't exist.
--- This source tracks all artists found in the user's library.
 createDefaultAcquisitionSource :: SQLite.Connection -> IO ()
 createDefaultAcquisitionSource conn = do
-  -- Check if a library_artists source already exists
   existingSources <- queryRows conn
     "SELECT COUNT(*) FROM acquisition_rules WHERE rule_type = ?"
     (Only (sourceTypeToText LibraryArtists)) :: IO [Only Int]
 
   case viaNonEmpty head existingSources of
     Just (Only count) | count == 0 -> do
-      -- No library_artists source exists, create the default one
-      -- Set filters to only track upcoming albums by default
       let defaultFilters = "{\"release_status\":\"upcoming\"}" :: Text
       executeQuery conn
         "INSERT INTO acquisition_rules (name, description, rule_type, enabled, priority, filters) \
@@ -425,23 +359,21 @@ createDefaultAcquisitionSource conn = do
         , Just ("Track all upcoming albums from artists in your library" :: Text)
         , sourceTypeToText LibraryArtists
         , True
-        , 100 :: Int  -- High priority for default source
+        , 100 :: Int
         , Just defaultFilters
         )
-    _ -> pure ()  -- Source already exists, skip
+    _ -> pure ()
 
 -- | Create "Best New Music" acquisition sources if they don't exist.
--- These are disabled by default but provide curated high-quality album discovery.
 createBestNewMusicSources :: SQLite.Connection -> IO ()
 createBestNewMusicSources conn = do
-  -- Check if Pitchfork Best New Music source already exists
+  -- Pitchfork Best New Music
   existingPitchfork <- queryRows conn
     "SELECT COUNT(*) FROM acquisition_rules WHERE name = ?"
     (Only ("Best New Music (Pitchfork)" :: Text)) :: IO [Only Int]
 
   case viaNonEmpty head existingPitchfork of
     Just (Only count) | count == 0 -> do
-      -- Create Pitchfork Best New Music source (disabled by default)
       let pitchforkFilters = "{\"genres\":[\"pop\",\"rock\",\"experimental\",\"electronic\",\"rap\",\"jazz\",\"metal\",\"folkcountry\"],\"min_score\":9.0}" :: Text
       executeQuery conn
         "INSERT INTO acquisition_rules (name, description, rule_type, enabled, priority, filters) \
@@ -449,20 +381,19 @@ createBestNewMusicSources conn = do
         ( "Best New Music (Pitchfork)" :: Text
         , Just ("Track highly acclaimed albums from Pitchfork (9.0+ score, all genres)" :: Text)
         , sourceTypeToText Pitchfork
-        , False  -- Disabled by default
+        , False
         , 50 :: Int
         , Just pitchforkFilters
         )
-    _ -> pure ()  -- Source already exists, skip
+    _ -> pure ()
 
-  -- Check if Metacritic Best New Music source already exists
+  -- Metacritic Best New Music
   existingMetacritic <- queryRows conn
     "SELECT COUNT(*) FROM acquisition_rules WHERE name = ?"
     (Only ("Best New Music (Metacritic)" :: Text)) :: IO [Only Int]
 
   case viaNonEmpty head existingMetacritic of
     Just (Only count) | count == 0 -> do
-      -- Create Metacritic Best New Music source (disabled by default)
       let metacriticFilters = "{\"genres\":[\"pop\",\"rock\",\"alternative\",\"rap\",\"country\",\"electronic\",\"r&b\",\"jazz\",\"folk\",\"metal\"],\"min_critic_score\":90}" :: Text
       executeQuery conn
         "INSERT INTO acquisition_rules (name, description, rule_type, enabled, priority, filters) \
@@ -470,40 +401,21 @@ createBestNewMusicSources conn = do
         ( "Best New Music (Metacritic)" :: Text
         , Just ("Track highly acclaimed albums from Metacritic (90+ score, all genres)" :: Text)
         , sourceTypeToText Metacritic
-        , False  -- Disabled by default
+        , False
         , 50 :: Int
         , Just metacriticFilters
         )
-    _ -> pure ()  -- Source already exists, skip
-
--- | Fix existing LibraryArtists sources that have no filters set.
--- This migration ensures that all LibraryArtists sources default to tracking only upcoming albums.
-fixDefaultAcquisitionSourceFilters :: SQLite.Connection -> IO ()
-fixDefaultAcquisitionSourceFilters conn = do
-  -- Find all LibraryArtists sources with NULL or empty filters
-  sourcesNeedingFix <- queryRows conn
-    "SELECT id, name FROM acquisition_rules WHERE rule_type = ? AND (filters IS NULL OR filters = '')"
-    (Only (sourceTypeToText LibraryArtists)) :: IO [(Int64, Text)]
-
-  -- Update each source to have the default upcoming filter
-  let defaultFilters = "{\"release_status\":\"upcoming\"}" :: Text
-  forM_ sourcesNeedingFix $ \(sourceId, _) -> do
-    executeQuery conn
-      "UPDATE acquisition_rules SET filters = ? WHERE id = ?"
-      (defaultFilters, sourceId)
+    _ -> pure ()
 
 -- | Create default quality profiles if they don't exist.
 createDefaultQualityProfiles :: SQLite.Connection -> IO ()
 createDefaultQualityProfiles conn = do
-  -- Check if any quality profiles exist
   existingProfiles <- queryRows conn
     "SELECT COUNT(*) FROM quality_profiles"
     () :: IO [Only Int]
 
   case viaNonEmpty head existingProfiles of
     Just (Only count) | count == 0 -> do
-      -- No profiles exist, create the default ones
-
       -- 1. "Any Quality" - accept everything, no upgrades
       executeQuery conn
         "INSERT INTO quality_profiles (name, cutoff_quality, quality_preferences, upgrade_automatically) \
@@ -554,21 +466,19 @@ createDefaultQualityProfiles conn = do
         , True :: Bool
         )
 
-    _ -> pure ()  -- Profiles already exist, skip
+    _ -> pure ()
 
 -- | Initialize settings table with default values if empty.
 initializeSettings :: SQLite.Connection -> IO ()
 initializeSettings conn = do
-  -- Check if settings row exists
   existingSettings <- queryRows conn
     "SELECT COUNT(*) FROM settings WHERE id = 1"
     () :: IO [Only Int]
 
   case viaNonEmpty head existingSettings of
     Just (Only count) | count == 0 -> do
-      -- No settings row exists, create it
       -- Default to "Lossless Preferred" profile (ID 2)
       executeQuery conn
         "INSERT INTO settings (id, default_quality_profile_id) VALUES (1, 2)"
         ()
-    _ -> pure ()  -- Settings already exist, skip
+    _ -> pure ()

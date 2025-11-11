@@ -13,7 +13,6 @@ module Skema.Config.Discovery
 
 import Skema.Config.Types
 import Skema.Config.Loader
-import Skema.Config.Defaults (defaultConfig)
 import Skema.Auth.JWT (generateJWTSecretString)
 import Data.Yaml (encodeFile)
 import System.Directory (doesFileExist, createDirectoryIfMissing, getXdgDirectory, XdgDirectory(..))
