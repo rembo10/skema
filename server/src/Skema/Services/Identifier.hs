@@ -14,7 +14,7 @@ import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
 import Skema.Database.Repository (getAllClusters, getClusterWithTracks, updateClusterWithMBData, updateClusterLastIdentified, updateTrackCluster, getTrackedArtistByMBID, getCatalogAlbumByReleaseGroupMBID)
-import Skema.Database.Types (ClusterRecord(..), LibraryTrackMetadataRecord(..), CatalogAlbumRecord(..))
+import Skema.Database.Types (ClusterRecord(..), LibraryTrackMetadataRecord(..))
 import qualified Skema.Database.Types as DBTypes
 import Skema.MusicBrainz.Identify (identifyFileGroup)
 import Skema.Domain.Identification (IdentifyConfig(..), shouldRetryIdentification)
@@ -169,10 +169,10 @@ handleClustersGenerated IdentifierDeps{..} groupsNeedingId = do
                             case maybeCatalogAlbum of
                               Just catalogAlbum -> do
                                 -- Only update if not already linked
-                                now <- getCurrentTime
+                                updateTime <- getCurrentTime
                                 executeQuery conn
                                   "UPDATE catalog_albums SET matched_cluster_id = ?, updated_at = ? WHERE id = ? AND matched_cluster_id IS NULL"
-                                  (cid, now, DBTypes.catalogAlbumId catalogAlbum)
+                                  (cid, updateTime, DBTypes.catalogAlbumId catalogAlbum)
                               Nothing -> pure ()  -- No catalog album exists for this release group
                           Nothing -> pure ()  -- No release group ID in the match
 
