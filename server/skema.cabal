@@ -75,7 +75,6 @@ library
     Skema.API.Types.Auth
     Skema.API.Types.Library
     Skema.API.Types.Config
-    Skema.API.Types.Tasks
     Skema.API.Types.Events
     Skema.API.Types.Diffs
     Skema.API.Types.Clusters
@@ -84,7 +83,6 @@ library
     Skema.API.Types.Downloads
     Skema.API.Types.Filesystem
     Skema.API.Types.QualityProfiles
-    Skema.API.Utils
     Skema.API.Server
     Skema.API.Handlers.Auth
     Skema.API.Handlers.Library
@@ -135,7 +133,6 @@ library
     Skema.DownloadClient.SABnzbd
     Skema.DownloadClient.Transmission
     Skema.DownloadClient.QBittorrent
-    Skema.Tasks.Types
     Skema.Events.Types
     Skema.Events.Utils
     Skema.Events.Bus

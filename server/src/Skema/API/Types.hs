@@ -9,7 +9,6 @@
 -- * "Skema.API.Types.Auth" - Authentication endpoints
 -- * "Skema.API.Types.Library" - Library management endpoints
 -- * "Skema.API.Types.Config" - Configuration endpoints
--- * "Skema.API.Types.Tasks" - Task management endpoints
 -- * "Skema.API.Types.Events" - Server-Sent Events endpoints
 -- * "Skema.API.Types.Diffs" - Metadata diffs endpoints
 -- * "Skema.API.Types.Clusters" - Album cluster endpoints
