@@ -1,7 +1,0 @@
-packages: .
-
--- Pull monatone from GitHub
-source-repository-package
-  type: git
-  location: https://github.com/rembo10/monatone
-  tag: 3dc36fece1c7de24b6fb130d6ae879ce232f037d

@@ -4,13 +4,9 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    monatone = {
-      url = "github:rembo10/monatone";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, monatone }:
+  outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
@@ -45,13 +41,15 @@
         # Use GHC 9.10 to match monatone
         haskellPackages = pkgs.haskell.packages.ghc910.override {
           overrides = hself: hsuper: {
-            # Use monatone from the flake input, skip tests
-            monatone = pkgs.haskell.lib.dontCheck monatone.packages.${system}.default;
+            # Pull monatone from Hackage since it may not be in nixpkgs yet
+            monatone = hself.callHackageDirect {
+              pkg = "monatone";
+              ver = "0.1.0.0";
+              sha256 = "sha256-uJVN+if2mw3R84+srf8b+M5MP55j9ddA3HZqE1K8Ass=";
+            } { };
 
             # Override skema to include all its dependencies
-            skema = hself.callCabal2nix "skema" ./server {
-              monatone = hself.monatone;
-            };
+            skema = hself.callCabal2nix "skema" ./server { };
           };
         };
 
