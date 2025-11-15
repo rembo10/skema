@@ -34,6 +34,8 @@ module Skema.Services.Dependencies
   , SourceEvaluatorDeps(..)
     -- * MetadataWriter Dependencies
   , MetadataWriterDeps(..)
+    -- * Notification Dependencies
+  , NotificationDeps(..)
   ) where
 
 import Skema.Events.Bus (EventBus)
@@ -41,6 +43,7 @@ import Skema.Database.Connection (ConnectionPool)
 import Skema.Config.Types (Config)
 import Skema.MusicBrainz.Client (MBClientEnv)
 import Skema.HTTP.Client (HttpClient)
+import Network.HTTP.Client (Manager)
 import Katip (LogEnv)
 
 -- | Dependencies for the Scanner service.
@@ -173,4 +176,13 @@ data MetadataWriterDeps = MetadataWriterDeps
   { writerEventBus :: EventBus
   , writerLogEnv :: LogEnv
   , writerDbPool :: ConnectionPool
+  }
+
+-- | Dependencies for the Notification service.
+-- Sends notifications through configured providers (Pushover, etc.).
+data NotificationDeps = NotificationDeps
+  { notifEventBus :: EventBus
+  , notifConfigVar :: TVar Config
+  , notifHttpManager :: Manager
+  , notifLogEnv :: LogEnv
   }

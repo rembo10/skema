@@ -20,6 +20,9 @@ module Skema.Config.Types
   , MusicBrainzConfig (..)
   , MusicBrainzServer (..)
   , MediaConfig (..)
+  , NotificationConfig (..)
+  , NotificationProvider (..)
+  , PushoverConfig (..)
     -- * Defaults
   , defaultConfig
   , defaultLibraryConfig
@@ -29,6 +32,7 @@ module Skema.Config.Types
   , defaultIndexerConfig
   , defaultMusicBrainzConfig
   , defaultMediaConfig
+  , defaultNotificationConfig
     -- * Helpers
   , getMusicBrainzServerUrl
   , hashPassword
@@ -37,7 +41,7 @@ module Skema.Config.Types
   , downloadClientTypeName
   ) where
 
-import Data.Aeson (FromJSON (..), ToJSON (..), withObject, (.:), (.:?), (.!=), object, (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), withObject, (.:), (.:?), (.!=), object, (.=), Object, Value(..))
 import System.OsPath (OsPath)
 import qualified System.OsPath as OP
 import System.IO.Unsafe (unsafePerformIO)
@@ -54,6 +58,7 @@ data Config = Config
   , indexers :: IndexerConfig
   , musicbrainz :: MusicBrainzConfig
   , media :: MediaConfig
+  , notifications :: NotificationConfig
   } deriving (Show, Eq, Generic)
 
 instance FromJSON Config where
@@ -65,7 +70,8 @@ instance FromJSON Config where
     idx <- o .:? "indexers" .!= defaultIndexerConfig
     mb <- o .:? "musicbrainz" .!= defaultMusicBrainzConfig
     med <- o .:? "media" .!= defaultMediaConfig
-    pure $ Config lib sys srv dl idx mb med
+    notif <- o .:? "notifications" .!= defaultNotificationConfig
+    pure $ Config lib sys srv dl idx mb med notif
 
 instance ToJSON Config
 
@@ -512,6 +518,81 @@ instance ToJSON MediaConfig where
     [ "lastfm_api_key" .= lastFmKey
     ]
 
+-- | Pushover notification provider configuration.
+data PushoverConfig = PushoverConfig
+  { pushoverUserKey :: Text
+    -- ^ Pushover user/group key
+  , pushoverDevice :: Maybe Text
+    -- ^ Optional device name to send to (Nothing = all devices)
+  , pushoverPriority :: Int
+    -- ^ Priority: -2 (lowest) to 2 (emergency), default 0
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON PushoverConfig where
+  parseJSON = withObject "PushoverConfig" $ \o -> do
+    userKey <- o .: "user_key"
+    device <- o .:? "device"
+    priority <- o .:? "priority" .!= 0
+    pure $ PushoverConfig userKey device priority
+
+instance ToJSON PushoverConfig where
+  toJSON (PushoverConfig userKey device priority) = object
+    [ "user_key" .= userKey
+    , "device" .= device
+    , "priority" .= priority
+    ]
+
+-- | Notification provider configuration.
+data NotificationProvider
+  = PushoverProvider PushoverConfig
+  deriving (Show, Eq, Generic)
+
+instance FromJSON NotificationProvider where
+  parseJSON = withObject "NotificationProvider" $ \o -> do
+    providerType <- o .: "type"
+    case providerType of
+      "pushover" -> do
+        config <- parseJSON (Object o)
+        pure $ PushoverProvider config
+      _ -> fail $ "Unknown notification provider: " <> providerType
+
+instance ToJSON NotificationProvider where
+  toJSON (PushoverProvider config) =
+    let Object obj = toJSON config
+    in Object (obj <> "type" .= ("pushover" :: Text))
+
+-- | Notification configuration.
+data NotificationConfig = NotificationConfig
+  { notificationEnabled :: Bool
+    -- ^ Enable/disable all notifications
+  , notificationProviders :: [NotificationProvider]
+    -- ^ List of notification providers
+  , notificationOnAlbumFound :: Bool
+    -- ^ Send notification when new wanted albums are found
+  , notificationOnAlbumDownloaded :: Bool
+    -- ^ Send notification when albums are downloaded
+  , notificationOnAlbumImported :: Bool
+    -- ^ Send notification when albums are imported to library
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON NotificationConfig where
+  parseJSON = withObject "NotificationConfig" $ \o -> do
+    enabled <- o .:? "enabled" .!= False
+    providers <- o .:? "providers" .!= []
+    onAlbumFound <- o .:? "on_album_found" .!= True
+    onAlbumDownloaded <- o .:? "on_album_downloaded" .!= True
+    onAlbumImported <- o .:? "on_album_imported" .!= True
+    pure $ NotificationConfig enabled providers onAlbumFound onAlbumDownloaded onAlbumImported
+
+instance ToJSON NotificationConfig where
+  toJSON (NotificationConfig enabled providers onAlbumFound onAlbumDownloaded onAlbumImported) = object
+    [ "enabled" .= enabled
+    , "providers" .= providers
+    , "on_album_found" .= onAlbumFound
+    , "on_album_downloaded" .= onAlbumDownloaded
+    , "on_album_imported" .= onAlbumImported
+    ]
+
 -- ============================================================================
 -- Default Configurations
 -- ============================================================================
@@ -601,6 +682,19 @@ defaultMediaConfig = MediaConfig
   { mediaLastFmApiKey = Nothing
   }
 
+-- | Default notification configuration.
+--
+-- Notifications are disabled by default.
+-- Users need to configure at least one provider to enable notifications.
+defaultNotificationConfig :: NotificationConfig
+defaultNotificationConfig = NotificationConfig
+  { notificationEnabled = False
+  , notificationProviders = []
+  , notificationOnAlbumFound = True
+  , notificationOnAlbumDownloaded = True
+  , notificationOnAlbumImported = True
+  }
+
 -- | Default configuration with all defaults.
 defaultConfig :: Config
 defaultConfig = Config
@@ -611,4 +705,5 @@ defaultConfig = Config
   , indexers = defaultIndexerConfig
   , musicbrainz = defaultMusicBrainzConfig
   , media = defaultMediaConfig
+  , notifications = defaultNotificationConfig
   }

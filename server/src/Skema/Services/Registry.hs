@@ -9,7 +9,7 @@ module Skema.Services.Registry
   ) where
 
 import Skema.Services.Types
-import Skema.Services.Dependencies (ScannerDeps(..), GrouperDeps(..), IdentifierDeps(..), DiffGeneratorDeps(..), PersisterDeps(..), DownloadDeps(..), ThumbnailerDeps(..), ImageDeps(..), ImporterDeps(..), CatalogDeps(..), AcquisitionDeps(..), StatsDeps(..), SourceEvaluatorDeps(..), MetadataWriterDeps(..))
+import Skema.Services.Dependencies (ScannerDeps(..), GrouperDeps(..), IdentifierDeps(..), DiffGeneratorDeps(..), PersisterDeps(..), DownloadDeps(..), ThumbnailerDeps(..), ImageDeps(..), ImporterDeps(..), CatalogDeps(..), AcquisitionDeps(..), StatsDeps(..), SourceEvaluatorDeps(..), MetadataWriterDeps(..), NotificationDeps(..))
 import Skema.Services.AsyncRegistry (AsyncRegistry, newAsyncRegistry, registerAsync)
 import Skema.Services.Scanner (startScannerService)
 import Skema.Services.Grouper (startGrouperService)
@@ -25,6 +25,7 @@ import Skema.Services.Importer (startImporterService)
 import Skema.Services.Stats (startStatsService)
 import Skema.Services.SourceEvaluator (startSourceEvaluatorService)
 import Skema.Services.MetadataWriter (startMetadataWriterService)
+import Skema.Services.Notifications (startNotificationService)
 import Skema.Events.Bus (EventBus, subscribe, publishAndLog)
 import Skema.Events.Types (Event(..), EventEnvelope(..))
 import Skema.Database.Connection (ConnectionPool)
@@ -38,7 +39,8 @@ import Skema.Config.Types
   )
 import Skema.Config.Loader (loadConfigFromFile)
 import Skema.MusicBrainz.Client (newMBClientEnv, MBClientEnv)
-import Skema.HTTP.Client (HttpClient, newHttpClient, defaultHttpConfig, defaultUserAgentData, headphonesVIPDomainConfig, HttpConfig(..), DomainConfig(..), HttpAuth(..), defaultDomainConfig)
+import Skema.HTTP.Client (HttpClient, newHttpClient, getManager, defaultHttpConfig, defaultUserAgentData, headphonesVIPDomainConfig, HttpConfig(..), DomainConfig(..), HttpAuth(..), defaultDomainConfig)
+import Network.HTTP.Client (Manager)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified System.OsPath as OP
@@ -54,6 +56,8 @@ data ServiceRegistry = ServiceRegistry
     -- ^ Shared MusicBrainz client (ensures rate limiting)
   , srHttpClient :: HttpClient
     -- ^ Shared HTTP client for all services
+  , srHttpManager :: Manager
+    -- ^ Raw HTTP manager (for notification providers)
   , srConfigVar :: TVar Config
     -- ^ Shared config TVar (for live updates)
   , srDownloadProgressMap :: TVar (Map.Map Int64 (Double, T.Text))
@@ -333,11 +337,23 @@ startAllServices le bus pool config cacheDir configPath = do
     sourceEvaluatorHandle <- liftIO $ startSourceEvaluatorService sourceEvaluatorDeps
     liftIO $ registerAsync asyncRegistry "SourceEvaluator" sourceEvaluatorHandle
 
+    -- Start Notification service (sends notifications via Pushover, etc.)
+    $(logTM) InfoS $ logStr ("Starting Notification service..." :: Text)
+    let notificationDeps = NotificationDeps
+          { notifEventBus = scEventBus ctx
+          , notifConfigVar = scConfigVar ctx
+          , notifHttpManager = getManager (scHttpClient ctx)
+          , notifLogEnv = scLogEnv ctx
+          }
+    notificationHandle <- liftIO $ startNotificationService notificationDeps
+    liftIO $ registerAsync asyncRegistry "Notification" notificationHandle
+
     $(logTM) InfoS $ logStr ("All services started successfully" :: Text)
 
     let serviceRegistry = ServiceRegistry
           { srMBClientEnv = mbEnv
           , srHttpClient = httpClient
+          , srHttpManager = getManager httpClient
           , srConfigVar = configVar
           , srDownloadProgressMap = downloadProgressMap
           }

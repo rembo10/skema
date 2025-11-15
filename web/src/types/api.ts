@@ -154,6 +154,15 @@ export interface Indexer {
 
 export type MusicBrainzServer = 'official' | 'headphones_vip';
 
+export interface PushoverProvider {
+  type: 'pushover';
+  user_key: string;
+  device: string | null;
+  priority: number;
+}
+
+export type NotificationProvider = PushoverProvider;
+
 export interface Config {
   // Library settings
   library_path: string | null;
@@ -190,6 +199,11 @@ export interface Config {
   musicbrainz_server: MusicBrainzServer;
   musicbrainz_username: string | null;
   musicbrainz_password: string | null;
+  // Notification settings
+  notification_enabled: boolean;
+  notification_providers: NotificationProvider[];
+  notification_on_album_found: boolean;
+  notification_on_album_imported: boolean;
 }
 
 // Catalog types

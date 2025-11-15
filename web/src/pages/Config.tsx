@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { Save, Library, Settings, Server, Download, Search, Database, Plus, Edit2, Trash2, X, HelpCircle } from 'lucide-react';
+import { Save, Library, Settings, Server, Download, Search, Database, Plus, Edit2, Trash2, X, HelpCircle, Bell } from 'lucide-react';
 import { api } from '../lib/api';
 import { useSSE } from '../hooks/useSSE';
 import { PathInput } from '../components/PathInput';
-import type { Config, DownloadClient, Indexer, DownloadClientType } from '../types/api';
+import type { Config, DownloadClient, Indexer, DownloadClientType, NotificationProvider } from '../types/api';
 
-type TabId = 'library' | 'system' | 'server' | 'download' | 'indexers' | 'musicbrainz';
+type TabId = 'library' | 'system' | 'server' | 'download' | 'indexers' | 'musicbrainz' | 'notifications';
 
 interface Tab {
   id: TabId;
@@ -21,6 +21,7 @@ const tabs: Tab[] = [
   { id: 'download', label: 'Downloads', icon: Download },
   { id: 'indexers', label: 'Indexers', icon: Search },
   { id: 'musicbrainz', label: 'MusicBrainz', icon: Database },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
 ];
 
 export default function Config() {
@@ -42,6 +43,10 @@ export default function Config() {
   // Indexer editing
   const [editingIndexer, setEditingIndexer] = useState<{ index: number; indexer: Indexer } | null>(null);
   const [showIndexerForm, setShowIndexerForm] = useState(false);
+
+  // Notification provider editing
+  const [editingProvider, setEditingProvider] = useState<{ index: number; provider: NotificationProvider } | null>(null);
+  const [showProviderForm, setShowProviderForm] = useState(false);
 
   // Autosave with debounce
   const autosaveTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -286,6 +291,55 @@ export default function Config() {
     setEditingIndexer({
       ...editingIndexer,
       indexer: { ...editingIndexer.indexer, [field]: value },
+    });
+  }
+
+  // Notification provider management
+  function addNotificationProvider() {
+    const newProvider: NotificationProvider = {
+      type: 'pushover',
+      user_key: '',
+      device: null,
+      priority: 0,
+    };
+    setEditingProvider({ index: -1, provider: newProvider });
+    setShowProviderForm(true);
+  }
+
+  function editNotificationProvider(index: number) {
+    const providers = formData.notification_providers || [];
+    setEditingProvider({ index, provider: { ...providers[index] } });
+    setShowProviderForm(true);
+  }
+
+  function saveNotificationProvider() {
+    if (!editingProvider) return;
+
+    const providers = [...(formData.notification_providers || [])];
+    if (editingProvider.index === -1) {
+      // Adding new provider
+      providers.push(editingProvider.provider);
+    } else {
+      // Updating existing provider
+      providers[editingProvider.index] = editingProvider.provider;
+    }
+
+    handleChange('notification_providers', providers);
+    setShowProviderForm(false);
+    setEditingProvider(null);
+  }
+
+  function deleteNotificationProvider(index: number) {
+    const providers = [...(formData.notification_providers || [])];
+    providers.splice(index, 1);
+    handleChange('notification_providers', providers);
+  }
+
+  function updateEditingProvider(field: keyof NotificationProvider, value: any) {
+    if (!editingProvider) return;
+    setEditingProvider({
+      ...editingProvider,
+      provider: { ...editingProvider.provider, [field]: value },
     });
   }
 
@@ -1194,6 +1248,162 @@ export default function Config() {
               </div>
             )}
 
+            {/* Notification Settings */}
+            {activeTab === 'notifications' && (
+              <div className="space-y-6">
+                {/* General Notification Settings */}
+                <div className="card">
+                  <div className="px-6 py-5 border-b border-dark-border">
+                    <h2 className="text-lg font-medium text-dark-text">Notification Settings</h2>
+                    <p className="mt-1 text-sm text-dark-text-secondary">
+                      Get notified about important events
+                    </p>
+                  </div>
+                  <div className="px-6 py-5 space-y-6">
+                    {/* Enable Notifications */}
+                    <div className="flex items-start gap-3">
+                      <input
+                        id="notification_enabled"
+                        type="checkbox"
+                        checked={formData.notification_enabled ?? false}
+                        onChange={(e) => handleChange('notification_enabled', e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
+                      />
+                      <div>
+                        <label htmlFor="notification_enabled" className="text-sm font-medium text-dark-text">
+                          Enable Notifications
+                        </label>
+                        <p className="text-sm text-dark-text-secondary mt-0.5">
+                          Send notifications through configured providers
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Notification Events */}
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-medium text-dark-text">Notify When:</h3>
+
+                      <div className="flex items-start gap-3">
+                        <input
+                          id="notification_on_album_found"
+                          type="checkbox"
+                          checked={formData.notification_on_album_found ?? true}
+                          onChange={(e) => handleChange('notification_on_album_found', e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
+                        />
+                        <div>
+                          <label htmlFor="notification_on_album_found" className="text-sm font-medium text-dark-text">
+                            New Albums Found
+                          </label>
+                          <p className="text-sm text-dark-text-secondary mt-0.5">
+                            When new wanted albums are discovered
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3">
+                        <input
+                          id="notification_on_album_imported"
+                          type="checkbox"
+                          checked={formData.notification_on_album_imported ?? true}
+                          onChange={(e) => handleChange('notification_on_album_imported', e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
+                        />
+                        <div>
+                          <label htmlFor="notification_on_album_imported" className="text-sm font-medium text-dark-text">
+                            Albums Imported
+                          </label>
+                          <p className="text-sm text-dark-text-secondary mt-0.5">
+                            When albums are imported to your library
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Notification Providers */}
+                <div className="card">
+                  <div className="px-6 py-5 border-b border-dark-border flex items-center justify-between">
+                    <div>
+                      <h2 className="text-lg font-medium text-dark-text">Notification Providers</h2>
+                      <p className="mt-1 text-sm text-dark-text-secondary">
+                        Configure services to send notifications to
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addNotificationProvider}
+                      className="btn-primary text-sm"
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      Add Provider
+                    </button>
+                  </div>
+                  <div className="px-6 py-5">
+                    {formData.notification_providers && formData.notification_providers.length > 0 ? (
+                      <div className="space-y-3">
+                        {formData.notification_providers.map((provider, idx) => (
+                          <div key={idx} className="border border-dark-border rounded-lg p-4 hover:border-dark-border-bright transition-colors">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-3 mb-2">
+                                  <h3 className="text-sm font-medium text-dark-text">Pushover</h3>
+                                  <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border bg-dark-accent/10 text-dark-accent border-dark-accent/30">
+                                    {provider.type}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-dark-text-secondary space-y-1">
+                                  <p>User Key: {provider.user_key.substring(0, 8)}...</p>
+                                  <p>Priority: {provider.priority}</p>
+                                  {provider.device && <p>Device: {provider.device}</p>}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 ml-4">
+                                <button
+                                  type="button"
+                                  onClick={() => editNotificationProvider(idx)}
+                                  className="p-2 text-dark-text-tertiary hover:text-dark-accent transition-colors"
+                                  title="Edit provider"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm('Delete this notification provider?')) {
+                                      deleteNotificationProvider(idx);
+                                    }
+                                  }}
+                                  className="p-2 text-dark-text-tertiary hover:text-dark-error transition-colors"
+                                  title="Delete provider"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8">
+                        <Bell className="mx-auto h-12 w-12 text-dark-text-tertiary" />
+                        <p className="mt-2 text-sm text-dark-text-secondary">No notification providers configured</p>
+                        <button
+                          type="button"
+                          onClick={addNotificationProvider}
+                          className="btn-secondary mt-4"
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Your First Provider
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
         {/* Form actions */}
         <div className="flex justify-end pt-4">
           <button
@@ -1513,6 +1723,106 @@ export default function Config() {
                 type="button"
                 onClick={saveIndexer}
                 className="btn-primary"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notification Provider Edit Modal */}
+      {showProviderForm && editingProvider && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-dark-bg-elevated rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-dark-border">
+            <div className="px-6 py-4 border-b border-dark-border flex items-center justify-between">
+              <h3 className="text-lg font-medium text-dark-text">
+                {editingProvider.index === -1 ? 'Add Notification Provider' : 'Edit Notification Provider'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowProviderForm(false);
+                  setEditingProvider(null);
+                }}
+                className="text-dark-text-tertiary hover:text-dark-text-secondary"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              {/* Provider Type */}
+              <div>
+                <label className="block text-sm font-medium text-dark-text mb-2">Provider Type</label>
+                <select
+                  value="pushover"
+                  disabled
+                  className="input w-full opacity-50 cursor-not-allowed"
+                >
+                  <option value="pushover">Pushover</option>
+                </select>
+                <p className="mt-1 text-sm text-dark-text-secondary">Currently only Pushover is supported</p>
+              </div>
+
+              {/* User Key */}
+              <div>
+                <label className="block text-sm font-medium text-dark-text mb-2">User Key *</label>
+                <input
+                  type="text"
+                  value={editingProvider.provider.user_key}
+                  onChange={(e) => updateEditingProvider('user_key', e.target.value)}
+                  className="input w-full"
+                  placeholder="Enter your Pushover user key"
+                />
+                <p className="mt-1 text-sm text-dark-text-secondary">Your Pushover user or group key (get it from pushover.net)</p>
+              </div>
+
+              {/* Device */}
+              <div>
+                <label className="block text-sm font-medium text-dark-text mb-2">Device Name (Optional)</label>
+                <input
+                  type="text"
+                  value={editingProvider.provider.device || ''}
+                  onChange={(e) => updateEditingProvider('device', e.target.value || null)}
+                  className="input w-full"
+                  placeholder="Leave empty for all devices"
+                />
+                <p className="mt-1 text-sm text-dark-text-secondary">Send to a specific device or leave empty for all devices</p>
+              </div>
+
+              {/* Priority */}
+              <div>
+                <label className="block text-sm font-medium text-dark-text mb-2">Priority</label>
+                <select
+                  value={editingProvider.provider.priority}
+                  onChange={(e) => updateEditingProvider('priority', parseInt(e.target.value))}
+                  className="input w-full"
+                >
+                  <option value="-2">Lowest (-2)</option>
+                  <option value="-1">Low (-1)</option>
+                  <option value="0">Normal (0)</option>
+                  <option value="1">High (1)</option>
+                  <option value="2">Emergency (2)</option>
+                </select>
+                <p className="mt-1 text-sm text-dark-text-secondary">Notification priority level</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-dark-bg-subtle border-t border-dark-border flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowProviderForm(false);
+                  setEditingProvider(null);
+                }}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveNotificationProvider}
+                className="btn-primary"
+                disabled={!editingProvider.provider.user_key}
               >
                 Save
               </button>

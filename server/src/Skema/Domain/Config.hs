@@ -10,7 +10,7 @@ module Skema.Domain.Config
   ) where
 
 import Skema.API.Types.Config (ConfigUpdate(..))
-import Skema.Domain.Converters (downloadClientFromAPI, indexerFromAPI, textToMusicBrainzServer)
+import Skema.Domain.Converters (downloadClientFromAPI, indexerFromAPI, textToMusicBrainzServer, notificationProviderFromAPI)
 import qualified Skema.Config.Validation as CfgVal
 import qualified Skema.Config.Types as Cfg
 import qualified System.OsPath as OP
@@ -32,6 +32,7 @@ applyConfigUpdate cfg update maybeHashedPassword = do
   let dlCfg = Cfg.download cfg
   let idxCfg = Cfg.indexers cfg
   let mbCfg = Cfg.musicbrainz cfg
+  let notifCfg = Cfg.notifications cfg
 
   -- Apply library config updates
   updatedLibPath <- case updateLibraryPath update of
@@ -119,6 +120,16 @@ applyConfigUpdate cfg update maybeHashedPassword = do
             Just val -> val
         }
 
+  -- Apply notification config updates
+  let updatedNotifCfg = notifCfg
+        { Cfg.notificationEnabled = fromMaybe (Cfg.notificationEnabled notifCfg) (updateNotificationEnabled update)
+        , Cfg.notificationProviders = case updateNotificationProviders update of
+            Nothing -> Cfg.notificationProviders notifCfg
+            Just apiProviders -> map notificationProviderFromAPI apiProviders
+        , Cfg.notificationOnAlbumFound = fromMaybe (Cfg.notificationOnAlbumFound notifCfg) (updateNotificationOnAlbumFound update)
+        , Cfg.notificationOnAlbumImported = fromMaybe (Cfg.notificationOnAlbumImported notifCfg) (updateNotificationOnAlbumImported update)
+        }
+
   let updatedCfg = cfg
         { Cfg.library = updatedLibCfg
         , Cfg.system = updatedSysCfg
@@ -126,6 +137,7 @@ applyConfigUpdate cfg update maybeHashedPassword = do
         , Cfg.download = updatedDlCfg
         , Cfg.indexers = updatedIdxCfg
         , Cfg.musicbrainz = updatedMbCfg
+        , Cfg.notifications = updatedNotifCfg
         }
 
   -- Validate the updated config

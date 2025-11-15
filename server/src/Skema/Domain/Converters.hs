@@ -14,6 +14,8 @@ module Skema.Domain.Converters
   , indexerFromAPI
   , musicBrainzServerToText
   , textToMusicBrainzServer
+  , notificationProviderToAPI
+  , notificationProviderFromAPI
   , configToResponse
     -- * Cluster conversions
   , clusterToResponse
@@ -24,7 +26,7 @@ module Skema.Domain.Converters
   , downloadRecordToResponse
   ) where
 
-import Skema.API.Types.Config (DownloadClientType(..), DownloadClientResponse(..), IndexerResponse(..), ConfigResponse(..))
+import Skema.API.Types.Config (DownloadClientType(..), DownloadClientResponse(..), IndexerResponse(..), ConfigResponse(..), NotificationProviderResponse(..), PushoverProviderResponse(..))
 import Skema.API.Types.Clusters (ClusterResponse(..))
 import Skema.API.Types.Catalog (CatalogArtistResponse(..), CatalogAlbumResponse(..))
 import Skema.API.Types.Downloads (DownloadResponse(..))
@@ -118,6 +120,22 @@ textToMusicBrainzServer "official" = Just Cfg.OfficialMusicBrainz
 textToMusicBrainzServer "headphones_vip" = Just Cfg.HeadphonesVIP
 textToMusicBrainzServer _ = Nothing
 
+-- | Convert notification provider from Config to API.
+notificationProviderToAPI :: Cfg.NotificationProvider -> NotificationProviderResponse
+notificationProviderToAPI (Cfg.PushoverProvider cfg) = NPushover $ PushoverProviderResponse
+  { pushoverResponseUserKey = Cfg.pushoverUserKey cfg
+  , pushoverResponseDevice = Cfg.pushoverDevice cfg
+  , pushoverResponsePriority = Cfg.pushoverPriority cfg
+  }
+
+-- | Convert notification provider from API to Config.
+notificationProviderFromAPI :: NotificationProviderResponse -> Cfg.NotificationProvider
+notificationProviderFromAPI (NPushover cfg) = Cfg.PushoverProvider $ Cfg.PushoverConfig
+  { Cfg.pushoverUserKey = pushoverResponseUserKey cfg
+  , Cfg.pushoverDevice = pushoverResponseDevice cfg
+  , Cfg.pushoverPriority = pushoverResponsePriority cfg
+  }
+
 -- | Convert Config to ConfigResponse for API (requires IO for path conversion).
 --
 -- Note: This function requires IO for OsPath decoding and checking env var overrides.
@@ -130,6 +148,7 @@ configToResponse cfg = do
   let dlCfg = Cfg.download cfg
   let idxCfg = Cfg.indexers cfg
   let mbCfg = Cfg.musicbrainz cfg
+  let notifCfg = Cfg.notifications cfg
 
   -- Convert library path from OsPath to Text
   libPath <- case Cfg.libraryPath libCfg of
@@ -177,6 +196,10 @@ configToResponse cfg = do
     , configMusicBrainzServer = musicBrainzServerToText (Cfg.mbServer mbCfg)
     , configMusicBrainzUsername = Cfg.mbUsername mbCfg
     , configMusicBrainzPassword = Cfg.mbPassword mbCfg
+    , configNotificationEnabled = Cfg.notificationEnabled notifCfg
+    , configNotificationProviders = map notificationProviderToAPI (Cfg.notificationProviders notifCfg)
+    , configNotificationOnAlbumFound = Cfg.notificationOnAlbumFound notifCfg
+    , configNotificationOnAlbumImported = Cfg.notificationOnAlbumImported notifCfg
     }
 
 -- * Cluster Conversions

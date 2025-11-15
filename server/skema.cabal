@@ -136,6 +136,8 @@ library
     Skema.Events.Types
     Skema.Events.Utils
     Skema.Events.Bus
+    Skema.Notifications.Types
+    Skema.Notifications.Pushover
     Skema.Services.Types
     Skema.Services.Dependencies
     Skema.Services.Common
@@ -157,6 +159,7 @@ library
     Skema.Services.Registry
     Skema.Services.Download
     Skema.Services.Importer
+    Skema.Services.Notifications
     Skema.Scraper.Metacritic
     Skema.Scraper.Pitchfork
 

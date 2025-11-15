@@ -11,9 +11,12 @@ module Skema.API.Types.Config
   , DownloadClientType(..)
   , DownloadClientResponse(..)
   , IndexerResponse(..)
+  , NotificationProviderResponse(..)
+  , PushoverProviderResponse(..)
   ) where
 
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2, withText)
+import qualified Data.Aeson
 import GHC.Generics ()
 import Servant
 
@@ -83,6 +86,43 @@ instance ToJSON IndexerResponse where
 instance FromJSON IndexerResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
 
+-- | Pushover notification provider for API responses.
+data PushoverProviderResponse = PushoverProviderResponse
+  { pushoverResponseUserKey :: Text
+  , pushoverResponseDevice :: Maybe Text
+  , pushoverResponsePriority :: Int
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON PushoverProviderResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
+
+instance FromJSON PushoverProviderResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
+
+-- | Notification provider for API responses.
+data NotificationProviderResponse
+  = NPushover PushoverProviderResponse
+  deriving (Show, Eq, Generic)
+
+instance ToJSON NotificationProviderResponse where
+  toJSON (NPushover config) = Data.Aeson.object
+    [ "type" Data.Aeson..= ("pushover" :: Text)
+    , "user_key" Data.Aeson..= pushoverResponseUserKey config
+    , "device" Data.Aeson..= pushoverResponseDevice config
+    , "priority" Data.Aeson..= pushoverResponsePriority config
+    ]
+
+instance FromJSON NotificationProviderResponse where
+  parseJSON = Data.Aeson.withObject "NotificationProviderResponse" $ \o -> do
+    providerType <- o Data.Aeson..: "type"
+    case providerType :: Text of
+      "pushover" -> do
+        userKey <- o Data.Aeson..: "user_key"
+        device <- o Data.Aeson..:? "device"
+        priority <- o Data.Aeson..:? "priority" Data.Aeson..!= 0
+        pure $ NPushover $ PushoverProviderResponse userKey device priority
+      _ -> fail $ "Unknown notification provider type: " <> toString providerType
+
 -- | Config response.
 data ConfigResponse = ConfigResponse
   { -- Library settings
@@ -120,6 +160,11 @@ data ConfigResponse = ConfigResponse
   , configMusicBrainzServer :: Text
   , configMusicBrainzUsername :: Maybe Text
   , configMusicBrainzPassword :: Maybe Text
+    -- Notification settings
+  , configNotificationEnabled :: Bool
+  , configNotificationProviders :: [NotificationProviderResponse]
+  , configNotificationOnAlbumFound :: Bool
+  , configNotificationOnAlbumImported :: Bool
   } deriving (Show, Eq, Generic)
 
 instance ToJSON ConfigResponse where
@@ -165,6 +210,11 @@ data ConfigUpdate = ConfigUpdate
   , updateMusicBrainzServer :: Maybe Text
   , updateMusicBrainzUsername :: Maybe (Maybe Text)
   , updateMusicBrainzPassword :: Maybe (Maybe Text)
+    -- Notification settings
+  , updateNotificationEnabled :: Maybe Bool
+  , updateNotificationProviders :: Maybe [NotificationProviderResponse]
+  , updateNotificationOnAlbumFound :: Maybe Bool
+  , updateNotificationOnAlbumImported :: Maybe Bool
   } deriving (Show, Eq, Generic)
 
 instance ToJSON ConfigUpdate where
