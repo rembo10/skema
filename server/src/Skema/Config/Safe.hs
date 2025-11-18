@@ -12,7 +12,6 @@ import Skema.Config.Types (Config)
 import Data.Yaml (encodeFile, decodeFileEither, prettyPrintParseException)
 import System.Directory (copyFile, doesFileExist, renameFile, removeFile)
 import System.FilePath ((<.>))
-import System.IO (hPutStrLn, stderr)
 import Control.Exception (catch, SomeException, try)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime, defaultTimeLocale)
@@ -48,9 +47,7 @@ createBackup configPath = do
       result <- try $ copyFile configPath backupPath :: IO (Either SomeException ())
       case result of
         Left ex -> pure $ Left $ "Backup failed: " <> show ex
-        Right () -> do
-          hPutStrLn stderr $ "[CONFIG] Created backup: " <> backupPath
-          pure $ Right backupPath
+        Right () -> pure $ Right backupPath
 
 -- | Atomically write config to prevent corruption.
 --
@@ -84,6 +81,5 @@ atomicWriteConfig configPath cfg = do
             Left ex -> do
               catch (removeFile tempPath) (\(_ :: SomeException) -> pure ())
               pure $ Left $ "Failed to rename temp config: " <> show ex
-            Right () -> do
-              hPutStrLn stderr $ "[CONFIG] Config saved successfully: " <> configPath
+            Right () ->
               pure $ Right ()

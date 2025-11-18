@@ -8,7 +8,7 @@ module Skema.Config.Loader
   , loadConfigFromFile
   ) where
 
-import Skema.Config.Types
+import Skema.Config.Types (Config, serverPassword, hashPassword, isHashedPassword)
 import Skema.Config.Validation (validateConfig)
 import Skema.Config.Safe (safeWriteConfig, createBackup)
 import Skema.Config.Migrations (migrateConfig, needsMigration)
@@ -16,7 +16,6 @@ import Data.Yaml (decodeFileEither, prettyPrintParseException)
 import System.OsPath (OsPath)
 import qualified System.OsPath as OP
 import qualified Skema.Config.Types as Cfg
-import System.IO (hPutStrLn)
 
 -- | Load configuration from a file path.
 --
@@ -35,21 +34,11 @@ loadConfig configPath = do
         cfgAfterMigration <- if needsMigration cfg
           then do
             -- Create backup before migration
-            hPutStrLn stderr "[CONFIG] Creating backup before migration..."
-            backupResult <- createBackup pathStr
-            case backupResult of
-              Left err -> do
-                hPutStrLn stderr $ "[CONFIG] Warning: Failed to create backup: " <> toString err
-                -- Continue with migration anyway
-                pure ()
-              Right backupPath ->
-                hPutStrLn stderr $ "[CONFIG] Backup created: " <> backupPath
+            _ <- createBackup pathStr
 
             migrationResult <- migrateConfig cfg
             case migrationResult of
-              Left err -> do
-                hPutStrLn stderr $ "[CONFIG] Migration failed: " <> toString err
-                pure cfg  -- Continue with unmigrated config
+              Left _err -> pure cfg  -- Continue with unmigrated config
               Right migratedCfg -> do
                 -- Save migrated config
                 _ <- safeWriteConfig pathStr migratedCfg
@@ -72,10 +61,7 @@ hashPasswordIfNeeded cfg configPath = do
           -- Hash the plaintext password
           maybeHashed <- hashPassword password
           case maybeHashed of
-            Nothing -> do
-              -- Hashing failed, log a warning but continue with plaintext
-              hPutStrLn stderr "[CONFIG] Warning: Failed to hash password. Using plaintext."
-              pure cfg
+            Nothing -> pure cfg  -- Hashing failed, continue with plaintext
             Just hashed -> do
               -- Update the config with hashed password
               let updatedServerCfg = (Cfg.server cfg) { serverPassword = Just hashed }
@@ -84,12 +70,8 @@ hashPasswordIfNeeded cfg configPath = do
               -- Save the updated config back to the file safely
               writeResult <- safeWriteConfig configPath updatedCfg
               case writeResult of
-                Left err -> do
-                  hPutStrLn stderr $ "[CONFIG] Warning: Failed to save hashed password: " <> toString err
-                  pure cfg  -- Return original config if save fails
-                Right () -> do
-                  hPutStrLn stderr $ "[CONFIG] Password hashed and saved to " <> configPath
-                  pure updatedCfg
+                Left _err -> pure cfg  -- Return original config if save fails
+                Right () -> pure updatedCfg
 
 -- | Load configuration from a String file path.
 --

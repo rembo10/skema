@@ -17,7 +17,6 @@ import Skema.Config.Safe (safeWriteConfig)
 import Skema.Auth.JWT (generateJWTSecretString)
 import System.Directory (doesFileExist, createDirectoryIfMissing, getXdgDirectory, XdgDirectory(..))
 import System.FilePath (takeDirectory)
-import System.IO (hPutStrLn)
 
 -- | Find the config file in standard locations.
 --
@@ -87,8 +86,6 @@ getOrCreateConfig explicitPath maybePort = do
           case writeResult of
             Left err -> pure $ Left $ "Failed to create config: " <> err
             Right () -> do
-              hPutStrLn stderr $ "[CONFIG] Created default config at: " <> configPath
-
               -- Ensure JWT secret exists in the newly created config
               resultWithSecret <- ensureJWTSecret configPath configToWrite
               pure $ fmap (\cfg -> (configPath, cfg)) resultWithSecret
@@ -107,8 +104,6 @@ getOrCreateConfig explicitPath maybePort = do
       case writeResult of
         Left err -> pure $ Left $ "Failed to create config: " <> err
         Right () -> do
-          hPutStrLn stderr $ "[CONFIG] Created default config at: " <> configPath
-
           -- Ensure JWT secret exists in the newly created config
           resultWithSecret <- ensureJWTSecret configPath configToWrite
           pure $ fmap (\cfg -> (configPath, cfg)) resultWithSecret
@@ -158,7 +153,6 @@ ensureJWTSecret configPath config = do
       pure $ Right config
     Nothing -> do
       -- Generate new JWT secret
-      hPutStrLn stderr "[CONFIG] Generating new JWT secret..."
       newSecret <- generateJWTSecretString
 
       -- Update config with new secret
@@ -169,9 +163,7 @@ ensureJWTSecret configPath config = do
       writeResult <- safeWriteConfig configPath updatedConfig
       case writeResult of
         Left err -> pure $ Left $ "Failed to save config with JWT secret: " <> err
-        Right () -> do
-          hPutStrLn stderr "[CONFIG] JWT secret generated and saved to config"
-          pure $ Right updatedConfig
+        Right () -> pure $ Right updatedConfig
 
 -- | Ensure the config directory exists.
 --
