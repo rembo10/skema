@@ -24,6 +24,7 @@ module Skema.Config.Types
   , NotificationProvider (..)
   , PushoverConfig (..)
     -- * Defaults
+  , currentConfigVersion
   , defaultConfig
   , defaultLibraryConfig
   , defaultSystemConfig
@@ -51,7 +52,9 @@ import qualified Skema.Config.PathExpansion as PathExpansion
 
 -- | Top-level configuration.
 data Config = Config
-  { library :: LibraryConfig
+  { configVersion :: Int
+    -- ^ Config file format version for migrations (current: 1)
+  , library :: LibraryConfig
   , system :: SystemConfig
   , server :: ServerConfig
   , download :: DownloadConfig
@@ -61,8 +64,14 @@ data Config = Config
   , notifications :: NotificationConfig
   } deriving (Show, Eq, Generic)
 
+-- | Current config version
+currentConfigVersion :: Int
+currentConfigVersion = 1
+
 instance FromJSON Config where
   parseJSON = withObject "Config" $ \o -> do
+    -- Default to version 1 if not specified (for backwards compatibility)
+    version <- o .:? "version" .!= 1
     lib <- o .:? "library" .!= defaultLibraryConfig
     sys <- o .:? "system" .!= defaultSystemConfig
     srv <- o .:? "server" .!= defaultServerConfig
@@ -71,9 +80,20 @@ instance FromJSON Config where
     mb <- o .:? "musicbrainz" .!= defaultMusicBrainzConfig
     med <- o .:? "media" .!= defaultMediaConfig
     notif <- o .:? "notifications" .!= defaultNotificationConfig
-    pure $ Config lib sys srv dl idx mb med notif
+    pure $ Config version lib sys srv dl idx mb med notif
 
-instance ToJSON Config
+instance ToJSON Config where
+  toJSON (Config version lib sys srv dl idx mb med notif) = object
+    [ "version" .= version
+    , "library" .= lib
+    , "system" .= sys
+    , "server" .= srv
+    , "download" .= dl
+    , "indexers" .= idx
+    , "musicbrainz" .= mb
+    , "media" .= med
+    , "notifications" .= notif
+    ]
 
 -- | Library configuration.
 data LibraryConfig = LibraryConfig
@@ -698,7 +718,8 @@ defaultNotificationConfig = NotificationConfig
 -- | Default configuration with all defaults.
 defaultConfig :: Config
 defaultConfig = Config
-  { library = defaultLibraryConfig
+  { configVersion = currentConfigVersion
+  , library = defaultLibraryConfig
   , system = defaultSystemConfig
   , server = defaultServerConfig
   , download = defaultDownloadConfig

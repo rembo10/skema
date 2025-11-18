@@ -56,6 +56,8 @@ library
     Skema.Config.SchemaClass
     Skema.Config.SchemaInstances
     Skema.Config.Generate
+    Skema.Config.Migrations
+    Skema.Config.Safe
     Skema.Database.Types
     Skema.Database.Utils
     Skema.Database.Connection

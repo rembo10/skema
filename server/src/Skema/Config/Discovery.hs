@@ -13,8 +13,8 @@ module Skema.Config.Discovery
 
 import Skema.Config.Types
 import Skema.Config.Loader
+import Skema.Config.Safe (safeWriteConfig)
 import Skema.Auth.JWT (generateJWTSecretString)
-import Data.Yaml (encodeFile)
 import System.Directory (doesFileExist, createDirectoryIfMissing, getXdgDirectory, XdgDirectory(..))
 import System.FilePath (takeDirectory)
 import System.IO (hPutStrLn)
@@ -83,12 +83,15 @@ getOrCreateConfig explicitPath maybePort = do
 
           -- Write default config with resolved port and directories
           configToWrite <- applyPortToConfig maybePort defaultConfig
-          encodeFile configPath configToWrite
-          hPutStrLn stderr $ "[CONFIG] Created default config at: " <> configPath
+          writeResult <- safeWriteConfig configPath configToWrite
+          case writeResult of
+            Left err -> pure $ Left $ "Failed to create config: " <> err
+            Right () -> do
+              hPutStrLn stderr $ "[CONFIG] Created default config at: " <> configPath
 
-          -- Ensure JWT secret exists in the newly created config
-          resultWithSecret <- ensureJWTSecret configPath configToWrite
-          pure $ fmap (\cfg -> (configPath, cfg)) resultWithSecret
+              -- Ensure JWT secret exists in the newly created config
+              resultWithSecret <- ensureJWTSecret configPath configToWrite
+              pure $ fmap (\cfg -> (configPath, cfg)) resultWithSecret
 
     Nothing -> do
       -- No config found and no explicit path, create default in XDG
@@ -100,12 +103,15 @@ getOrCreateConfig explicitPath maybePort = do
 
       -- Write default config with resolved port and directories
       configToWrite <- applyPortToConfig maybePort defaultConfig
-      encodeFile configPath configToWrite
-      hPutStrLn stderr $ "[CONFIG] Created default config at: " <> configPath
+      writeResult <- safeWriteConfig configPath configToWrite
+      case writeResult of
+        Left err -> pure $ Left $ "Failed to create config: " <> err
+        Right () -> do
+          hPutStrLn stderr $ "[CONFIG] Created default config at: " <> configPath
 
-      -- Ensure JWT secret exists in the newly created config
-      resultWithSecret <- ensureJWTSecret configPath configToWrite
-      pure $ fmap (\cfg -> (configPath, cfg)) resultWithSecret
+          -- Ensure JWT secret exists in the newly created config
+          resultWithSecret <- ensureJWTSecret configPath configToWrite
+          pure $ fmap (\cfg -> (configPath, cfg)) resultWithSecret
 
 -- | Apply port and directory overrides to config if provided.
 --
@@ -160,10 +166,12 @@ ensureJWTSecret configPath config = do
       let updatedConfig = config { server = updatedServerConfig }
 
       -- Save updated config to file
-      encodeFile configPath updatedConfig
-      hPutStrLn stderr "[CONFIG] JWT secret generated and saved to config"
-
-      pure $ Right updatedConfig
+      writeResult <- safeWriteConfig configPath updatedConfig
+      case writeResult of
+        Left err -> pure $ Left $ "Failed to save config with JWT secret: " <> err
+        Right () -> do
+          hPutStrLn stderr "[CONFIG] JWT secret generated and saved to config"
+          pure $ Right updatedConfig
 
 -- | Ensure the config directory exists.
 --
@@ -174,10 +182,8 @@ ensureConfigDirectory = do
   createDirectoryIfMissing True xdgConfigDir
   pure xdgConfigDir
 
--- | Save configuration to a YAML file.
+-- | Save configuration to a YAML file with atomic write and backup.
 --
--- Encodes the config as YAML and writes it to the specified path.
+-- Safely writes config with automatic backup and validation.
 saveConfigToFile :: FilePath -> Config -> IO (Either Text ())
-saveConfigToFile configPath cfg = do
-  encodeFile configPath cfg
-  pure $ Right ()
+saveConfigToFile = safeWriteConfig
