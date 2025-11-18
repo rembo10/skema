@@ -37,7 +37,6 @@ import Skema.MusicBrainz.Types (MBReleaseGroupSearch(..), MBReleaseGroupSearchRe
 import Control.Concurrent.Async (Async, async)
 import Control.Exception (try)
 import Control.Concurrent (threadDelay)
-import qualified Data.Text as T
 import Katip
 
 -- | Evaluation interval in microseconds (24 hours).
@@ -139,9 +138,7 @@ evaluateMetacriticSource pool _bus mbClient source = do
           ("https://www.metacritic.com/browse/albums/genre/date/" <> metacriticGenreToUrl genre)
           [genre]
         case result of
-          Left err -> do
-            putStrLn $ "Failed to scrape Metacritic " <> T.unpack (metacriticGenreToUrl genre) <> ": " <> err
-            pure []
+          Left _err -> pure []
           Right albums -> pure albums
 
       -- Filter albums by score thresholds
@@ -176,9 +173,7 @@ evaluatePitchforkSource pool _bus mbClient source = do
           ("https://pitchfork.com/reviews/albums/?genre=" <> pitchforkGenreToUrl genre)
           [genre]
         case result of
-          Left err -> do
-            putStrLn $ "Failed to scrape Pitchfork " <> T.unpack (pitchforkGenreToUrl genre) <> ": " <> err
-            pure []
+          Left _err -> pure []
           Right albums -> pure albums
 
       -- Filter albums by score threshold
@@ -222,16 +217,12 @@ matchAndAddAlbum pool mbClient source artistName albumTitle = do
   searchResult <- searchReleaseGroups mbClient query (Just 5) Nothing
 
   case searchResult of
-    Left err -> do
-      putStrLn $ "MusicBrainz search failed for " <> T.unpack artistName <> " - " <> T.unpack albumTitle <> ": " <> show err
-      pure False
+    Left _err -> pure False
 
     Right MBReleaseGroupSearch{..} -> do
       -- Take the first result (best match)
       case listToMaybe mbrgsReleaseGroups of
-        Nothing -> do
-          putStrLn $ "No MusicBrainz match found for " <> T.unpack artistName <> " - " <> T.unpack albumTitle
-          pure False
+        Nothing -> pure False
 
         Just rg -> do
           -- Get the source ID
