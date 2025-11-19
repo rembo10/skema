@@ -5,6 +5,7 @@ set -e
 
 # Default config path (relative to root)
 CONFIG_PATH="../config.yaml"
+BACKEND_HOST=""
 BACKEND_PORT=""
 FRONTEND_PORT=""
 MODE="server"
@@ -14,6 +15,10 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     -c)
       CONFIG_PATH="$2"
+      shift 2
+      ;;
+    --host)
+      BACKEND_HOST="$2"
       shift 2
       ;;
     -p|--backend-port)
@@ -73,6 +78,14 @@ get_port_from_config() {
   return 1
 }
 
+# Set the backend hostname to use, if provided
+# Default value is localhost
+# See web/rsbuild.config.ts for usage
+if [[ -n "$BACKEND_HOST" ]]; then
+  # Host explicitly provided via -h flag
+  SKEMA_HOST="$BACKEND_HOST"
+fi
+
 # Determine the backend port to use
 if [[ -n "$BACKEND_PORT" ]]; then
   # Port explicitly provided via -p flag
@@ -91,10 +104,12 @@ else
   SKEMA_FRONTEND_PORT="3000"
 fi
 
+export SKEMA_HOST
 export SKEMA_PORT
 export SKEMA_FRONTEND_PORT
 
 echo "🔧 Skema Development Environment"
+echo "   Backend Host:  $SKEMA_HOST"
 echo "   Backend Port:  $SKEMA_PORT"
 echo "   Frontend Port: $SKEMA_FRONTEND_PORT"
 echo ""
