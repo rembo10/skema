@@ -17,6 +17,7 @@ module Skema.Database.Repository.Clusters
 
 import Skema.Database.Connection
 import Skema.Database.Types
+import Skema.Database.Utils (insertReturningId)
 import Skema.Database.Repository.Tracks (stringToOsPath)
 import Skema.MusicBrainz.Types (MBRelease(..), MBID(..), unMBID)
 import System.OsPath (OsPath)
@@ -61,14 +62,10 @@ findClusterByHash conn hash = do
 
 -- | Create a new cluster.
 createCluster :: SQLite.Connection -> Text -> Maybe Text -> Maybe Text -> Int -> IO Int64
-createCluster conn hash album albumArtist trackCount = do
-  -- Use RETURNING clause for both SQLite (3.35.0+) and PostgreSQL
-  results <- queryRows conn
+createCluster conn hash album albumArtist trackCount =
+  insertReturningId conn
     "INSERT INTO clusters (metadata_hash, album, album_artist, track_count) VALUES (?, ?, ?, ?) RETURNING id"
-    (hash, album, albumArtist, trackCount) :: IO [Only Int64]
-  case viaNonEmpty head results of
-    Just (Only cid) -> pure cid
-    Nothing -> error "Failed to get cluster ID after insert"
+    (hash, album, albumArtist, trackCount)
 
 -- | Update a cluster with MusicBrainz match data.
 -- Now accepts the full MBRelease and candidate list, caching both as JSON for performance.

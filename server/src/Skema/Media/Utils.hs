@@ -4,9 +4,13 @@
 module Skema.Media.Utils
   ( upgradeToHttps
   , prettyMediaError
+  , fetchAndDecode
   ) where
 
-import Skema.Media.Types (MediaError(..))
+import Skema.Media.Types (MediaError(..), MediaSource)
+import Skema.HTTP.Client (HttpClient)
+import qualified Skema.HTTP.Client as HTTP
+import Data.Aeson (FromJSON, decode)
 import qualified Data.Text as T
 
 -- | Upgrade HTTP URLs to HTTPS for known image CDN domains.
@@ -54,3 +58,32 @@ prettyMediaError (ProviderError source msg) =
 prettyMediaError (NetworkError msg) = "Network error: " <> msg
 prettyMediaError (ParseError msg) = "Parse error: " <> msg
 prettyMediaError (ConfigError msg) = "Configuration error: " <> msg
+
+-- | Fetch a URL and decode the JSON response.
+-- This abstracts the common pattern of HTTP fetch + JSON decode + error handling
+-- used by all media providers.
+--
+-- The extractor function receives the decoded JSON and should return Nothing
+-- if the desired data is not found, triggering a NoMediaFound error.
+fetchAndDecode
+  :: FromJSON a
+  => HttpClient         -- ^ HTTP client
+  -> MediaSource        -- ^ Media source (for error reporting)
+  -> Text               -- ^ URL to fetch
+  -> (a -> Maybe b)     -- ^ Extractor function (Nothing means no media found)
+  -> IO (Either MediaError b)
+fetchAndDecode httpClient source url extractor = do
+  result <- HTTP.get httpClient url
+  case result of
+    Left err ->
+      pure $ Left $ ProviderError source (show err)
+    Right body ->
+      case decode body of
+        Nothing ->
+          pure $ Left $ ParseError $ "Failed to parse " <> show source <> " response"
+        Just json ->
+          case extractor json of
+            Nothing ->
+              pure $ Left NoMediaFound
+            Just extracted ->
+              pure $ Right extracted

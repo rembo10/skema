@@ -7,6 +7,7 @@ module Skema.Database.Repository.Downloads
   ) where
 
 import Skema.Database.Connection
+import Skema.Database.Utils (insertReturningId)
 import Data.Time (UTCTime)
 import Database.SQLite.Simple (Only(..))
 import qualified Database.SQLite.Simple.ToRow as SQLite
@@ -87,10 +88,7 @@ insertDownload conn catalogAlbumId indexerName downloadUrl downloadClient downlo
         , diErrorMessage = errorMessage
         , diQueuedAt = queuedAt
         }
-  results <- queryRows conn
+  insertReturningId conn
     "INSERT INTO downloads (catalog_album_id, indexer_name, download_url, download_client, download_client_id, status, download_path, title, size_bytes, quality, format, seeders, progress, error_message, queued_at) \
     \VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
-    downloadInsert :: IO [Only Int64]
-  case viaNonEmpty head results of
-    Just (Only did) -> pure did
-    Nothing -> fail "Failed to insert download"
+    downloadInsert

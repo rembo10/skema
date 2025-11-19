@@ -8,6 +8,7 @@ module Skema.API.Handlers.Catalog
 import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..))
 import Skema.API.Types.Events (EventResponse(..))
 import Skema.API.Handlers.Auth (throwJsonError)
+import Skema.API.Handlers.Utils (withAuthDB)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
@@ -94,9 +95,8 @@ catalogServer le bus _serverCfg jwtSecret registry connPool _cacheDir configVar 
 
     -- Get catalog artists
     getArtistsHandler :: Maybe Text -> Maybe Bool -> Handler [CatalogArtistResponse]
-    getArtistsHandler authHeader maybeFollowed = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn -> do
+    getArtistsHandler authHeader maybeFollowed =
+      withAuthDB configVar jwtSecret connPool authHeader $ \conn -> do
         artists <- DB.getCatalogArtists conn maybeFollowed
         forM artists $ \artist -> pure $ CatalogArtistResponse
           { catalogArtistResponseId = DBTypes.catalogArtistId artist

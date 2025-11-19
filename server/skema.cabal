@@ -99,6 +99,7 @@ library
     Skema.API.Handlers.Filesystem
     Skema.API.Handlers.QualityProfiles
     Skema.API.Handlers.Static
+    Skema.API.Handlers.Utils
     Skema.Auth.Types
     Skema.Auth.Store
     Skema.Auth

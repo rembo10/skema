@@ -11,11 +11,10 @@ module Skema.Media.Providers.LastFM
   ) where
 
 import Skema.Media.Types
-import Skema.Media.Utils (upgradeToHttps)
+import Skema.Media.Utils (upgradeToHttps, fetchAndDecode)
 import Skema.MusicBrainz.Types (MBID, unMBID)
 import Skema.HTTP.Client (HttpClient)
-import qualified Skema.HTTP.Client as HTTP
-import Data.Aeson (decode, Value(..), (.:), withObject)
+import Data.Aeson (Value(..), (.:), withObject)
 import Data.Aeson.Types (parseMaybe, Parser, Object)
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Text as T
@@ -34,29 +33,17 @@ fetchArtistImage httpClient apiKey artistMBID = do
   let mbid = unMBID artistMBID
       url = "https://ws.audioscrobbler.com/2.0/?method=artist.getinfo&mbid="
           <> mbid <> "&api_key=" <> apiKey <> "&format=json"
-
-  result <- HTTP.get httpClient url
-
-  case result of
-    Left err ->
-      pure $ Left $ ProviderError LastFM (show err)
-    Right body ->
-      case decode body of
-        Nothing ->
-          pure $ Left $ ParseError "Failed to parse Last.fm response"
-        Just json ->
-          case extractArtistImageUrl json of
-            Nothing ->
-              pure $ Left NoMediaFound
-            Just (imageUrl, thumbnailUrl) ->
-              pure $ Right $ MediaResult
-                { mrUrl = upgradeToHttps imageUrl
-                , mrThumbnailUrl = fmap upgradeToHttps thumbnailUrl
-                , mrSource = LastFM
-                , mrQuality = Just "medium"
-                , mrWidth = Nothing
-                , mrHeight = Nothing
-                }
+      extractor json = do
+        (imageUrl, thumbnailUrl) <- extractArtistImageUrl json
+        pure $ MediaResult
+          { mrUrl = upgradeToHttps imageUrl
+          , mrThumbnailUrl = fmap upgradeToHttps thumbnailUrl
+          , mrSource = LastFM
+          , mrQuality = Just "medium"
+          , mrWidth = Nothing
+          , mrHeight = Nothing
+          }
+  fetchAndDecode httpClient LastFM url extractor
 
 -- | Fetch album cover from Last.fm.
 --
@@ -66,29 +53,17 @@ fetchAlbumCover httpClient apiKey releaseMBID = do
   let mbid = unMBID releaseMBID
       url = "https://ws.audioscrobbler.com/2.0/?method=album.getinfo&mbid="
           <> mbid <> "&api_key=" <> apiKey <> "&format=json"
-
-  result <- HTTP.get httpClient url
-
-  case result of
-    Left err ->
-      pure $ Left $ ProviderError LastFM (show err)
-    Right body ->
-      case decode body of
-        Nothing ->
-          pure $ Left $ ParseError "Failed to parse Last.fm album response"
-        Just json ->
-          case extractAlbumCoverUrl json of
-            Nothing ->
-              pure $ Left NoMediaFound
-            Just (imageUrl, thumbnailUrl) ->
-              pure $ Right $ MediaResult
-                { mrUrl = upgradeToHttps imageUrl
-                , mrThumbnailUrl = fmap upgradeToHttps thumbnailUrl
-                , mrSource = LastFM
-                , mrQuality = Just "medium"
-                , mrWidth = Nothing
-                , mrHeight = Nothing
-                }
+      extractor json = do
+        (imageUrl, thumbnailUrl) <- extractAlbumCoverUrl json
+        pure $ MediaResult
+          { mrUrl = upgradeToHttps imageUrl
+          , mrThumbnailUrl = fmap upgradeToHttps thumbnailUrl
+          , mrSource = LastFM
+          , mrQuality = Just "medium"
+          , mrWidth = Nothing
+          , mrHeight = Nothing
+          }
+  fetchAndDecode httpClient LastFM url extractor
 
 -- | Known Last.fm placeholder image hashes to filter out.
 -- These are returned when Last.fm doesn't have an actual artist image.

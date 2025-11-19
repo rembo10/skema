@@ -21,6 +21,7 @@ module Skema.Database.Repository.Catalog
 
 import Skema.Database.Connection
 import Skema.Database.Types
+import Skema.Database.Utils (insertReturningId)
 import Data.Time (UTCTime, getCurrentTime)
 import Database.SQLite.Simple (Only(..))
 import qualified Database.SQLite.Simple as SQLite
@@ -29,8 +30,8 @@ import qualified Database.SQLite.Simple as SQLite
 
 -- | Upsert a catalog artist (insert or update if exists).
 upsertCatalogArtist :: SQLite.Connection -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe Text -> Bool -> Maybe Int64 -> Maybe Int64 -> Maybe UTCTime -> IO Int64
-upsertCatalogArtist conn artistMBID artistName artistType imageUrl thumbnailUrl followed addedByRuleId sourceClusterId lastCheckedAt = do
-  results <- queryRows conn
+upsertCatalogArtist conn artistMBID artistName artistType imageUrl thumbnailUrl followed addedByRuleId sourceClusterId lastCheckedAt =
+  insertReturningId conn
     "INSERT INTO catalog_artists (artist_mbid, artist_name, artist_type, image_url, thumbnail_url, followed, added_by_rule_id, source_cluster_id, last_checked_at) \
     \VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
     \ON CONFLICT(artist_mbid) DO UPDATE SET \
@@ -44,10 +45,7 @@ upsertCatalogArtist conn artistMBID artistName artistType imageUrl thumbnailUrl 
     \  last_checked_at = COALESCE(excluded.last_checked_at, catalog_artists.last_checked_at), \
     \  updated_at = CURRENT_TIMESTAMP \
     \RETURNING id"
-    (artistMBID, artistName, artistType, imageUrl, thumbnailUrl, followed, addedByRuleId, sourceClusterId, lastCheckedAt) :: IO [Only Int64]
-  case viaNonEmpty head results of
-    Just (Only artistId) -> pure artistId
-    Nothing -> error "Failed to get catalog artist ID after upsert"
+    (artistMBID, artistName, artistType, imageUrl, thumbnailUrl, followed, addedByRuleId, sourceClusterId, lastCheckedAt)
 
 -- | Get catalog artists, optionally filtered by followed status.
 getCatalogArtists :: SQLite.Connection -> Maybe Bool -> IO [CatalogArtistRecord]
@@ -108,8 +106,8 @@ deleteCatalogArtist conn artistId =
 
 -- | Upsert a catalog album (insert or update if exists).
 upsertCatalogAlbum :: SQLite.Connection -> Text -> Text -> Int64 -> Text -> Text -> Maybe Text -> Maybe Text -> Bool -> Maybe Int64 -> IO Int64
-upsertCatalogAlbum conn releaseGroupMBID title artistId artistMBID artistName albumType firstReleaseDate wanted matchedClusterId = do
-  results <- queryRows conn
+upsertCatalogAlbum conn releaseGroupMBID title artistId artistMBID artistName albumType firstReleaseDate wanted matchedClusterId =
+  insertReturningId conn
     "INSERT INTO catalog_albums (release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, wanted, matched_cluster_id) \
     \VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
     \ON CONFLICT(release_group_mbid) DO UPDATE SET \
@@ -123,10 +121,7 @@ upsertCatalogAlbum conn releaseGroupMBID title artistId artistMBID artistName al
     \  matched_cluster_id = excluded.matched_cluster_id, \
     \  updated_at = CURRENT_TIMESTAMP \
     \RETURNING id"
-    (releaseGroupMBID, title, artistId, artistMBID, artistName, albumType, firstReleaseDate, wanted, matchedClusterId) :: IO [Only Int64]
-  case viaNonEmpty head results of
-    Just (Only albumId) -> pure albumId
-    Nothing -> error "Failed to get catalog album ID after upsert"
+    (releaseGroupMBID, title, artistId, artistMBID, artistName, albumType, firstReleaseDate, wanted, matchedClusterId)
 
 -- | Get catalog albums, optionally filtered by wanted status.
 -- Use getCatalogAlbumsByArtistId to filter by artist.

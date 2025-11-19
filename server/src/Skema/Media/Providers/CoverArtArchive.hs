@@ -10,11 +10,10 @@ module Skema.Media.Providers.CoverArtArchive
   ) where
 
 import Skema.Media.Types
-import Skema.Media.Utils (upgradeToHttps)
+import Skema.Media.Utils (upgradeToHttps, fetchAndDecode)
 import Skema.MusicBrainz.Types (MBID, unMBID)
 import Skema.HTTP.Client (HttpClient)
-import qualified Skema.HTTP.Client as HTTP
-import Data.Aeson (decode, Value(..), (.:), (.:?), withObject)
+import Data.Aeson (Value(..), (.:), (.:?), withObject)
 import Data.Aeson.Types (parseMaybe)
 import qualified Data.Aeson.KeyMap as KM
 
@@ -27,29 +26,17 @@ fetchAlbumCover :: HttpClient -> MBID -> IO (Either MediaError MediaResult)
 fetchAlbumCover httpClient releaseGroupMBID = do
   let mbid = unMBID releaseGroupMBID
       url = "https://coverartarchive.org/release-group/" <> mbid
-
-  result <- HTTP.get httpClient url
-
-  case result of
-    Left err ->
-      pure $ Left $ ProviderError CoverArtArchive (show err)
-    Right body ->
-      case decode body of
-        Nothing ->
-          pure $ Left $ ParseError "Failed to parse Cover Art Archive response"
-        Just json ->
-          case extractCoverUrl json of
-            Nothing ->
-              pure $ Left NoMediaFound
-            Just (coverUrl, thumbnailUrl) ->
-              pure $ Right $ MediaResult
-                { mrUrl = coverUrl
-                , mrThumbnailUrl = thumbnailUrl
-                , mrSource = CoverArtArchive
-                , mrQuality = Just "high"
-                , mrWidth = Nothing
-                , mrHeight = Nothing
-                }
+      extractor json = do
+        (coverUrl, thumbnailUrl) <- extractCoverUrl json
+        pure $ MediaResult
+          { mrUrl = coverUrl
+          , mrThumbnailUrl = thumbnailUrl
+          , mrSource = CoverArtArchive
+          , mrQuality = Just "high"
+          , mrWidth = Nothing
+          , mrHeight = Nothing
+          }
+  fetchAndDecode httpClient CoverArtArchive url extractor
 
 -- | Fetch artist image from Cover Art Archive.
 --

@@ -20,6 +20,7 @@ module Skema.Database.Repository.Diffs
 
 import Skema.Database.Connection
 import Skema.Database.Types
+import Skema.Database.Utils (insertReturningIdMaybe)
 import Skema.Database.Repository.Tracks (stringToOsPath)
 import Skema.MusicBrainz.Types (ReleaseMatch(..), TrackMatch(..), MBRelease(..), MBTrack(..), MBID(..), unMBID, FileGroup(..))
 import Monatone.Metadata (Metadata(..))
@@ -303,14 +304,10 @@ applyMetadataChanges pool diffIds = withConnection pool $ \conn -> do
 
                   -- Create change history record with RETURNING clause
                   now <- getCurrentTime
-                  idResults <- queryRows conn
+                  cid <- insertReturningIdMaybe conn
                     "INSERT INTO metadata_change_history (track_id, field_name, old_value, new_value, applied_at) \
                     \VALUES (?, ?, ?, ?, ?) RETURNING id"
-                    (tid, fieldName, oldValue, newValue, now) :: IO [Only Int64]
-
-                  let cid = case viaNonEmpty head idResults of
-                        Just (Only c) -> Just c
-                        Nothing -> Nothing
+                    (tid, fieldName, oldValue, newValue, now)
 
                   pure $ MetadataChangeRecord
                     { changeId = cid

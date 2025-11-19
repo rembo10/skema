@@ -28,7 +28,7 @@ module Skema.Database.Repository.Acquisition
 
 import Skema.Database.Connection
 import Skema.Database.Types
-import Skema.Database.Utils ()
+import Skema.Database.Utils (insertReturningId)
 import qualified Skema.Database.Utils as Utils
 import Data.Time (getCurrentTime)
 import Database.SQLite.Simple (Only(..))
@@ -38,14 +38,11 @@ import qualified Database.SQLite.Simple as SQLite
 
 -- | Create a new acquisition source (table still named acquisition_rules for backward compat).
 createAcquisitionRule :: SQLite.Connection -> Text -> Maybe Text -> SourceType -> Bool -> Maybe Text -> IO Int64
-createAcquisitionRule conn name description sType enabled filters = do
-  results <- queryRows conn
+createAcquisitionRule conn name description sType enabled filters =
+  insertReturningId conn
     "INSERT INTO acquisition_rules (name, description, rule_type, enabled, filters) \
     \VALUES (?, ?, ?, ?, ?) RETURNING id"
-    (name, description, Utils.sourceTypeToText sType, enabled, filters) :: IO [Only Int64]
-  case viaNonEmpty head results of
-    Just (Only sid) -> pure sid
-    Nothing -> error "Failed to get source ID after insert"
+    (name, description, Utils.sourceTypeToText sType, enabled, filters)
 
 -- | Get all acquisition sources.
 getAllAcquisitionRules :: SQLite.Connection -> IO [AcquisitionSourceRecord]
@@ -88,16 +85,13 @@ getDefaultLibraryArtistsRule conn = do
 
 -- | Insert a new tracked artist.
 insertTrackedArtist :: SQLite.Connection -> Text -> Text -> Maybe Text -> Maybe Text -> Int64 -> Maybe Int64 -> IO Int64
-insertTrackedArtist conn artistMBID artistName imageUrl thumbnailUrl sid sourceClusterId = do
-  results <- queryRows conn
+insertTrackedArtist conn artistMBID artistName imageUrl thumbnailUrl sid sourceClusterId =
+  insertReturningId conn
     "INSERT INTO tracked_artists (artist_mbid, artist_name, image_url, thumbnail_url, added_by_rule_id, source_cluster_id) \
     \VALUES (?, ?, ?, ?, ?, ?) \
     \ON CONFLICT(artist_mbid) DO UPDATE SET updated_at = CURRENT_TIMESTAMP \
     \RETURNING id"
-    (artistMBID, artistName, imageUrl, thumbnailUrl, sid, sourceClusterId) :: IO [Only Int64]
-  case viaNonEmpty head results of
-    Just (Only artistId) -> pure artistId
-    Nothing -> error "Failed to get tracked artist ID after insert"
+    (artistMBID, artistName, imageUrl, thumbnailUrl, sid, sourceClusterId)
 
 -- | Get a tracked artist by MusicBrainz ID.
 getTrackedArtistByMBID :: SQLite.Connection -> Text -> IO (Maybe TrackedArtistRecord)
@@ -140,16 +134,13 @@ deleteTrackedArtist conn artistId =
 
 -- | Insert a new wanted album.
 insertWantedAlbum :: SQLite.Connection -> Text -> Text -> Text -> Text -> AlbumStatus -> Int64 -> Maybe Text -> IO Int64
-insertWantedAlbum conn releaseGroupMBID title artistMBID artistName status sid firstReleaseDate = do
-  results <- queryRows conn
+insertWantedAlbum conn releaseGroupMBID title artistMBID artistName status sid firstReleaseDate =
+  insertReturningId conn
     "INSERT INTO wanted_albums (release_group_mbid, title, artist_mbid, artist_name, status, added_by_rule_id, first_release_date) \
     \VALUES (?, ?, ?, ?, ?, ?, ?) \
     \ON CONFLICT(release_group_mbid) DO UPDATE SET updated_at = CURRENT_TIMESTAMP \
     \RETURNING id"
-    (releaseGroupMBID, title, artistMBID, artistName, Utils.albumStatusToText status, sid, firstReleaseDate) :: IO [Only Int64]
-  case viaNonEmpty head results of
-    Just (Only albumId) -> pure albumId
-    Nothing -> error "Failed to get wanted album ID after insert"
+    (releaseGroupMBID, title, artistMBID, artistName, Utils.albumStatusToText status, sid, firstReleaseDate)
 
 -- | Get a wanted album by release group MusicBrainz ID.
 getWantedAlbumByReleaseGroupMBID :: SQLite.Connection -> Text -> IO (Maybe WantedAlbumRecord)

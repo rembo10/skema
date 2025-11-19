@@ -10,10 +10,9 @@ module Skema.Media.Providers.ITunes
   ) where
 
 import Skema.Media.Types
-import Skema.Media.Utils (upgradeToHttps)
+import Skema.Media.Utils (upgradeToHttps, fetchAndDecode)
 import Skema.HTTP.Client (HttpClient)
-import qualified Skema.HTTP.Client as HTTP
-import Data.Aeson (decode, Value(..), (.:), (.:?), withObject)
+import Data.Aeson (Value(..), (.:), (.:?), withObject)
 import Data.Aeson.Types (parseMaybe, Parser)
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Text as T
@@ -28,33 +27,21 @@ fetchAlbumCover httpClient artistName albumTitle = do
       encoded = decodeUtf8 $ urlEncode True query
       url = "https://itunes.apple.com/search?term=" <> encoded
           <> "&media=music&entity=album&limit=5"
-
-  result <- HTTP.get httpClient url
-
-  case result of
-    Left err ->
-      pure $ Left $ ProviderError ITunes (show err)
-    Right body ->
-      case decode body of
-        Nothing ->
-          pure $ Left $ ParseError "Failed to parse iTunes response"
-        Just json ->
-          case extractAlbumCoverUrl json albumTitle of
-            Nothing ->
-              pure $ Left NoMediaFound
-            Just imageUrl ->
-              -- iTunes returns 100x100 by default, we can get higher res
-              -- Use the 100x100 as thumbnail and 600x600 as full size
-              let highResUrl = upgradeToHighRes imageUrl
-                  thumbnailUrl = Just imageUrl  -- Original 100x100
-               in pure $ Right $ MediaResult
-                    { mrUrl = upgradeToHttps highResUrl
-                    , mrThumbnailUrl = fmap upgradeToHttps thumbnailUrl
-                    , mrSource = ITunes
-                    , mrQuality = Just "high"
-                    , mrWidth = Just 600
-                    , mrHeight = Just 600
-                    }
+      extractor json = do
+        imageUrl <- extractAlbumCoverUrl json albumTitle
+        -- iTunes returns 100x100 by default, we can get higher res
+        -- Use the 100x100 as thumbnail and 600x600 as full size
+        let highResUrl = upgradeToHighRes imageUrl
+            thumbnailUrl = Just imageUrl  -- Original 100x100
+        pure $ MediaResult
+          { mrUrl = upgradeToHttps highResUrl
+          , mrThumbnailUrl = fmap upgradeToHttps thumbnailUrl
+          , mrSource = ITunes
+          , mrQuality = Just "high"
+          , mrWidth = Just 600
+          , mrHeight = Just 600
+          }
+  fetchAndDecode httpClient ITunes url extractor
 
 -- | Fetch artist image from iTunes.
 --

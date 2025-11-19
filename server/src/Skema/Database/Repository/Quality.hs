@@ -14,6 +14,7 @@ module Skema.Database.Repository.Quality
 
 import Skema.Database.Connection
 import Skema.Database.Types
+import Skema.Database.Utils (insertReturningId)
 import Skema.Domain.Quality (Quality, QualityProfile(..), QualityPreference(..), qualityToText, textToQuality, qualityPreferencesToJSON, qualityPreferencesFromJSON, needsUpgrade, meetsProfile)
 import Data.Time (getCurrentTime)
 import Database.SQLite.Simple (Only(..))
@@ -37,13 +38,10 @@ insertQualityProfile :: SQLite.Connection -> Text -> Quality -> [QualityPreferen
 insertQualityProfile conn name cutoffQuality qualityPrefs upgradeAuto = do
   let cutoffText = qualityToText cutoffQuality
       prefsJson = qualityPreferencesToJSON qualityPrefs
-  results <- queryRows conn
+  insertReturningId conn
     "INSERT INTO quality_profiles (name, cutoff_quality, quality_preferences, upgrade_automatically) \
     \VALUES (?, ?, ?, ?) RETURNING id"
-    (name, cutoffText, prefsJson, upgradeAuto) :: IO [Only Int64]
-  case viaNonEmpty head results of
-    Just (Only profileId) -> pure profileId
-    Nothing -> error "Failed to get quality profile ID after insert"
+    (name, cutoffText, prefsJson, upgradeAuto)
 
 -- | Update an existing quality profile.
 updateQualityProfile :: SQLite.Connection -> Int64 -> Text -> Quality -> [QualityPreference] -> Bool -> IO ()

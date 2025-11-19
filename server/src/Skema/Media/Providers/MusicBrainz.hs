@@ -11,11 +11,10 @@ module Skema.Media.Providers.MusicBrainz
   ) where
 
 import Skema.Media.Types
-import Skema.Media.Utils (upgradeToHttps)
+import Skema.Media.Utils (upgradeToHttps, fetchAndDecode)
 import Skema.MusicBrainz.Types (MBID, unMBID)
 import Skema.HTTP.Client (HttpClient)
-import qualified Skema.HTTP.Client as HTTP
-import Data.Aeson (decode, Value(..), Object)
+import Data.Aeson (Value(..), Object)
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Text as T
 
@@ -26,29 +25,17 @@ fetchArtistImage :: HttpClient -> MBID -> IO (Either MediaError MediaResult)
 fetchArtistImage httpClient artistMBID = do
   let mbid = unMBID artistMBID
       url = "https://musicbrainz.org/ws/2/artist/" <> mbid <> "?inc=url-rels&fmt=json"
-
-  result <- HTTP.get httpClient url
-
-  case result of
-    Left err ->
-      pure $ Left $ ProviderError MusicBrainz (show err)
-    Right body ->
-      case decode body of
-        Nothing ->
-          pure $ Left $ ParseError "Failed to parse MusicBrainz response"
-        Just json ->
-          case extractImageFromRelations json of
-            Nothing ->
-              pure $ Left NoMediaFound
-            Just imageUrl ->
-              pure $ Right $ MediaResult
-                { mrUrl = upgradeToHttps imageUrl
-                , mrThumbnailUrl = Nothing
-                , mrSource = MusicBrainz
-                , mrQuality = Just "medium"
-                , mrWidth = Nothing
-                , mrHeight = Nothing
-                }
+      extractor json = do
+        imageUrl <- extractImageFromRelations json
+        pure $ MediaResult
+          { mrUrl = upgradeToHttps imageUrl
+          , mrThumbnailUrl = Nothing
+          , mrSource = MusicBrainz
+          , mrQuality = Just "medium"
+          , mrWidth = Nothing
+          , mrHeight = Nothing
+          }
+  fetchAndDecode httpClient MusicBrainz url extractor
 
 -- | Fetch album cover from MusicBrainz.
 --

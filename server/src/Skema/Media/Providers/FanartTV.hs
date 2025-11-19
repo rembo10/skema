@@ -11,11 +11,10 @@ module Skema.Media.Providers.FanartTV
   ) where
 
 import Skema.Media.Types
-import Skema.Media.Utils (upgradeToHttps)
+import Skema.Media.Utils (upgradeToHttps, fetchAndDecode)
 import Skema.MusicBrainz.Types (MBID, unMBID)
 import Skema.HTTP.Client (HttpClient)
-import qualified Skema.HTTP.Client as HTTP
-import Data.Aeson (decode, Value(..), (.:), withObject)
+import Data.Aeson (Value(..), (.:), withObject)
 import Data.Aeson.Types (parseMaybe, Parser, Object)
 import qualified Data.Aeson.Key as K
 import qualified Data.Aeson.KeyMap as KM
@@ -35,29 +34,17 @@ fetchArtistImage :: HttpClient -> Text -> MBID -> IO (Either MediaError MediaRes
 fetchArtistImage httpClient apiKey artistMBID = do
   let mbid = unMBID artistMBID
       url = "https://webservice.fanart.tv/v3/music/" <> mbid <> "?api_key=" <> apiKey
-
-  result <- HTTP.get httpClient url
-
-  case result of
-    Left err ->
-      pure $ Left $ ProviderError FanartTV (show err)
-    Right body ->
-      case decode body of
-        Nothing ->
-          pure $ Left $ ParseError "Failed to parse fanart.tv response"
-        Just json ->
-          case extractArtistImageUrl json of
-            Nothing ->
-              pure $ Left NoMediaFound
-            Just (imageUrl, quality) ->
-              pure $ Right $ MediaResult
-                { mrUrl = upgradeToHttps imageUrl
-                , mrThumbnailUrl = Nothing
-                , mrSource = FanartTV
-                , mrQuality = Just quality
-                , mrWidth = Nothing
-                , mrHeight = Nothing
-                }
+      extractor json = do
+        (imageUrl, quality) <- extractArtistImageUrl json
+        pure $ MediaResult
+          { mrUrl = upgradeToHttps imageUrl
+          , mrThumbnailUrl = Nothing
+          , mrSource = FanartTV
+          , mrQuality = Just quality
+          , mrWidth = Nothing
+          , mrHeight = Nothing
+          }
+  fetchAndDecode httpClient FanartTV url extractor
 
 -- | Fetch album cover from fanart.tv.
 --
@@ -66,29 +53,17 @@ fetchAlbumCover :: HttpClient -> Text -> MBID -> IO (Either MediaError MediaResu
 fetchAlbumCover httpClient apiKey releaseMBID = do
   let mbid = unMBID releaseMBID
       url = "https://webservice.fanart.tv/v3/music/albums/" <> mbid <> "?api_key=" <> apiKey
-
-  result <- HTTP.get httpClient url
-
-  case result of
-    Left err ->
-      pure $ Left $ ProviderError FanartTV (show err)
-    Right body ->
-      case decode body of
-        Nothing ->
-          pure $ Left $ ParseError "Failed to parse fanart.tv album response"
-        Just json ->
-          case extractAlbumCoverUrl json of
-            Nothing ->
-              pure $ Left NoMediaFound
-            Just imageUrl ->
-              pure $ Right $ MediaResult
-                { mrUrl = upgradeToHttps imageUrl
-                , mrThumbnailUrl = Nothing
-                , mrSource = FanartTV
-                , mrQuality = Just "high"
-                , mrWidth = Nothing
-                , mrHeight = Nothing
-                }
+      extractor json = do
+        imageUrl <- extractAlbumCoverUrl json
+        pure $ MediaResult
+          { mrUrl = upgradeToHttps imageUrl
+          , mrThumbnailUrl = Nothing
+          , mrSource = FanartTV
+          , mrQuality = Just "high"
+          , mrWidth = Nothing
+          , mrHeight = Nothing
+          }
+  fetchAndDecode httpClient FanartTV url extractor
 
 -- | Extract artist image URL from fanart.tv JSON response.
 --
