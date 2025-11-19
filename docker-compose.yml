@@ -1,0 +1,23 @@
+---
+services:
+  server:
+    image: nixos/nix
+    container_name: server
+    volumes:
+      - ./:/workdir
+      - ./downloads:/downloads
+      - /Volumes/data:/data
+    working_dir: /workdir
+    command: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop --command ./dev.sh server
+
+  web:
+    image: nixos/nix
+    container_name: web
+    ports:
+      - 3000:3000
+    volumes:
+      - ./:/workdir
+      - ./downloads:/downloads
+      - /Volumes/data:/data
+    working_dir: /workdir
+    command: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop --command ./dev.sh web --host server
