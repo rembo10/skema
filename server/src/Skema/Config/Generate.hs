@@ -116,11 +116,6 @@ writeConfigArtifacts = do
   TIO.writeFile "config.example.yaml" yaml
   putStrLn "✓ Generated: config.example.yaml"
 
-  -- Write documentation
-  let docs = generateFullDocs
-  TIO.writeFile "docs/configuration.md" docs
-  putStrLn "✓ Generated: docs/configuration.md"
-
   -- Print API type info for manual implementation
   putStrLn ""
   printAPITypeInfo

@@ -36,8 +36,14 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cabal-
 
-    - name: Build and run tests
+    - name: Check generated config is up to date
       working-directory: server
       run: |
         cabal update
-        cabal test --test-show-details=direct
+        cabal run skema-generate-config
+        git diff --exit-code config.example.yaml || \
+          (echo "Error: Generated config file is out of sync. Run 'cabal run skema-generate-config' and commit the changes." && exit 1)
+
+    - name: Build and run tests
+      working-directory: server
+      run: cabal test --test-show-details=direct
