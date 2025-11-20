@@ -137,7 +137,6 @@ data ConfigResponse = ConfigResponse
   , configLibraryFileFormat :: Text
     -- System settings
   , configSystemWatchConfigFile :: Bool
-  , configSystemDatabaseBackend :: Text
   , configSystemDatabasePath :: Text
     -- Server settings
   , configServerHost :: Text
@@ -187,7 +186,6 @@ data ConfigUpdate = ConfigUpdate
   , updateLibraryFileFormat :: Maybe Text
     -- System settings
   , updateSystemWatchConfigFile :: Maybe Bool
-  , updateSystemDatabaseBackend :: Maybe Text
   , updateSystemDatabasePath :: Maybe Text
     -- Server settings
   , updateServerHost :: Maybe Text

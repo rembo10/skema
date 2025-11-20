@@ -159,10 +159,8 @@ instance ToJSON LibraryConfig where
 data SystemConfig = SystemConfig
   { systemWatchConfigFile :: Bool
     -- ^ Watch config file for changes and reload automatically
-  , systemDatabaseBackend :: Text
-    -- ^ Database backend: "sqlite" or "postgresql"
   , systemDatabasePath :: Text
-    -- ^ Database file path (for sqlite) or connection string (for postgresql)
+    -- ^ SQLite database file path
   , systemDataDir :: Maybe Text
     -- ^ Data directory override (Nothing = use platform default)
   , systemCacheDir :: Maybe Text
@@ -174,7 +172,6 @@ data SystemConfig = SystemConfig
 instance FromJSON SystemConfig where
   parseJSON = withObject "SystemConfig" $ \o -> do
     watchConfig <- o .:? "watch_config_file" .!= True
-    dbBackend <- o .:? "database_backend" .!= "sqlite"
     dbPath <- o .:? "database_path" .!= "skema.db"
     -- Expand tilde and environment variables in database path
     -- Using unsafePerformIO here is safe because we're just expanding a path string
@@ -190,12 +187,11 @@ instance FromJSON SystemConfig where
     stateDir <- o .:? "state_dir"
     let expandedStateDir = fmap (unsafePerformIO . PathExpansion.expandPathIO) stateDir
 
-    pure $ SystemConfig watchConfig dbBackend expandedDbPath expandedDataDir expandedCacheDir expandedStateDir
+    pure $ SystemConfig watchConfig expandedDbPath expandedDataDir expandedCacheDir expandedStateDir
 
 instance ToJSON SystemConfig where
-  toJSON (SystemConfig watchConfig dbBackend dbPath dataDir cacheDir stateDir) = object
+  toJSON (SystemConfig watchConfig dbPath dataDir cacheDir stateDir) = object
     [ "watch_config_file" .= watchConfig
-    , "database_backend" .= dbBackend
     , "database_path" .= dbPath
     , "data_dir" .= dataDir
     , "cache_dir" .= cacheDir
@@ -635,7 +631,6 @@ defaultLibraryConfig = LibraryConfig
 defaultSystemConfig :: SystemConfig
 defaultSystemConfig = SystemConfig
   { systemWatchConfigFile = True
-  , systemDatabaseBackend = "sqlite"
   , systemDatabasePath = "skema.db"
   , systemDataDir = Nothing      -- Use platform default
   , systemCacheDir = Nothing     -- Use platform default

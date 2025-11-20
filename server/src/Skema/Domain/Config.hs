@@ -53,7 +53,6 @@ applyConfigUpdate cfg update maybeHashedPassword = do
   -- Apply system config updates
   let updatedSysCfg = sysCfg
         { Cfg.systemWatchConfigFile = fromMaybe (Cfg.systemWatchConfigFile sysCfg) (updateSystemWatchConfigFile update)
-        , Cfg.systemDatabaseBackend = fromMaybe (Cfg.systemDatabaseBackend sysCfg) (updateSystemDatabaseBackend update)
         , Cfg.systemDatabasePath = fromMaybe (Cfg.systemDatabasePath sysCfg) (updateSystemDatabasePath update)
         }
 

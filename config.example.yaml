@@ -44,12 +44,7 @@ system:
   # Watch config file for changes and reload automatically (default: true)
   watch_config_file: true
 
-  # Database backend: "sqlite" or "postgresql" (default: sqlite)
-  database_backend: sqlite
-
-  # Database path (for sqlite) or connection string (for postgresql)
-  # SQLite example: "./skema.db"
-  # PostgreSQL example: "host=localhost port=5432 dbname=skema user=skema password=secret"
+  # Database path for SQLite database (default: "./skema.db")
   # Supports tilde expansion: ~/skema.db
   database_path: "./skema.db"
 

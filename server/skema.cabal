@@ -186,7 +186,6 @@ library
     , yaml >= 0.11 && < 0.12
     , stm >= 2.5 && < 2.6
     , sqlite-simple >= 0.4 && < 0.5
-    , postgresql-simple >= 0.7 && < 0.8
     , resource-pool >= 0.4 && < 0.5
     , servant >= 0.20 && < 0.21
     , servant-server >= 0.20 && < 0.21

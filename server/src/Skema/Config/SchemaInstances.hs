@@ -141,18 +141,11 @@ instance ConfigSchema SystemConfig where
         , fieldExample = Nothing
         }
     , FieldInfo
-        { fieldName = "database_backend"
-        , fieldDescription = "Database backend: \"sqlite\" or \"postgresql\""
-        , fieldType = FText
-        , fieldDefault = Just "sqlite"
-        , fieldExample = Nothing
-        }
-    , FieldInfo
         { fieldName = "database_path"
-        , fieldDescription = "Database path (for sqlite) or connection string (for postgresql)"
+        , fieldDescription = "Database path for SQLite database"
         , fieldType = FText
         , fieldDefault = Just "./skema.db"
-        , fieldExample = Just "host=localhost port=5432 dbname=skema user=skema password=secret"
+        , fieldExample = Nothing
         }
     ]
 
@@ -160,7 +153,6 @@ instance ConfigSchema SystemConfig where
 
   configToJSON cfg = object
     [ "watch_config_file" .= systemWatchConfigFile cfg
-    , "database_backend" .= systemDatabaseBackend cfg
     , "database_path" .= systemDatabasePath cfg
     , "data_dir" .= systemDataDir cfg
     , "cache_dir" .= systemCacheDir cfg
@@ -169,12 +161,11 @@ instance ConfigSchema SystemConfig where
 
   configFromJSON = withObject "SystemConfig" $ \o -> do
     watchConfig <- o .:? "watch_config_file" .!= True
-    dbBackend <- o .:? "database_backend" .!= "sqlite"
     dbPath <- o .:? "database_path" .!= "./skema.db"
     dataDir <- o .:? "data_dir"
     cacheDir <- o .:? "cache_dir"
     stateDir <- o .:? "state_dir"
-    pure $ SystemConfig watchConfig dbBackend dbPath dataDir cacheDir stateDir
+    pure $ SystemConfig watchConfig dbPath dataDir cacheDir stateDir
 
 -- | ServerConfig schema instance
 instance ConfigSchema ServerConfig where

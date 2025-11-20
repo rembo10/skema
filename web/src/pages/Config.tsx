@@ -611,38 +611,15 @@ export default function Config() {
               </div>
             </div>
 
-            {/* Database Backend */}
-            <div>
-              <label htmlFor="system_database_backend" className="block text-sm font-medium text-dark-text mb-2">
-                Database Backend
-              </label>
-              <select
-                id="system_database_backend"
-                value={formData.system_database_backend || 'sqlite'}
-                onChange={(e) => handleChange('system_database_backend', e.target.value)}
-                className="input w-64"
-              >
-                <option value="sqlite">SQLite</option>
-                <option value="postgresql">PostgreSQL</option>
-              </select>
-              <p className="mt-2 text-sm text-dark-text-secondary">
-                Database backend to use for storing metadata
-              </p>
-            </div>
-
             {/* Database Path */}
             <PathInput
               id="system_database_path"
-              label="Database Path / Connection String"
+              label="Database Path"
               value={formData.system_database_path || ''}
               onChange={(value) => handleChange('system_database_path', value)}
-              type={formData.system_database_backend === 'postgresql' ? 'file' : 'file'}
-              placeholder={formData.system_database_backend === 'postgresql' ? 'host=localhost port=5432 dbname=skema' : './skema.db'}
-              description={
-                formData.system_database_backend === 'postgresql'
-                  ? 'PostgreSQL connection string (e.g., host=localhost port=5432 dbname=skema)'
-                  : 'Path to SQLite database file'
-              }
+              type="file"
+              placeholder="./skema.db"
+              description="Path to SQLite database file"
             />
           </div>
         </div>

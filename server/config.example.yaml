@@ -32,10 +32,7 @@ system:
   # System-level configuration
   # Watch config file for changes and reload automatically
   watch_config_file: true
-  # Database backend: "sqlite" or "postgresql"
-  database_backend: sqlite
-  # Database path (for sqlite) or connection string (for postgresql)
-  # Example: host=localhost port=5432 dbname=skema user=skema password=secret
+  # Database path for SQLite database
   database_path: ./skema.db
 
 

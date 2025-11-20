@@ -177,7 +177,6 @@ configToResponse cfg = do
     , configLibraryPathFormat = Cfg.libraryPathFormat libCfg
     , configLibraryFileFormat = Cfg.libraryFileFormat libCfg
     , configSystemWatchConfigFile = Cfg.systemWatchConfigFile sysCfg
-    , configSystemDatabaseBackend = Cfg.systemDatabaseBackend sysCfg
     , configSystemDatabasePath = Cfg.systemDatabasePath sysCfg
     , configServerHost = Cfg.serverHost srvCfg
     , configServerPort = Cfg.serverPort srvCfg
