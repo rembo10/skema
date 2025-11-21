@@ -58,9 +58,9 @@ server:
   # Use "0.0.0.0" to listen on all interfaces
   host: 127.0.0.1
 
-  # HTTP API server port (default: 8181)
+  # HTTP API server port (default: 8182)
   # Can be overridden with --port/-p flag or SKEMA_PORT env var
-  port: 8181
+  port: 8182
 
   # Optional: Username for API authentication
   # Can be overridden with SKEMA_USERNAME env var

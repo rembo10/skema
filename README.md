@@ -22,6 +22,52 @@ nix develop
 
 The `dev.sh` script provides auto-reload on code changes for the backend and hot-reload for the frontend.
 
+### Using Docker
+
+```bash
+# 1. Create required directories
+mkdir -p config data cache
+
+# 2. Create a basic config file
+cat > config/config.yaml << 'EOF'
+library:
+  path: "/music"
+EOF
+
+# 3. Pull and run the latest image
+docker pull rembo10/skema:latest
+
+docker run -d \
+  --name skema \
+  -p 8182:8182 \
+  -v ./config:/config \
+  -v ./data:/data \
+  -v ./cache:/cache \
+  -v /path/to/your/music:/music \
+  -e SKEMA_HOST=0.0.0.0 \
+  rembo10/skema:latest
+
+# Or use docker-compose
+docker-compose up -d
+```
+
+**Configuration:**
+- Edit `config/config.yaml` to customize settings
+- Set environment variables:
+  - `SKEMA_HOST=0.0.0.0` (required for Docker)
+  - `SKEMA_PORT=8182` (optional)
+  - `SKEMA_USERNAME` / `SKEMA_PASSWORD` (optional authentication)
+
+The application will be available at `http://localhost:8182`.
+
+**Building locally:**
+Edit the docker-compose.yml file to uncomment the `build:` directive, and comment out the `image:` line. Then run:
+
+```bash
+docker-compose build
+docker-compose up -d
+```
+
 ### Manual Setup
 
 If not using Nix, you'll need to install the following dependencies:

@@ -661,7 +661,7 @@ export default function Config() {
               <input
                 type="number"
                 id="server_port"
-                value={formData.server_port ?? 8181}
+                value={formData.server_port ?? 8182}
                 onChange={(e) => handleChange('server_port', parseInt(e.target.value))}
                 min="1"
                 max="65535"

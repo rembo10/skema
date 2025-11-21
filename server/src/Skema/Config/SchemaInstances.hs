@@ -185,7 +185,7 @@ instance ConfigSchema ServerConfig where
         { fieldName = "port"
         , fieldDescription = "HTTP API server port"
         , fieldType = FInt
-        , fieldDefault = Just "8181"
+        , fieldDefault = Just "8182"
         , fieldExample = Nothing
         }
     , FieldInfo
@@ -231,7 +231,7 @@ instance ConfigSchema ServerConfig where
 
   configFromJSON = withObject "ServerConfig" $ \o -> do
     host <- o .:? "host" .!= "127.0.0.1"
-    port <- o .:? "port" .!= 8181
+    port <- o .:? "port" .!= 8182
     username <- o .:? "username"
     password <- o .:? "password"
     jwtSecret <- o .:? "jwt_secret"

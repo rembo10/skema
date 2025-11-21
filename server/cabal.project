@@ -1,0 +1,4 @@
+packages: .
+
+constraints: http2 ==5.3.10
+           , http-semantics ==0.3.0

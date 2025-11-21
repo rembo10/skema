@@ -1,0 +1,112 @@
+services:
+  skema:
+    # Uncomment the build: directive to build locally
+    #build:
+    #  context: .
+    #  dockerfile: Dockerfile
+    # Alternative: use pre-built image
+    image: rembo10/skema:latest
+    restart: unless-stopped
+    ports:
+      - "8182:8182"
+    volumes:
+      # Configuration file
+      - ./config:/config
+      # Database and application data
+      - ./data:/data
+      # Cache directory
+      - ./cache:/cache
+      # Music library (adjust path to your library)
+      # Skema needs write access for metadata writing and file management
+      - /path/to/your/music:/music
+      # Download directory (if using download clients)
+      # - /path/to/downloads:/downloads
+    environment:
+      # Server host - must be 0.0.0.0 for Docker (not 127.0.0.1)
+      - SKEMA_HOST=0.0.0.0
+      # Server port (optional, defaults to 8182)
+      - SKEMA_PORT=8182
+      # Authentication credentials (optional)
+      # - SKEMA_USERNAME=admin
+      # - SKEMA_PASSWORD=changeme
+      # Web root is set in Dockerfile, no need to override
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8182/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Transmission (torrent client)
+  # Uncomment and configure if you want to use Transmission for downloads
+  # transmission:
+  #   image: linuxserver/transmission:latest
+  #   container_name: transmission
+  #   restart: unless-stopped
+  #   ports:
+  #     - "9091:9091"
+  #     - "51413:51413"
+  #     - "51413:51413/udp"
+  #   volumes:
+  #     - ./transmission/config:/config
+  #     - /path/to/downloads:/downloads
+  #   environment:
+  #     - PUID=1000
+  #     - PGID=1000
+  #     - TZ=America/New_York
+
+  # Optional: qBittorrent (alternative torrent client)
+  # Uncomment and configure if you prefer qBittorrent over Transmission
+  # qbittorrent:
+  #   image: linuxserver/qbittorrent:latest
+  #   container_name: qbittorrent
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8080:8080"
+  #     - "6881:6881"
+  #     - "6881:6881/udp"
+  #   volumes:
+  #     - ./qbittorrent/config:/config
+  #     - /path/to/downloads:/downloads
+  #   environment:
+  #     - PUID=1000
+  #     - PGID=1000
+  #     - TZ=America/New_York
+  #     - WEBUI_PORT=8080
+
+  # Optional: SABnzbd (NZB/Usenet client)
+  # Uncomment and configure if you want to use SABnzbd for downloads
+  # sabnzbd:
+  #   image: linuxserver/sabnzbd:latest
+  #   container_name: sabnzbd
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8082:8080"
+  #   volumes:
+  #     - ./sabnzbd/config:/config
+  #     - /path/to/downloads:/downloads
+  #     - /path/to/incomplete:/incomplete-downloads
+  #   environment:
+  #     - PUID=1000
+  #     - PGID=1000
+  #     - TZ=America/New_York
+
+  # Optional: Prowlarr (indexer manager)
+  # Uncomment if you want to manage indexers with Prowlarr
+  # prowlarr:
+  #   image: linuxserver/prowlarr:latest
+  #   container_name: prowlarr
+  #   restart: unless-stopped
+  #   ports:
+  #     - "9696:9696"
+  #   volumes:
+  #     - ./prowlarr/config:/config
+  #   environment:
+  #     - PUID=1000
+  #     - PGID=1000
+  #     - TZ=America/New_York
+
+# Optional: Create a custom network for service communication
+# networks:
+#   skema-net:
+#     driver: bridge

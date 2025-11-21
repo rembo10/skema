@@ -2,7 +2,7 @@ import { defineConfig } from '@rsbuild/core';
 import { pluginReact } from '@rsbuild/plugin-react';
 
 // Read ports from environment or use defaults
-const backendPort = process.env.SKEMA_PORT || '8181';
+const backendPort = process.env.SKEMA_PORT || '8182';
 const frontendPort = parseInt(process.env.SKEMA_FRONTEND_PORT || '3000', 10);
 
 export default defineConfig({

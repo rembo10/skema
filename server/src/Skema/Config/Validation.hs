@@ -7,6 +7,7 @@ module Skema.Config.Validation
     -- * Helpers
   , getAuthCredentials
   , getServerPort
+  , getServerHost
   ) where
 
 import Skema.Config.Types
@@ -61,3 +62,15 @@ getServerPort cliPort cfg = do
       pure $ case envPort of
         Just p -> fromMaybe (serverPort cfg) (readMaybe p)
         Nothing -> serverPort cfg
+
+-- | Get server host with environment variable override.
+--
+-- Priority order (highest to lowest):
+-- 1. SKEMA_HOST environment variable
+-- 2. Config file value
+getServerHost :: ServerConfig -> IO Text
+getServerHost cfg = do
+  envHost <- lookupEnv "SKEMA_HOST"
+  pure $ case envHost of
+    Just h -> toText h
+    Nothing -> serverHost cfg

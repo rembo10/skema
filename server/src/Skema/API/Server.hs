@@ -123,7 +123,7 @@ startServer :: LogEnv -> EventBus -> ServerConfig -> ServiceRegistry -> Connecti
 startServer le bus serverCfg registry connPool libPath cacheDir configPath cliPort = do
   let initialContext = ()
   let initialNamespace = "server"
-  let host = Cfg.serverHost serverCfg
+  host <- CfgVal.getServerHost serverCfg
   port <- CfgVal.getServerPort cliPort serverCfg
 
   runKatipContextT le initialContext initialNamespace $ do

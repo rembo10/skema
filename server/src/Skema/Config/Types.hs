@@ -217,7 +217,7 @@ data ServerConfig = ServerConfig
 instance FromJSON ServerConfig where
   parseJSON = withObject "ServerConfig" $ \o -> do
     host <- o .:? "host" .!= "127.0.0.1"
-    port <- o .:? "port" .!= 8181
+    port <- o .:? "port" .!= 8182
     username <- o .:? "username"
     password <- o .:? "password"
     jwtSecret <- o .:? "jwt_secret"
@@ -641,7 +641,7 @@ defaultSystemConfig = SystemConfig
 defaultServerConfig :: ServerConfig
 defaultServerConfig = ServerConfig
   { serverHost = "127.0.0.1"
-  , serverPort = 8181
+  , serverPort = 8182
   , serverUsername = Nothing
   , serverPassword = Nothing
   , serverJwtSecret = Nothing  -- Auto-generated on first run
