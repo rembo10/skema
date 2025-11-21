@@ -69,12 +69,14 @@ jobs:
         run: |
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-          # Create test directories and config
+          # Create test directories and config with proper permissions
           mkdir -p test-config test-data test-cache
           cat > test-config/config.yaml << 'EOF'
           library:
             path: "/music"
           EOF
+          # Make directories writable by container user (UID 1000)
+          sudo chown -R 1000:1000 test-config test-data test-cache
 
           # Run container with proper environment and volumes (no --rm so we can get logs)
           docker run -d --name skema-test \
