@@ -107,7 +107,7 @@ jobs:
           # Cleanup
           docker stop skema-test || true
           docker rm skema-test || true
-          rm -rf test-config test-data test-cache
+          sudo rm -rf test-config test-data test-cache
 
       - name: Image digest
         if: github.event_name != 'pull_request'
