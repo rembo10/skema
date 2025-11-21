@@ -7,7 +7,7 @@ module Skema.API.Handlers.Static
   ) where
 
 import Network.Wai.Application.Static (staticApp, defaultFileServerSettings)
-import WaiAppStatic.Types (StaticSettings(..), MaxAge(..))
+import WaiAppStatic.Types (StaticSettings(..), MaxAge(..), LookupResult(..), toPiece)
 import Servant
 import System.FilePath ((</>))
 import qualified System.Environment as Env
@@ -47,7 +47,23 @@ frontendServer = Tagged $ \req sendResponse -> do
   where
     settings dir =
       let baseSettings = defaultFileServerSettings dir
+          -- Get the default lookup function
+          defaultLookup = ssLookupFile baseSettings
+          -- Safely construct the index.html piece
+          indexPiece = case toPiece "index.html" of
+            Just piece -> [piece]
+            Nothing -> []  -- Should never happen for "index.html", but handle gracefully
       in baseSettings
            { ssMaxAge = MaxAgeSeconds 3600  -- Cache for 1 hour
            , ssAddTrailingSlash = False
+           -- Custom lookup with SPA fallback to index.html
+           , ssLookupFile = \pieces -> do
+               result <- defaultLookup pieces
+               case result of
+                 -- If file not found, serve index.html for client-side routing
+                 LRNotFound ->
+                   if null indexPiece
+                     then pure LRNotFound  -- Fallback failed, return not found
+                     else defaultLookup indexPiece
+                 _ -> pure result
            }
