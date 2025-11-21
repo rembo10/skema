@@ -76,8 +76,8 @@ jobs:
             path: "/music"
           EOF
 
-          # Run container with proper environment and volumes
-          docker run --rm -d --name skema-test \
+          # Run container with proper environment and volumes (no --rm so we can get logs)
+          docker run -d --name skema-test \
             -e SKEMA_HOST=0.0.0.0 \
             -e SKEMA_PORT=8182 \
             -v $(pwd)/test-config:/config \
@@ -88,14 +88,23 @@ jobs:
           # Wait for container to start
           sleep 10
 
-          # Check if container is running (show logs if not)
-          docker ps | grep skema-test || (echo "Container failed to start. Logs:" && docker logs skema-test && exit 1)
+          # Show logs for debugging
+          echo "=== Container Logs ==="
+          docker logs skema-test
+          echo "=== End Logs ==="
+
+          # Check if container is running
+          if ! docker ps | grep skema-test; then
+            echo "ERROR: Container failed to start"
+            exit 1
+          fi
 
           # Check health
           docker exec skema-test wget --no-verbose --tries=1 --spider http://localhost:8182/ || exit 1
 
           # Cleanup
-          docker stop skema-test
+          docker stop skema-test || true
+          docker rm skema-test || true
           rm -rf test-config test-data test-cache
 
       - name: Image digest
