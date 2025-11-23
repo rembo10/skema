@@ -151,6 +151,20 @@ function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: { isMobileMenuOpen: 
   );
 }
 
+// Route to page title mapping
+const routeTitles: Record<string, string> = {
+  '/': 'Overview',
+  '/diffs': 'Library',
+  '/identification': 'Album Identification',
+  '/artists': 'Artists',
+  '/wanted': 'Albums',
+  '/downloads': 'Downloads',
+  '/sources': 'Input Sources',
+  '/quality': 'Quality Profiles',
+  '/config': 'Settings',
+  '/login': 'Login',
+};
+
 // Inner app component that has access to useNavigate
 function AppContent() {
   const navigate = useNavigate();
@@ -162,6 +176,22 @@ function AppContent() {
 
   // Don't connect to SSE on login page
   const isLoginPage = location.pathname === '/login';
+
+  // Update document title based on current route
+  useEffect(() => {
+    const pageTitle = routeTitles[location.pathname];
+
+    if (location.pathname === '/') {
+      document.title = 'skema :: declarative music library manager';
+    } else if (pageTitle) {
+      document.title = `${pageTitle.toLowerCase()} :: skema`;
+    } else if (location.pathname.startsWith('/artists/')) {
+      // Artist detail pages - title will be updated by the component
+      document.title = 'artist :: skema';
+    } else {
+      document.title = 'skema';
+    }
+  }, [location.pathname]);
 
   // Connect to SSE for real-time updates (except on login page, and only when online)
   useSSE(!isLoginPage && isOnline);

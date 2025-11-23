@@ -33,6 +33,13 @@ export default function ArtistDetail() {
     loadQualityProfiles();
   }, []);
 
+  // Update document title when artist is loaded
+  useEffect(() => {
+    if (artist?.name) {
+      document.title = `${artist.name} :: skema`;
+    }
+  }, [artist?.name]);
+
   const loadQualityProfiles = async () => {
     try {
       const [profiles, defaultProf] = await Promise.all([
