@@ -1,157 +1,115 @@
-# Example Skema configuration file
+# Skema Configuration File
 #
-# If no config file is found, Skema will:
-# 1. Check $XDG_CONFIG_HOME/skema/config.yaml (usually ~/.config/skema/config.yaml)
-# 2. Check /etc/skema/config.yaml
-# 3. Create a default config in $XDG_CONFIG_HOME/skema/config.yaml
-#
-# You can also specify a config file with the --config flag.
+# Generated from Skema.Config.Schema
 
 library:
-  # Path to your music library (optional, no default)
-  # If not set, Skema won't scan or watch any directory
-  # Can be a network mount - if temporarily unavailable, library will be in "unavailable" state
-  # Supports tilde expansion: ~/Music
-  path: "/home/user/Music"
-
-  # Enable file system watching for real-time updates (default: true)
+  # Music library configuration
+  # Path to music library directory
+  path: /path/to/music
+  # Watch library directory for changes
   watch: true
-
-  # Enable automatic periodic scanning (default: true)
-  auto_scan: true
-
-  # Interval between automatic scans in minutes (default: 60)
+  # Automatically scan library on interval
+  auto_scan: false
+  # Minutes between automatic scans
   auto_scan_interval_mins: 60
-
-  # Run a full scan on application startup (default: true)
+  # Scan library when application starts
   auto_scan_on_startup: true
-
-  # Normalize "featuring" join phrases in artist credits (default: false)
+  # Normalize featuring artist format in track titles
   normalize_featuring: false
+  # Format to use for featuring artists
+  normalize_featuring_to: feat.
+  # Directory structure format for organizing files
+  path_format: {album_artist}/{year} - {album}/
+  # File naming format
+  file_format: {if:multidisc|{disc:02}-}{track:02} - {title}.{ext}
 
-  # What to normalize "featuring" to (default: "feat.")
-  normalize_featuring_to: "feat."
-
-  # Template for album directory paths (default: "{album_artist}/{album} [{year}]")
-  # Available variables: {album_artist}, {album}, {year}, {type}
-  path_format: "{album_artist}/{album} [{year}]"
-
-  # Template for track filenames (default: "{track:02} {artist} - {album} {year} - {title}.{ext}")
-  # Available variables: {track}, {artist}, {album}, {year}, {title}, {ext}, {disc}, {if:multidisc|...}
-  file_format: "{track:02} {artist} - {album} {year} - {title}.{ext}"
 
 system:
-  # Watch config file for changes and reload automatically (default: true)
+  # System and paths configuration
+  # Watch config file for changes and reload automatically
   watch_config_file: true
+  # SQLite database file path
+  database_path: skema.db
+  # Data directory override (default: platform-specific)
+  data_dir: ~/.local/share/skema
+  # Cache directory override (default: platform-specific)
+  cache_dir: ~/.cache/skema
+  # State directory override (default: platform-specific)
+  state_dir: ~/.local/state/skema
 
-  # Database path for SQLite database (default: "./skema.db")
-  # Supports tilde expansion: ~/skema.db
-  database_path: "./skema.db"
-
-  # Optional directory overrides (default: use platform defaults)
-  # data_dir: "~/.local/share/skema"
-  # cache_dir: "~/.cache/skema"
-  # state_dir: "~/.local/state/skema"
 
 server:
-  # Server host to bind to (default: 127.0.0.1)
-  # Use "0.0.0.0" to listen on all interfaces
-  host: 127.0.0.1
-
-  # HTTP API server port (default: 8182)
-  # Can be overridden with --port/-p flag or SKEMA_PORT env var
+  # HTTP server configuration
+  # Server bind address
+  host: 0.0.0.0
+  # Server port
   port: 8182
-
-  # Optional: Username for API authentication
-  # Can be overridden with SKEMA_USERNAME env var
-  username: null
-
-  # Optional: Password for API authentication (will be bcrypt hashed on first load)
-  # Can be overridden with SKEMA_PASSWORD env var
-  password: null
-
+  # Username for API authentication
+  username: admin
+  # Password for API authentication (will be bcrypt hashed)
+  password: your-secure-password
   # JWT signing secret (auto-generated if not provided)
   jwt_secret: null
+  # JWT token expiration time in hours
+  jwt_expiration_hours: 168
 
-  # JWT token expiration time in hours (default: 24)
-  jwt_expiration_hours: 24
 
 download:
-  # Directory for completed downloads before import (default: ~/Downloads/skema)
-  # Supports tilde expansion
-  directory: "~/Downloads/skema"
-
-  # How often to check for completed downloads in seconds (default: 60)
+  # Download client configuration
+  # NZB download client configuration
+  nzb_client: { type = "sabnzbd", url = "http://localhost:8080", api_key = "..." }
+  # Torrent download client configuration
+  torrent_client: { type = "transmission", url = "http://localhost:9091" }
+  # Directory for completed downloads (before import)
+  directory: ./downloads
+  # How often to check for completed downloads (in seconds)
   check_interval: 60
-
-  # Automatically import completed downloads (default: true)
+  # Automatically import completed downloads
   auto_import: true
-
   # Minimum seeders for torrents (null = no minimum)
-  min_seeders: 1
-
+  min_seeders: 5
   # Maximum download size in MB (null = no limit)
-  max_size_mb: null
+  max_size: 1000
 
-  # NZB download client (SABnzbd or NZBGet)
-  nzb_client: null
-  # Example:
-  #   type: "sabnzbd"
-  #   url: "http://localhost:8080"
-  #   api_key: "your-api-key"
-  #   enabled: true
-  #   download_dir: "/path/to/completed"  # SABnzbd only
-  #   category: "music"  # SABnzbd only
-
-  # Torrent download client (Transmission or qBittorrent)
-  torrent_client: null
-  # Example:
-  #   type: "transmission"
-  #   url: "http://localhost:9091"
-  #   username: "admin"
-  #   password: "password"
-  #   enabled: true
 
 indexers:
-  # List of Newznab/Torznab indexers
-  list:
-    - name: "Bullet"
-      url: "https://bullet.codeshy.com"
-      api_key: null
-      username: null  # Required for Bullet
-      password: null  # Required for Bullet
-      enabled: false  # Enable after adding credentials
-      priority: 10
-      categories:
-        - 3000  # Audio
-        - 3010  # MP3
-
-  # Search timeout per indexer in seconds (default: 30)
+  # Usenet/torrent indexer configuration
+  # List of configured indexers
+  list: []
+  # Search timeout per indexer in seconds
   search_timeout: 30
 
+
 musicbrainz:
-  # Which MusicBrainz server to use (default: "official")
-  # Options: "official" (musicbrainz.org) or "headphones_vip" (musicbrainz.codeshy.com)
-  server: "official"
-
-  # Username for Headphones VIP (required if server is "headphones_vip")
-  username: null
-
-  # Password for Headphones VIP (required if server is "headphones_vip")
+  # MusicBrainz metadata provider configuration
+  # Which MusicBrainz server to use
+  server: official
+  # Username for Headphones VIP (required if using VIP)
+  username: myuser
+  # Password for Headphones VIP (required if using VIP)
   password: null
+  # Primary album types to fetch (e.g., Album, EP)
+  album_types: ["Album"]
+  # Secondary types to exclude (e.g., Live, Compilation)
+  exclude_secondary_types: ["Live", "Compilation"]
 
-  # Primary album types to fetch (default: ["Album"])
-  # Options: Album, EP, Single, Broadcast, Other
-  album_types:
-    - "Album"
-
-  # Secondary types to exclude (default: ["Live", "Compilation"])
-  # Options: Live, Compilation, Soundtrack, Spokenword, Interview, Audiobook, Audio drama, Mixtape/Street, Demo, DJ-mix, Field recording, Remix
-  exclude_secondary_types:
-    - "Live"
-    - "Compilation"
 
 media:
-  # Last.fm API key for artist images and album covers (optional)
-  # Used as fallback when other sources are unavailable
-  lastfm_api_key: null
+  # Media providers configuration
+  # Last.fm API key for artist images and scrobbling
+  lastfm_api_key: your-lastfm-api-key
+
+
+notifications:
+  # Notification configuration
+  # Enable/disable all notifications
+  enabled: false
+  # List of notification providers
+  providers: []
+  # Send notification when new wanted albums are found
+  on_album_found: true
+  # Send notification when albums are downloaded
+  on_album_downloaded: true
+  # Send notification when albums are imported to library
+  on_album_imported: true
+

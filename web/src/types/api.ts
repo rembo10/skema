@@ -163,47 +163,81 @@ export interface PushoverProvider {
 
 export type NotificationProvider = PushoverProvider;
 
+// Config is now nested to match backend structure
+export interface LibraryConfig {
+  path: string | null;
+  watch: boolean;
+  auto_scan: boolean;
+  auto_scan_interval_mins: number;
+  auto_scan_on_startup: boolean;
+  normalize_featuring: boolean;
+  normalize_featuring_to: string;
+  path_format: string;
+  file_format: string;
+}
+
+export interface SystemConfig {
+  watch_config_file: boolean;
+  database_path: string | null;
+  data_dir: string | null;
+  cache_dir: string | null;
+  state_dir: string | null;
+}
+
+export interface ServerConfig {
+  host: string;
+  port: number;
+  username: string | null;
+  password: string | null;
+  jwt_secret: string | null;
+  jwt_expiration_hours: number;
+  auth_enabled?: boolean; // computed field from backend
+}
+
+export interface DownloadConfig {
+  nzb_client: DownloadClient | null;
+  torrent_client: DownloadClient | null;
+  directory: string | null;
+  check_interval: number;
+  auto_import: boolean;
+  min_seeders: number | null;
+  max_size: number | null;
+}
+
+export interface IndexersConfig {
+  list: Indexer[];
+  search_timeout: number;
+}
+
+export interface MusicbrainzConfig {
+  server: MusicBrainzServer;
+  username: string | null;
+  password: string | null;
+  album_types: string[];
+  exclude_secondary_types: string[];
+}
+
+export interface MediaConfig {
+  lastfm_api_key: string | null;
+}
+
+export interface NotificationsConfig {
+  enabled: boolean;
+  providers: NotificationProvider[];
+  on_album_found: boolean;
+  on_album_downloaded: boolean;
+  on_album_imported: boolean;
+}
+
 export interface Config {
-  // Library settings
-  library_path: string | null;
-  library_watch: boolean;
-  library_auto_scan: boolean;
-  library_auto_scan_interval_mins: number;
-  library_auto_scan_on_startup: boolean;
-  library_normalize_featuring: boolean;
-  library_normalize_featuring_to: string;
-  library_path_format: string;
-  library_file_format: string;
-  // System settings
-  system_watch_config_file: boolean;
-  system_database_backend: string;
-  system_database_path: string;
-  // Server settings
-  server_host: string;
-  server_port: number;
-  server_username: string | null;
-  server_jwt_expiration_hours: number;
-  server_auth_enabled: boolean;
-  // Download settings
-  download_nzb_client: DownloadClient | null;
-  download_torrent_client: DownloadClient | null;
-  download_directory: string;
-  download_check_interval: number;
-  download_auto_import: boolean;
-  download_min_seeders: number | null;
-  download_max_size_mb: number | null;
-  // Indexer settings
-  indexers_list: Indexer[];
-  indexers_search_timeout: number;
-  // MusicBrainz settings
-  musicbrainz_server: MusicBrainzServer;
-  musicbrainz_username: string | null;
-  musicbrainz_password: string | null;
-  // Notification settings
-  notification_enabled: boolean;
-  notification_providers: NotificationProvider[];
-  notification_on_album_found: boolean;
-  notification_on_album_imported: boolean;
+  library: LibraryConfig;
+  system: SystemConfig;
+  server: ServerConfig;
+  download: DownloadConfig;
+  indexers: IndexersConfig;
+  musicbrainz: MusicbrainzConfig;
+  media: MediaConfig;
+  notifications: NotificationsConfig;
 }
 
 // Catalog types

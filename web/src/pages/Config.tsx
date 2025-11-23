@@ -1,12 +1,18 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { Save, Library, Settings, Server, Download, Search, Database, Plus, Edit2, Trash2, X, HelpCircle, Bell } from 'lucide-react';
+import { Save, Library, Settings, Server, Download, Search, Database, Plus, Edit2, Trash2, X, Bell, ChevronDown, ChevronUp } from 'lucide-react';
 import { api } from '../lib/api';
-import { useSSE } from '../hooks/useSSE';
 import { PathInput } from '../components/PathInput';
+import {
+  LibraryConfigSection,
+  SystemConfigSection,
+  ServerConfigSection,
+  MusicbrainzConfigSection,
+  MediaConfigSection,
+} from '../components/ConfigFields.generated';
 import type { Config, DownloadClient, Indexer, DownloadClientType, NotificationProvider } from '../types/api';
 
-type TabId = 'library' | 'system' | 'server' | 'download' | 'indexers' | 'musicbrainz' | 'notifications';
+type TabId = 'library' | 'system' | 'server' | 'download' | 'indexers' | 'musicbrainz' | 'media' | 'notifications';
 
 interface Tab {
   id: TabId;
@@ -28,7 +34,7 @@ export default function Config() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState<Config | null>(null);
-  const [formData, setFormData] = useState<Partial<Config>>({});
+  const [formData, setFormData] = useState<Config | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('library');
 
   // Password is stored separately since it's not returned by the API
@@ -48,14 +54,17 @@ export default function Config() {
   const [editingProvider, setEditingProvider] = useState<{ index: number; provider: NotificationProvider } | null>(null);
   const [showProviderForm, setShowProviderForm] = useState(false);
 
+  // Show advanced options toggle
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   // Autosave with debounce
   const autosaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Autosave function
   const performSave = useCallback(async (updates: Partial<Config>, includePassword: boolean = false) => {
     // Include password if it was changed
-    const updatesWithPassword = includePassword && passwordChanged
-      ? { ...updates, server_password: serverPassword || null }
+    const updatesWithPassword = includePassword && passwordChanged && serverPassword
+      ? { ...updates, server: { ...updates.server, password: serverPassword } }
       : updates;
 
     if (Object.keys(updatesWithPassword).length === 0) return;
@@ -63,16 +72,11 @@ export default function Config() {
     setSaving(true);
     try {
       const updated = await api.updateConfig(updatesWithPassword);
-      // Update the saved config state
       setConfig(updated);
-      // Don't update formData here - it's the user's working copy
-      // This prevents overwriting any edits the user made while the save was in-flight
-      // Reset password state after successful save
       if (includePassword) {
         setServerPassword('');
         setPasswordChanged(false);
       }
-      // Toast will be shown by SSE event handler when file is written
     } catch (error) {
       console.error('Failed to save config:', error);
       toast.error('Failed to save configuration');
@@ -88,13 +92,12 @@ export default function Config() {
         console.log('[Config] Loading config...');
         const data = await api.getConfig();
         console.log('[Config] Loaded config:', data);
-            setConfig(data);
+        setConfig(data);
         setFormData(data);
         setServerPassword('');
         setPasswordChanged(false);
         setLoading(false);
       } catch (error: any) {
-        // Don't log 401 errors - they're expected when auth is required
         if (!error.isAuthError) {
           console.error('[Config] Failed to load config:', error);
           toast.error('Failed to load configuration');
@@ -104,23 +107,16 @@ export default function Config() {
     }
     loadConfig();
 
-    // Listen for config updates from SSE
     const handleConfigUpdate = ((event: CustomEvent) => {
       const data = event.detail;
       console.log('[Config] Received config update:', data);
-      // Update the saved config state
       setConfig(data);
-      // Don't update formData here - it's the user's working copy
-      // Only update formData on initial load or after successful save (handled in performSave)
-      // This prevents overwriting unsaved local edits when config file changes externally
-      // Don't reset password state here - it's not included in the response
       toast.success('Configuration saved');
     }) as EventListener;
 
     window.addEventListener('config_updated', handleConfigUpdate);
     return () => {
       window.removeEventListener('config_updated', handleConfigUpdate);
-      // Clear autosave timer on unmount
       if (autosaveTimerRef.current) {
         clearTimeout(autosaveTimerRef.current);
       }
@@ -129,50 +125,51 @@ export default function Config() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-
-    // Cancel pending autosave
     if (autosaveTimerRef.current) {
       clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
     }
 
-    // Only send changed fields
+    if (!formData || !config) return;
+
+    // Calculate diff between formData and config
     const updates: Partial<Config> = {};
-    if (config) {
-      Object.keys(formData).forEach((key) => {
-        const formKey = key as keyof Config;
-        if (formData[formKey] !== config[formKey]) {
-          (updates as any)[formKey] = formData[formKey];
-        }
-      });
+    for (const section of Object.keys(formData) as (keyof Config)[]) {
+      if (JSON.stringify(formData[section]) !== JSON.stringify(config[section])) {
+        (updates as any)[section] = formData[section];
+      }
     }
 
-    await performSave(updates, true); // Include password when manually saving
+    await performSave(updates, true);
   }
 
-  function handleChange(field: keyof Config, value: any) {
+  // Handle nested field changes (section.field)
+  function handleChange(section: keyof Config, field: string, value: any) {
     setFormData((prev) => {
-      const newFormData = { ...prev, [field]: value };
+      if (!prev) return prev;
+      const newFormData = {
+        ...prev,
+        [section]: {
+          ...(prev[section] as any),
+          [field]: value,
+        },
+      };
 
       // Cancel previous autosave timer
       if (autosaveTimerRef.current) {
         clearTimeout(autosaveTimerRef.current);
       }
 
-      // Schedule autosave after 5 seconds of no changes
+      // Schedule autosave after 5 seconds
       autosaveTimerRef.current = setTimeout(() => {
         if (!config) return;
-
-        // Calculate changed fields
         const updates: Partial<Config> = {};
-        Object.keys(newFormData).forEach((key) => {
-          const formKey = key as keyof Config;
-          if (newFormData[formKey] !== config[formKey]) {
-            (updates as any)[formKey] = newFormData[formKey];
+        for (const sec of Object.keys(newFormData) as (keyof Config)[]) {
+          if (JSON.stringify(newFormData[sec]) !== JSON.stringify(config[sec])) {
+            (updates as any)[sec] = newFormData[sec];
           }
-        });
-
-        performSave(updates, false); // Don't include password in autosave for security
+        }
+        performSave(updates, false);
       }, 5000);
 
       return newFormData;
@@ -185,10 +182,6 @@ export default function Config() {
   }
 
   // Download client management
-  function getClientCategory(type: DownloadClientType): 'torrent' | 'nzb' {
-    return type === 'transmission' || type === 'qbittorrent' ? 'torrent' : 'nzb';
-  }
-
   function getClientTypeName(type: DownloadClientType): string {
     switch (type) {
       case 'sabnzbd': return 'SABnzbd';
@@ -200,12 +193,11 @@ export default function Config() {
   }
 
   function editDownloadClient(type: 'nzb' | 'torrent') {
-    const client = type === 'nzb' ? formData.download_nzb_client : formData.download_torrent_client;
+    const client = type === 'nzb' ? formData?.download.nzb_client : formData?.download.torrent_client;
 
     if (client) {
       setEditingClient({ ...client });
     } else {
-      // Create default client based on type
       const defaultType: DownloadClientType = type === 'nzb' ? 'sabnzbd' : 'transmission';
       setEditingClient({
         type: defaultType,
@@ -226,16 +218,16 @@ export default function Config() {
   function saveDownloadClient() {
     if (!editingClient || !editingClientType) return;
 
-    const fieldName = editingClientType === 'nzb' ? 'download_nzb_client' : 'download_torrent_client';
-    handleChange(fieldName, editingClient);
+    const field = editingClientType === 'nzb' ? 'nzb_client' : 'torrent_client';
+    handleChange('download', field, editingClient);
     setShowClientForm(false);
     setEditingClient(null);
     setEditingClientType(null);
   }
 
   function deleteDownloadClient(type: 'nzb' | 'torrent') {
-    const fieldName = type === 'nzb' ? 'download_nzb_client' : 'download_torrent_client';
-    handleChange(fieldName, null);
+    const field = type === 'nzb' ? 'nzb_client' : 'torrent_client';
+    handleChange('download', field, null);
   }
 
   function updateEditingClient(field: keyof DownloadClient, value: any) {
@@ -256,14 +248,14 @@ export default function Config() {
       password: null,
       enabled: true,
       priority: 0,
-      categories: [3000, 3010], // Default: Audio, MP3
+      categories: [3000, 3010],
     };
     setEditingIndexer({ index: -1, indexer: newIndexer });
     setShowIndexerForm(true);
   }
 
   function editIndexer(index: number) {
-    const indexers = formData.indexers_list || [];
+    const indexers = formData?.indexers.list || [];
     setEditingIndexer({ index, indexer: { ...indexers[index] } });
     setShowIndexerForm(true);
   }
@@ -271,24 +263,22 @@ export default function Config() {
   function saveIndexer() {
     if (!editingIndexer) return;
 
-    const indexers = [...(formData.indexers_list || [])];
+    const indexers = [...(formData?.indexers.list || [])];
     if (editingIndexer.index === -1) {
-      // Adding new indexer
       indexers.push(editingIndexer.indexer);
     } else {
-      // Updating existing indexer
       indexers[editingIndexer.index] = editingIndexer.indexer;
     }
 
-    handleChange('indexers_list', indexers);
+    handleChange('indexers', 'list', indexers);
     setShowIndexerForm(false);
     setEditingIndexer(null);
   }
 
   function deleteIndexer(index: number) {
-    const indexers = [...(formData.indexers_list || [])];
+    const indexers = [...(formData?.indexers.list || [])];
     indexers.splice(index, 1);
-    handleChange('indexers_list', indexers);
+    handleChange('indexers', 'list', indexers);
   }
 
   function updateEditingIndexer(field: keyof Indexer, value: any) {
@@ -312,7 +302,7 @@ export default function Config() {
   }
 
   function editNotificationProvider(index: number) {
-    const providers = formData.notification_providers || [];
+    const providers = formData?.notifications.providers || [];
     setEditingProvider({ index, provider: { ...providers[index] } });
     setShowProviderForm(true);
   }
@@ -320,24 +310,22 @@ export default function Config() {
   function saveNotificationProvider() {
     if (!editingProvider) return;
 
-    const providers = [...(formData.notification_providers || [])];
+    const providers = [...(formData?.notifications.providers || [])];
     if (editingProvider.index === -1) {
-      // Adding new provider
       providers.push(editingProvider.provider);
     } else {
-      // Updating existing provider
       providers[editingProvider.index] = editingProvider.provider;
     }
 
-    handleChange('notification_providers', providers);
+    handleChange('notifications', 'providers', providers);
     setShowProviderForm(false);
     setEditingProvider(null);
   }
 
   function deleteNotificationProvider(index: number) {
-    const providers = [...(formData.notification_providers || [])];
+    const providers = [...(formData?.notifications.providers || [])];
     providers.splice(index, 1);
-    handleChange('notification_providers', providers);
+    handleChange('notifications', 'providers', providers);
   }
 
   function updateEditingProvider(field: keyof NotificationProvider, value: any) {
@@ -348,7 +336,7 @@ export default function Config() {
     });
   }
 
-  if (loading) {
+  if (loading || !formData) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-dark-text-secondary">Loading...</div>
@@ -366,6 +354,14 @@ export default function Config() {
             Configure your application
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="btn-secondary text-sm flex items-center gap-2"
+        >
+          {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          {showAdvanced ? 'Hide Advanced' : 'Show Advanced'}
+        </button>
       </div>
 
       {/* Tab Navigation */}
@@ -395,996 +391,647 @@ export default function Config() {
 
       {/* Main content area */}
       <form onSubmit={handleSave} className="space-y-6">
-            {/* Library Settings */}
-            {activeTab === 'library' && (
-              <div className="card">
-          <div className="px-6 py-5 border-b border-dark-border">
-            <h2 className="text-lg font-medium text-dark-text">Library Settings</h2>
-            <p className="mt-1 text-sm text-dark-text-secondary">
-              Configure your music library location and scanning behavior
-            </p>
-          </div>
-          <div className="px-6 py-5 space-y-6">
-            {/* Library Path */}
-            <PathInput
-              id="library_path"
-              label="Library Path"
-              value={formData.library_path || ''}
-              onChange={(value) => handleChange('library_path', value)}
-              type="directory"
-              placeholder="/path/to/your/music/library"
-              description="The full path to your music library directory"
-            />
-
-            {/* File System Watching */}
-            <div className="flex items-start gap-3">
-              <input
-                id="library_watch"
-                type="checkbox"
-                checked={formData.library_watch ?? false}
-                onChange={(e) => handleChange('library_watch', e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
-              />
-              <div>
-                <label htmlFor="library_watch" className="text-sm font-medium text-dark-text">
-                  Enable File System Watching
-                </label>
-                <p className="text-sm text-dark-text-secondary mt-0.5">
-                  Automatically detect changes to your library in real-time
-                </p>
-              </div>
-            </div>
-
-            {/* Auto Scan */}
-            <div className="flex items-start gap-3">
-              <input
-                  id="library_auto_scan"
-                  type="checkbox"
-                  checked={formData.library_auto_scan ?? false}
-                  onChange={(e) => handleChange('library_auto_scan', e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
-                />
-              <div>
-                <label htmlFor="library_auto_scan" className="text-sm font-medium text-dark-text">
-                  Enable Automatic Periodic Scanning
-                </label>
-                <p className="text-sm text-dark-text-secondary">
-                  Periodically scan your library for changes
-                </p>
-              </div>
-            </div>
-
-            {/* Auto Scan Interval */}
-            <div>
-              <label htmlFor="library_auto_scan_interval_mins" className="block text-sm font-medium text-dark-text mb-2">
-                Auto Scan Interval (minutes)
-              </label>
-              <input
-                type="number"
-                id="library_auto_scan_interval_mins"
-                value={formData.library_auto_scan_interval_mins ?? 60}
-                onChange={(e) => handleChange('library_auto_scan_interval_mins', parseInt(e.target.value))}
-                min="1"
-                className="input w-48"
-              />
-              <p className="mt-2 text-sm text-dark-text-secondary">
-                How often to scan the library automatically
+        {/* Library Settings - using generated component */}
+        {activeTab === 'library' && (
+          <div className="card">
+            <div className="px-6 py-5 border-b border-dark-border">
+              <h2 className="text-lg font-medium text-dark-text">Library Settings</h2>
+              <p className="mt-1 text-sm text-dark-text-secondary">
+                Configure your music library location and scanning behavior
               </p>
             </div>
-
-            {/* Auto Scan on Startup */}
-            <div className="flex items-start gap-3">
-              <input
-                  id="library_auto_scan_on_startup"
-                  type="checkbox"
-                  checked={formData.library_auto_scan_on_startup ?? false}
-                  onChange={(e) => handleChange('library_auto_scan_on_startup', e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
-                />
-              <div>
-                <label htmlFor="library_auto_scan_on_startup" className="text-sm font-medium text-dark-text">
-                  Scan Library on Startup
-                </label>
-                <p className="text-sm text-dark-text-secondary">
-                  Run a full library scan when the application starts
-                </p>
-              </div>
+            <div className="px-6 py-5">
+              <LibraryConfigSection config={formData} onChange={handleChange} showAdvanced={showAdvanced} />
             </div>
+          </div>
+        )}
 
-            {/* Normalize Featuring */}
-            <div className="flex items-start gap-3">
-              <input
-                  id="library_normalize_featuring"
-                  type="checkbox"
-                  checked={formData.library_normalize_featuring ?? false}
-                  onChange={(e) => handleChange('library_normalize_featuring', e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
-                />
-              <div>
-                <label htmlFor="library_normalize_featuring" className="text-sm font-medium text-dark-text">
-                  Normalize Featuring Artists
-                </label>
-                <p className="text-sm text-dark-text-secondary">
-                  Standardize "featuring" join phrases in artist credits
-                </p>
-              </div>
+        {/* System Settings - using generated component */}
+        {activeTab === 'system' && (
+          <div className="card">
+            <div className="px-6 py-5 border-b border-dark-border">
+              <h2 className="text-lg font-medium text-dark-text">System Settings</h2>
+              <p className="mt-1 text-sm text-dark-text-secondary">
+                Configure system-level behavior and database settings
+              </p>
             </div>
+            <div className="px-6 py-5">
+              <SystemConfigSection config={formData} onChange={handleChange} showAdvanced={showAdvanced} />
+            </div>
+          </div>
+        )}
 
-            {/* Normalize Featuring To */}
-            {formData.library_normalize_featuring && (
+        {/* Server Settings - using generated component */}
+        {activeTab === 'server' && (
+          <div className="card">
+            <div className="px-6 py-5 border-b border-dark-border">
+              <h2 className="text-lg font-medium text-dark-text">Server Settings</h2>
+              <p className="mt-1 text-sm text-dark-text-secondary">
+                Configure server network and authentication settings
+              </p>
+            </div>
+            <div className="px-6 py-5 space-y-6">
+              <ServerConfigSection config={formData} onChange={handleChange} showAdvanced={showAdvanced} />
+
+              {/* Custom password field with change tracking */}
               <div>
-                <label htmlFor="library_normalize_featuring_to" className="block text-sm font-medium text-dark-text mb-2">
-                  Normalize Featuring To
+                <label htmlFor="server_password" className="block text-sm font-medium text-dark-text mb-2">
+                  Password (Optional)
                 </label>
                 <input
-                  type="text"
-                  id="library_normalize_featuring_to"
-                  value={formData.library_normalize_featuring_to || 'feat.'}
-                  onChange={(e) => handleChange('library_normalize_featuring_to', e.target.value)}
-                  className="input w-48"
-                  placeholder="feat."
+                  type="password"
+                  id="server_password"
+                  value={serverPassword}
+                  onChange={(e) => handlePasswordChange(e.target.value)}
+                  className="input w-64"
+                  placeholder={
+                    config?.server.auth_enabled
+                      ? 'Password is set (enter new password to change)'
+                      : 'Enter password to enable authentication'
+                  }
                 />
                 <p className="mt-2 text-sm text-dark-text-secondary">
-                  What to normalize "featuring" join phrases to (e.g., "feat.", "ft.")
+                  Password for API authentication. Will be securely hashed when saved. {passwordChanged && '(Password changes require clicking Save Changes button)'}
                 </p>
               </div>
-            )}
 
-            {/* Path Format */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <label htmlFor="library_path_format" className="text-sm font-medium text-dark-text">
-                  Library Path Format
-                </label>
-                <button
-                  type="button"
-                  title="Variables: {album_artist}, {album}, {year}, {country}, {label}, {catalog_number}, {total_discs}, {total_tracks}&#10;Functions: {lower:variable}, {upper:variable}, {capitalize:variable}, {trim:variable}&#10;Conditionals: {if:multidisc|then|else}, {if:lossless|then|else}&#10;&#10;All text variables are automatically sanitized for filesystem safety"
-                  className="text-dark-text-secondary hover:text-dark-text transition-colors"
-                >
-                  <HelpCircle className="w-4 h-4" />
-                </button>
+              {/* Authentication Status */}
+              <div className="rounded-lg bg-dark-info-muted border border-dark-info/30 p-4">
+                <div className="flex gap-3">
+                  <svg className="h-5 w-5 text-dark-info flex-shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                  <div className="flex-1">
+                    <p className="text-sm text-dark-text">
+                      <strong>Current Status:</strong> {config?.server.auth_enabled ? 'Authentication Enabled' : 'Authentication Disabled'}
+                      {config?.server.username && ` (User: ${config.server.username})`}
+                    </p>
+                    <p className="mt-2 text-sm text-dark-text-secondary">
+                      <strong>Note:</strong> Environment variables SKEMA_USERNAME and SKEMA_PASSWORD will override config file values if set.
+                    </p>
+                  </div>
+                </div>
               </div>
-              <input
-                type="text"
-                id="library_path_format"
-                value={formData.library_path_format || '{album_artist}/{album} [{year}]'}
-                onChange={(e) => handleChange('library_path_format', e.target.value)}
-                className="input w-full font-mono"
-                placeholder="{album_artist}/{album} [{year}]"
-              />
-              <p className="mt-2 text-sm text-dark-text-secondary">
-                Template for organizing album directories
-              </p>
-            </div>
-
-            {/* File Format */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <label htmlFor="library_file_format" className="text-sm font-medium text-dark-text">
-                  Library File Format
-                </label>
-                <button
-                  type="button"
-                  title="Variables: {track:02} (padded), {disc:02}, {artist}, {title}, {album}, {year}, {format} (FLAC/MP3), {bitrate}, {sample_rate}, {bit_depth}, {ext}&#10;Functions: {lower:variable}, {upper:variable}, {capitalize:variable}, {trim:variable}&#10;Conditionals: {if:multidisc|then|else}, {if:lossless|then|else}&#10;&#10;All text variables are automatically sanitized for filesystem safety"
-                  className="text-dark-text-secondary hover:text-dark-text transition-colors"
-                >
-                  <HelpCircle className="w-4 h-4" />
-                </button>
-              </div>
-              <input
-                type="text"
-                id="library_file_format"
-                value={formData.library_file_format || '{track:02} {artist} - {album} {year} - {title}.{ext}'}
-                onChange={(e) => handleChange('library_file_format', e.target.value)}
-                className="input w-full font-mono"
-                placeholder="{track:02} {artist} - {album} {year} - {title}.{ext}"
-              />
-              <p className="mt-2 text-sm text-dark-text-secondary">
-                Template for naming track files
-              </p>
             </div>
           </div>
-        </div>
-            )}
+        )}
 
-            {/* System Settings */}
-            {activeTab === 'system' && (
-        <div className="card">
-          <div className="px-6 py-5 border-b border-dark-border">
-            <h2 className="text-lg font-medium text-dark-text">System Settings</h2>
-            <p className="mt-1 text-sm text-dark-text-secondary">
-              Configure system-level behavior and database settings
-            </p>
-          </div>
-          <div className="px-6 py-5 space-y-6">
-            {/* Watch Config File */}
-            <div className="flex items-start gap-3">
-              <input
-                  id="system_watch_config_file"
-                  type="checkbox"
-                  checked={formData.system_watch_config_file ?? false}
-                  onChange={(e) => handleChange('system_watch_config_file', e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
+        {/* Download Settings - manual because of complex client forms */}
+        {activeTab === 'download' && (
+          <div className="space-y-6">
+            {/* General Download Settings */}
+            <div className="card">
+              <div className="px-6 py-5 border-b border-dark-border">
+                <h2 className="text-lg font-medium text-dark-text">Download Settings</h2>
+                <p className="mt-1 text-sm text-dark-text-secondary">
+                  Configure download behavior and directory
+                </p>
+              </div>
+              <div className="px-6 py-5 space-y-6">
+                <PathInput
+                  id="download_directory"
+                  label="Download Directory"
+                  value={formData.download.directory || ''}
+                  onChange={(value) => handleChange('download', 'directory', value)}
+                  type="directory"
+                  placeholder="/path/to/downloads"
+                  description="Directory where completed downloads are stored before import"
                 />
-              <div>
-                <label htmlFor="system_watch_config_file" className="text-sm font-medium text-dark-text">
-                  Watch Config File for Changes
-                </label>
-                <p className="text-sm text-dark-text-secondary">
-                  Automatically reload configuration when the config file changes
-                </p>
-              </div>
-            </div>
 
-            {/* Database Path */}
-            <PathInput
-              id="system_database_path"
-              label="Database Path"
-              value={formData.system_database_path || ''}
-              onChange={(value) => handleChange('system_database_path', value)}
-              type="file"
-              placeholder="./skema.db"
-              description="Path to SQLite database file"
-            />
-          </div>
-        </div>
-            )}
-
-            {/* Server Settings */}
-            {activeTab === 'server' && (
-        <div className="card">
-          <div className="px-6 py-5 border-b border-dark-border">
-            <h2 className="text-lg font-medium text-dark-text">Server Settings</h2>
-            <p className="mt-1 text-sm text-dark-text-secondary">
-              Configure server network and authentication settings
-            </p>
-          </div>
-          <div className="px-6 py-5 space-y-6">
-            {/* Server Host */}
-            <div>
-              <label htmlFor="server_host" className="block text-sm font-medium text-dark-text mb-2">
-                Server Host
-              </label>
-              <input
-                type="text"
-                id="server_host"
-                value={formData.server_host || ''}
-                onChange={(e) => handleChange('server_host', e.target.value)}
-                className="input w-64"
-                placeholder="127.0.0.1"
-              />
-              <p className="mt-2 text-sm text-dark-text-secondary">
-                Host address to bind to (use 0.0.0.0 to listen on all interfaces)
-              </p>
-            </div>
-
-            {/* Server Port */}
-            <div>
-              <label htmlFor="server_port" className="block text-sm font-medium text-dark-text mb-2">
-                Server Port
-              </label>
-              <input
-                type="number"
-                id="server_port"
-                value={formData.server_port ?? 8182}
-                onChange={(e) => handleChange('server_port', parseInt(e.target.value))}
-                min="1"
-                max="65535"
-                className="input w-48"
-              />
-              <p className="mt-2 text-sm text-dark-text-secondary">
-                HTTP API server port
-              </p>
-            </div>
-
-            {/* JWT Expiration */}
-            <div>
-              <label htmlFor="server_jwt_expiration_hours" className="block text-sm font-medium text-dark-text mb-2">
-                JWT Token Expiration (hours)
-              </label>
-              <input
-                type="number"
-                id="server_jwt_expiration_hours"
-                value={formData.server_jwt_expiration_hours ?? 24}
-                onChange={(e) => handleChange('server_jwt_expiration_hours', parseInt(e.target.value))}
-                min="1"
-                className="input w-48"
-              />
-              <p className="mt-2 text-sm text-dark-text-secondary">
-                How long JWT tokens remain valid
-              </p>
-            </div>
-
-            {/* Server Username */}
-            <div>
-              <label htmlFor="server_username" className="block text-sm font-medium text-dark-text mb-2">
-                Username (Optional)
-              </label>
-              <input
-                type="text"
-                id="server_username"
-                value={formData.server_username || ''}
-                onChange={(e) => handleChange('server_username', e.target.value || null)}
-                className="input w-64"
-                placeholder="username"
-              />
-              <p className="mt-2 text-sm text-dark-text-secondary">
-                Username for API authentication. Leave empty to disable authentication.
-              </p>
-            </div>
-
-            {/* Server Password */}
-            <div>
-              <label htmlFor="server_password" className="block text-sm font-medium text-dark-text mb-2">
-                Password (Optional)
-              </label>
-              <input
-                type="password"
-                id="server_password"
-                value={serverPassword}
-                onChange={(e) => handlePasswordChange(e.target.value)}
-                className="input w-64"
-                placeholder={
-                  config?.server_auth_enabled
-                    ? 'Password is set (enter new password to change)'
-                    : 'Enter password to enable authentication'
-                }
-              />
-              <p className="mt-2 text-sm text-dark-text-secondary">
-                Password for API authentication. Will be securely hashed when saved. {passwordChanged && '(Password changes require clicking Save Changes button)'}
-              </p>
-            </div>
-
-            {/* Authentication Status */}
-            <div className="rounded-lg bg-dark-info-muted border border-dark-info/30 p-4">
-              <div className="flex gap-3">
-                <svg className="h-5 w-5 text-dark-info flex-shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-                <div className="flex-1">
-                  <p className="text-sm text-dark-text">
-                    <strong>Current Status:</strong> {config?.server_auth_enabled ? 'Authentication Enabled' : 'Authentication Disabled'}
-                    {config?.server_username && ` (User: ${config.server_username})`}
-                  </p>
+                <div>
+                  <label htmlFor="download_check_interval" className="block text-sm font-medium text-dark-text mb-2">
+                    Check Interval (seconds)
+                  </label>
+                  <input
+                    type="number"
+                    id="download_check_interval"
+                    value={formData.download.check_interval ?? 60}
+                    onChange={(e) => handleChange('download', 'check_interval', parseInt(e.target.value))}
+                    min="10"
+                    className="input w-48"
+                  />
                   <p className="mt-2 text-sm text-dark-text-secondary">
-                    <strong>Note:</strong> Environment variables SKEMA_USERNAME and SKEMA_PASSWORD will override config file values if set.
-                    The username shown above reflects the actual effective value (including any env var override).
+                    How often to check download clients for status updates
                   </p>
-                  {config?.server_auth_enabled && (
-                    <p className="mt-1 text-xs text-dark-text-tertiary">
-                      To fully disable authentication, ensure both config file values and environment variables are unset.
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <input
+                    id="download_auto_import"
+                    type="checkbox"
+                    checked={formData.download.auto_import ?? false}
+                    onChange={(e) => handleChange('download', 'auto_import', e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
+                  />
+                  <div>
+                    <label htmlFor="download_auto_import" className="text-sm font-medium text-dark-text">
+                      Auto Import Completed Downloads
+                    </label>
+                    <p className="text-sm text-dark-text-secondary mt-0.5">
+                      Automatically import completed downloads to your library
                     </p>
-                  )}
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="download_min_seeders" className="block text-sm font-medium text-dark-text mb-2">
+                    Minimum Seeders (Optional)
+                  </label>
+                  <input
+                    type="number"
+                    id="download_min_seeders"
+                    value={formData.download.min_seeders ?? ''}
+                    onChange={(e) => handleChange('download', 'min_seeders', e.target.value ? parseInt(e.target.value) : null)}
+                    min="0"
+                    className="input w-48"
+                    placeholder="No minimum"
+                  />
+                  <p className="mt-2 text-sm text-dark-text-secondary">
+                    Minimum number of seeders required for torrent downloads
+                  </p>
+                </div>
+
+                <div>
+                  <label htmlFor="download_max_size" className="block text-sm font-medium text-dark-text mb-2">
+                    Maximum Size (MB, Optional)
+                  </label>
+                  <input
+                    type="number"
+                    id="download_max_size"
+                    value={formData.download.max_size ?? ''}
+                    onChange={(e) => handleChange('download', 'max_size', e.target.value ? parseInt(e.target.value) : null)}
+                    min="1"
+                    className="input w-48"
+                    placeholder="No maximum"
+                  />
+                  <p className="mt-2 text-sm text-dark-text-secondary">
+                    Maximum download size to accept
+                  </p>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-            )}
 
-            {/* Download Settings */}
-            {activeTab === 'download' && (
-              <div className="space-y-6">
-                {/* General Download Settings */}
-                <div className="card">
-                  <div className="px-6 py-5 border-b border-dark-border">
-                    <h2 className="text-lg font-medium text-dark-text">Download Settings</h2>
-                    <p className="mt-1 text-sm text-dark-text-secondary">
-                      Configure download behavior and directory
-                    </p>
-                  </div>
-                  <div className="px-6 py-5 space-y-6">
-                    {/* Download Directory */}
-                    <PathInput
-                      id="download_directory"
-                      label="Download Directory"
-                      value={formData.download_directory || ''}
-                      onChange={(value) => handleChange('download_directory', value)}
-                      type="directory"
-                      placeholder="/path/to/downloads"
-                      description="Directory where completed downloads are stored before import"
-                    />
-
-                    {/* Check Interval */}
-                    <div>
-                      <label htmlFor="download_check_interval" className="block text-sm font-medium text-dark-text mb-2">
-                        Check Interval (seconds)
-                      </label>
-                      <input
-                        type="number"
-                        id="download_check_interval"
-                        value={formData.download_check_interval ?? 60}
-                        onChange={(e) => handleChange('download_check_interval', parseInt(e.target.value))}
-                        min="10"
-                        className="input w-48"
-                      />
-                      <p className="mt-2 text-sm text-dark-text-secondary">
-                        How often to check download clients for status updates
-                      </p>
-                    </div>
-
-                    {/* Auto Import */}
-                    <div className="flex items-start gap-3">
-                      <input
-                        id="download_auto_import"
-                        type="checkbox"
-                        checked={formData.download_auto_import ?? false}
-                        onChange={(e) => handleChange('download_auto_import', e.target.checked)}
-                        className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
-                      />
-                      <div>
-                        <label htmlFor="download_auto_import" className="text-sm font-medium text-dark-text">
-                          Auto Import Completed Downloads
-                        </label>
-                        <p className="text-sm text-dark-text-secondary mt-0.5">
-                          Automatically import completed downloads to your library
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Min Seeders */}
-                    <div>
-                      <label htmlFor="download_min_seeders" className="block text-sm font-medium text-dark-text mb-2">
-                        Minimum Seeders (Optional)
-                      </label>
-                      <input
-                        type="number"
-                        id="download_min_seeders"
-                        value={formData.download_min_seeders ?? ''}
-                        onChange={(e) => handleChange('download_min_seeders', e.target.value ? parseInt(e.target.value) : null)}
-                        min="0"
-                        className="input w-48"
-                        placeholder="No minimum"
-                      />
-                      <p className="mt-2 text-sm text-dark-text-secondary">
-                        Minimum number of seeders required for torrent downloads
-                      </p>
-                    </div>
-
-                    {/* Max Size */}
-                    <div>
-                      <label htmlFor="download_max_size_mb" className="block text-sm font-medium text-dark-text mb-2">
-                        Maximum Size (MB, Optional)
-                      </label>
-                      <input
-                        type="number"
-                        id="download_max_size_mb"
-                        value={formData.download_max_size_mb ?? ''}
-                        onChange={(e) => handleChange('download_max_size_mb', e.target.value ? parseInt(e.target.value) : null)}
-                        min="1"
-                        className="input w-48"
-                        placeholder="No maximum"
-                      />
-                      <p className="mt-2 text-sm text-dark-text-secondary">
-                        Maximum download size to accept
-                      </p>
-                    </div>
-                  </div>
+            {/* NZB Client */}
+            <div className="card">
+              <div className="px-6 py-5 border-b border-dark-border flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-medium text-dark-text">NZB Client</h2>
+                  <p className="mt-1 text-sm text-dark-text-secondary">
+                    Configure your NZB download client (SABnzbd or NZBGet)
+                  </p>
                 </div>
-
-                {/* NZB Client */}
-                <div className="card">
-                  <div className="px-6 py-5 border-b border-dark-border flex items-center justify-between">
-                    <div>
-                      <h2 className="text-lg font-medium text-dark-text">NZB Client</h2>
-                      <p className="mt-1 text-sm text-dark-text-secondary">
-                        Configure your NZB download client (SABnzbd or NZBGet)
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => editDownloadClient('nzb')}
-                      className="btn-primary text-sm"
-                    >
-                      {formData.download_nzb_client ? (
-                        <>
-                          <Edit2 className="w-4 h-4 mr-1" />
-                          Edit
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="w-4 h-4 mr-1" />
-                          Configure
-                        </>
-                      )}
-                    </button>
-                  </div>
-                  <div className="px-6 py-5">
-                    {formData.download_nzb_client ? (
-                      <div className="border border-dark-border rounded-lg p-4">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <h3 className="text-sm font-medium text-dark-text">{getClientTypeName(formData.download_nzb_client.type)}</h3>
-                              <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border bg-dark-info/10 text-dark-info border-dark-info/30">
-                                NZB
-                              </span>
-                              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border ${
-                                formData.download_nzb_client.enabled
-                                  ? 'bg-dark-success-muted text-dark-success border-dark-success/30'
-                                  : 'bg-dark-bg-subtle text-dark-text-tertiary border-dark-border'
-                              }`}>
-                                {formData.download_nzb_client.enabled ? 'Enabled' : 'Disabled'}
-                              </span>
-                            </div>
-                            <p className="text-sm text-dark-text-secondary">{formData.download_nzb_client.type}</p>
-                            <p className="text-sm text-dark-text-secondary mt-1">{formData.download_nzb_client.url}</p>
-                          </div>
-                          <div className="flex items-center gap-2 ml-4">
-                            <button
-                              type="button"
-                              onClick={() => editDownloadClient('nzb')}
-                              className="p-2 text-dark-text-tertiary hover:text-dark-accent transition-colors"
-                              title="Edit client"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (confirm(`Delete NZB client (${formData.download_nzb_client ? getClientTypeName(formData.download_nzb_client.type) : 'unknown'})?`)) {
-                                  deleteDownloadClient('nzb');
-                                }
-                              }}
-                              className="p-2 text-dark-text-tertiary hover:text-dark-error transition-colors"
-                              title="Delete client"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
+                <button
+                  type="button"
+                  onClick={() => editDownloadClient('nzb')}
+                  className="btn-primary text-sm"
+                >
+                  {formData.download.nzb_client ? (
+                    <>
+                      <Edit2 className="w-4 h-4 mr-1" />
+                      Edit
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4 mr-1" />
+                      Configure
+                    </>
+                  )}
+                </button>
+              </div>
+              <div className="px-6 py-5">
+                {formData.download.nzb_client ? (
+                  <div className="border border-dark-border rounded-lg p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className="text-sm font-medium text-dark-text">{getClientTypeName(formData.download.nzb_client.type)}</h3>
+                          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border bg-dark-info/10 text-dark-info border-dark-info/30">
+                            NZB
+                          </span>
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border ${
+                            formData.download.nzb_client.enabled
+                              ? 'bg-dark-success-muted text-dark-success border-dark-success/30'
+                              : 'bg-dark-bg-subtle text-dark-text-tertiary border-dark-border'
+                          }`}>
+                            {formData.download.nzb_client.enabled ? 'Enabled' : 'Disabled'}
+                          </span>
                         </div>
+                        <p className="text-sm text-dark-text-secondary mt-1">{formData.download.nzb_client.url}</p>
                       </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <Download className="mx-auto h-12 w-12 text-dark-text-tertiary" />
-                        <p className="mt-2 text-sm text-dark-text-secondary">No NZB client configured</p>
+                      <div className="flex items-center gap-2 ml-4">
                         <button
                           type="button"
                           onClick={() => editDownloadClient('nzb')}
-                          className="btn-secondary mt-4"
+                          className="p-2 text-dark-text-tertiary hover:text-dark-accent transition-colors"
+                          title="Edit client"
                         >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Configure NZB Client
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm(`Delete NZB client?`)) {
+                              deleteDownloadClient('nzb');
+                            }
+                          }}
+                          className="p-2 text-dark-text-tertiary hover:text-dark-error transition-colors"
+                          title="Delete client"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Torrent Client */}
-                <div className="card">
-                  <div className="px-6 py-5 border-b border-dark-border flex items-center justify-between">
-                    <div>
-                      <h2 className="text-lg font-medium text-dark-text">Torrent Client</h2>
-                      <p className="mt-1 text-sm text-dark-text-secondary">
-                        Configure your torrent download client (Transmission or qBittorrent)
-                      </p>
                     </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Download className="mx-auto h-12 w-12 text-dark-text-tertiary" />
+                    <p className="mt-2 text-sm text-dark-text-secondary">No NZB client configured</p>
+                    <button
+                      type="button"
+                      onClick={() => editDownloadClient('nzb')}
+                      className="btn-secondary mt-4"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Configure NZB Client
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Torrent Client */}
+            <div className="card">
+              <div className="px-6 py-5 border-b border-dark-border flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-medium text-dark-text">Torrent Client</h2>
+                  <p className="mt-1 text-sm text-dark-text-secondary">
+                    Configure your torrent download client (Transmission or qBittorrent)
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => editDownloadClient('torrent')}
+                  className="btn-primary text-sm"
+                >
+                  {formData.download.torrent_client ? (
+                    <>
+                      <Edit2 className="w-4 h-4 mr-1" />
+                      Edit
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4 mr-1" />
+                      Configure
+                    </>
+                  )}
+                </button>
+              </div>
+              <div className="px-6 py-5">
+                {formData.download.torrent_client ? (
+                  <div className="border border-dark-border rounded-lg p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className="text-sm font-medium text-dark-text">{getClientTypeName(formData.download.torrent_client.type)}</h3>
+                          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border bg-dark-accent/10 text-dark-accent border-dark-accent/30">
+                            Torrent
+                          </span>
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border ${
+                            formData.download.torrent_client.enabled
+                              ? 'bg-dark-success-muted text-dark-success border-dark-success/30'
+                              : 'bg-dark-bg-subtle text-dark-text-tertiary border-dark-border'
+                          }`}>
+                            {formData.download.torrent_client.enabled ? 'Enabled' : 'Disabled'}
+                          </span>
+                        </div>
+                        <p className="text-sm text-dark-text-secondary mt-1">{formData.download.torrent_client.url}</p>
+                      </div>
+                      <div className="flex items-center gap-2 ml-4">
+                        <button
+                          type="button"
+                          onClick={() => editDownloadClient('torrent')}
+                          className="p-2 text-dark-text-tertiary hover:text-dark-accent transition-colors"
+                          title="Edit client"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm(`Delete torrent client?`)) {
+                              deleteDownloadClient('torrent');
+                            }
+                          }}
+                          className="p-2 text-dark-text-tertiary hover:text-dark-error transition-colors"
+                          title="Delete client"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Download className="mx-auto h-12 w-12 text-dark-text-tertiary" />
+                    <p className="mt-2 text-sm text-dark-text-secondary">No torrent client configured</p>
                     <button
                       type="button"
                       onClick={() => editDownloadClient('torrent')}
-                      className="btn-primary text-sm"
+                      className="btn-secondary mt-4"
                     >
-                      {formData.download_torrent_client ? (
-                        <>
-                          <Edit2 className="w-4 h-4 mr-1" />
-                          Edit
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="w-4 h-4 mr-1" />
-                          Configure
-                        </>
-                      )}
+                      <Plus className="w-4 h-4 mr-2" />
+                      Configure Torrent Client
                     </button>
                   </div>
-                  <div className="px-6 py-5">
-                    {formData.download_torrent_client ? (
-                      <div className="border border-dark-border rounded-lg p-4">
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Indexer Settings - manual because of complex list management */}
+        {activeTab === 'indexers' && (
+          <div className="space-y-6">
+            <div className="card">
+              <div className="px-6 py-5 border-b border-dark-border">
+                <h2 className="text-lg font-medium text-dark-text">Indexer Settings</h2>
+                <p className="mt-1 text-sm text-dark-text-secondary">
+                  Configure global indexer behavior
+                </p>
+              </div>
+              <div className="px-6 py-5 space-y-6">
+                <div>
+                  <label htmlFor="indexers_search_timeout" className="block text-sm font-medium text-dark-text mb-2">
+                    Search Timeout (seconds)
+                  </label>
+                  <input
+                    type="number"
+                    id="indexers_search_timeout"
+                    value={formData.indexers.search_timeout ?? 30}
+                    onChange={(e) => handleChange('indexers', 'search_timeout', parseInt(e.target.value))}
+                    min="5"
+                    className="input w-48"
+                  />
+                  <p className="mt-2 text-sm text-dark-text-secondary">
+                    Maximum time to wait for indexer search responses
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="px-6 py-5 border-b border-dark-border flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-medium text-dark-text">Configured Indexers</h2>
+                  <p className="mt-1 text-sm text-dark-text-secondary">
+                    Newznab and Torznab indexers for searching releases
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={addIndexer}
+                  className="btn-primary text-sm"
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Indexer
+                </button>
+              </div>
+              <div className="px-6 py-5">
+                {formData.indexers.list && formData.indexers.list.length > 0 ? (
+                  <div className="space-y-3">
+                    {formData.indexers.list.map((indexer, idx) => (
+                      <div key={idx} className="border border-dark-border rounded-lg p-4 hover:border-dark-border-bright transition-colors">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <h3 className="text-sm font-medium text-dark-text">{getClientTypeName(formData.download_torrent_client.type)}</h3>
-                              <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border bg-dark-accent/10 text-dark-accent border-dark-accent/30">
-                                Torrent
-                              </span>
+                            <div className="flex items-center gap-3 mb-2">
+                              <h3 className="text-sm font-medium text-dark-text">{indexer.name || 'Unnamed Indexer'}</h3>
                               <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border ${
-                                formData.download_torrent_client.enabled
+                                indexer.enabled
                                   ? 'bg-dark-success-muted text-dark-success border-dark-success/30'
                                   : 'bg-dark-bg-subtle text-dark-text-tertiary border-dark-border'
                               }`}>
-                                {formData.download_torrent_client.enabled ? 'Enabled' : 'Disabled'}
+                                {indexer.enabled ? 'Enabled' : 'Disabled'}
                               </span>
                             </div>
-                            <p className="text-sm text-dark-text-secondary">{formData.download_torrent_client.type}</p>
-                            <p className="text-sm text-dark-text-secondary mt-1">{formData.download_torrent_client.url}</p>
+                            <p className="text-sm text-dark-text-secondary mb-2">{indexer.url}</p>
+                            <div className="flex gap-4 text-xs text-dark-text-secondary">
+                              {indexer.categories && indexer.categories.length > 0 && (
+                                <span>Categories: {indexer.categories.join(', ')}</span>
+                              )}
+                              <span>Priority: {indexer.priority}</span>
+                            </div>
                           </div>
                           <div className="flex items-center gap-2 ml-4">
                             <button
                               type="button"
-                              onClick={() => editDownloadClient('torrent')}
+                              onClick={() => editIndexer(idx)}
                               className="p-2 text-dark-text-tertiary hover:text-dark-accent transition-colors"
-                              title="Edit client"
+                              title="Edit indexer"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
                             <button
                               type="button"
                               onClick={() => {
-                                if (confirm(`Delete torrent client (${formData.download_torrent_client ? getClientTypeName(formData.download_torrent_client.type) : 'unknown'})?`)) {
-                                  deleteDownloadClient('torrent');
+                                if (confirm(`Delete indexer "${indexer.name}"?`)) {
+                                  deleteIndexer(idx);
                                 }
                               }}
                               className="p-2 text-dark-text-tertiary hover:text-dark-error transition-colors"
-                              title="Delete client"
+                              title="Delete indexer"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
                         </div>
                       </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <Download className="mx-auto h-12 w-12 text-dark-text-tertiary" />
-                        <p className="mt-2 text-sm text-dark-text-secondary">No torrent client configured</p>
-                        <button
-                          type="button"
-                          onClick={() => editDownloadClient('torrent')}
-                          className="btn-secondary mt-4"
-                        >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Configure Torrent Client
-                        </button>
-                      </div>
-                    )}
+                    ))}
                   </div>
-                </div>
-              </div>
-            )}
-
-            {/* Indexer Settings */}
-            {activeTab === 'indexers' && (
-              <div className="space-y-6">
-                {/* General Indexer Settings */}
-                <div className="card">
-                  <div className="px-6 py-5 border-b border-dark-border">
-                    <h2 className="text-lg font-medium text-dark-text">Indexer Settings</h2>
-                    <p className="mt-1 text-sm text-dark-text-secondary">
-                      Configure global indexer behavior
-                    </p>
-                  </div>
-                  <div className="px-6 py-5 space-y-6">
-                    {/* Search Timeout */}
-                    <div>
-                      <label htmlFor="indexers_search_timeout" className="block text-sm font-medium text-dark-text mb-2">
-                        Search Timeout (seconds)
-                      </label>
-                      <input
-                        type="number"
-                        id="indexers_search_timeout"
-                        value={formData.indexers_search_timeout ?? 30}
-                        onChange={(e) => handleChange('indexers_search_timeout', parseInt(e.target.value))}
-                        min="5"
-                        className="input w-48"
-                      />
-                      <p className="mt-2 text-sm text-dark-text-secondary">
-                        Maximum time to wait for indexer search responses
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Indexer List */}
-                <div className="card">
-                  <div className="px-6 py-5 border-b border-dark-border flex items-center justify-between">
-                    <div>
-                      <h2 className="text-lg font-medium text-dark-text">Configured Indexers</h2>
-                      <p className="mt-1 text-sm text-dark-text-secondary">
-                        Newznab and Torznab indexers for searching releases
-                      </p>
-                    </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Search className="mx-auto h-12 w-12 text-dark-text-tertiary" />
+                    <p className="mt-2 text-sm text-dark-text-secondary">No indexers configured</p>
                     <button
                       type="button"
                       onClick={addIndexer}
-                      className="btn-primary text-sm"
+                      className="btn-secondary mt-4"
                     >
-                      <Plus className="w-4 h-4 mr-1" />
-                      Add Indexer
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Your First Indexer
                     </button>
                   </div>
-                  <div className="px-6 py-5">
-                    {formData.indexers_list && formData.indexers_list.length > 0 ? (
-                      <div className="space-y-3">
-                        {formData.indexers_list.map((indexer, idx) => (
-                          <div key={idx} className="border border-dark-border rounded-lg p-4 hover:border-dark-border-bright transition-colors">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-3 mb-2">
-                                  <h3 className="text-sm font-medium text-dark-text">{indexer.name || 'Unnamed Indexer'}</h3>
-                                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border ${
-                                    indexer.enabled
-                                      ? 'bg-dark-success-muted text-dark-success border-dark-success/30'
-                                      : 'bg-dark-bg-subtle text-dark-text-tertiary border-dark-border'
-                                  }`}>
-                                    {indexer.enabled ? 'Enabled' : 'Disabled'}
-                                  </span>
-                                </div>
-                                <p className="text-sm text-dark-text-secondary mb-2">{indexer.url}</p>
-                                <div className="flex gap-4 text-xs text-dark-text-secondary">
-                                  {indexer.categories && indexer.categories.length > 0 && (
-                                    <span>Categories: {indexer.categories.join(', ')}</span>
-                                  )}
-                                  <span>Priority: {indexer.priority}</span>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-2 ml-4">
-                                <button
-                                  type="button"
-                                  onClick={() => editIndexer(idx)}
-                                  className="p-2 text-dark-text-tertiary hover:text-dark-accent transition-colors"
-                                  title="Edit indexer"
-                                >
-                                  <Edit2 className="w-4 h-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (confirm(`Delete indexer "${indexer.name}"?`)) {
-                                      deleteIndexer(idx);
-                                    }
-                                  }}
-                                  className="p-2 text-dark-text-tertiary hover:text-dark-error transition-colors"
-                                  title="Delete indexer"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <Search className="mx-auto h-12 w-12 text-dark-text-tertiary" />
-                        <p className="mt-2 text-sm text-dark-text-secondary">No indexers configured</p>
-                        <button
-                          type="button"
-                          onClick={addIndexer}
-                          className="btn-secondary mt-4"
-                        >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Your First Indexer
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                )}
               </div>
-            )}
+            </div>
+          </div>
+        )}
 
-            {/* MusicBrainz Settings */}
-            {activeTab === 'musicbrainz' && (
-              <div className="card">
-                <div className="px-6 py-5 border-b border-dark-border">
-                  <h2 className="text-lg font-medium text-dark-text">MusicBrainz Settings</h2>
-                  <p className="mt-1 text-sm text-dark-text-secondary">
-                    Configure MusicBrainz server and authentication
-                  </p>
-                </div>
-                <div className="px-6 py-5 space-y-6">
-                  {/* MusicBrainz Server */}
-                  <div>
-                    <label htmlFor="musicbrainz_server" className="block text-sm font-medium text-dark-text mb-2">
-                      MusicBrainz Server
-                    </label>
-                    <select
-                      id="musicbrainz_server"
-                      value={formData.musicbrainz_server || 'official'}
-                      onChange={(e) => handleChange('musicbrainz_server', e.target.value)}
-                      className="input w-64"
-                    >
-                      <option value="official">Official MusicBrainz</option>
-                      <option value="headphones_vip">Headphones VIP Mirror</option>
-                    </select>
-                    <p className="mt-2 text-sm text-dark-text-secondary">
-                      Which MusicBrainz server to use for metadata lookups
-                    </p>
-                  </div>
+        {/* MusicBrainz Settings - using generated component */}
+        {activeTab === 'musicbrainz' && (
+          <div className="card">
+            <div className="px-6 py-5 border-b border-dark-border">
+              <h2 className="text-lg font-medium text-dark-text">MusicBrainz Settings</h2>
+              <p className="mt-1 text-sm text-dark-text-secondary">
+                Configure MusicBrainz server and authentication
+              </p>
+            </div>
+            <div className="px-6 py-5">
+              <MusicbrainzConfigSection config={formData} onChange={handleChange} showAdvanced={showAdvanced} />
+            </div>
+          </div>
+        )}
 
-                  {/* Username */}
-                  <div>
-                    <label htmlFor="musicbrainz_username" className="block text-sm font-medium text-dark-text mb-2">
-                      Username (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      id="musicbrainz_username"
-                      value={formData.musicbrainz_username || ''}
-                      onChange={(e) => handleChange('musicbrainz_username', e.target.value)}
-                      className="input w-64"
-                      placeholder="username"
-                    />
-                    <p className="mt-2 text-sm text-dark-text-secondary">
-                      MusicBrainz username for authenticated requests
-                    </p>
-                  </div>
-
-                  {/* Password */}
-                  <div>
-                    <label htmlFor="musicbrainz_password" className="block text-sm font-medium text-dark-text mb-2">
-                      Password (Optional)
-                    </label>
-                    <input
-                      type="password"
-                      id="musicbrainz_password"
-                      value={formData.musicbrainz_password || ''}
-                      onChange={(e) => handleChange('musicbrainz_password', e.target.value)}
-                      className="input w-64"
-                      placeholder="••••••••"
-                    />
-                    <p className="mt-2 text-sm text-dark-text-secondary">
-                      MusicBrainz password for authenticated requests
-                    </p>
-                  </div>
-                </div>
+        {/* Notification Settings - manual because of complex provider forms */}
+        {activeTab === 'notifications' && (
+          <div className="space-y-6">
+            <div className="card">
+              <div className="px-6 py-5 border-b border-dark-border">
+                <h2 className="text-lg font-medium text-dark-text">Notification Settings</h2>
+                <p className="mt-1 text-sm text-dark-text-secondary">
+                  Get notified about important events
+                </p>
               </div>
-            )}
-
-            {/* Notification Settings */}
-            {activeTab === 'notifications' && (
-              <div className="space-y-6">
-                {/* General Notification Settings */}
-                <div className="card">
-                  <div className="px-6 py-5 border-b border-dark-border">
-                    <h2 className="text-lg font-medium text-dark-text">Notification Settings</h2>
-                    <p className="mt-1 text-sm text-dark-text-secondary">
-                      Get notified about important events
+              <div className="px-6 py-5 space-y-6">
+                <div className="flex items-start gap-3">
+                  <input
+                    id="notification_enabled"
+                    type="checkbox"
+                    checked={formData.notifications.enabled ?? false}
+                    onChange={(e) => handleChange('notifications', 'enabled', e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
+                  />
+                  <div>
+                    <label htmlFor="notification_enabled" className="text-sm font-medium text-dark-text">
+                      Enable Notifications
+                    </label>
+                    <p className="text-sm text-dark-text-secondary mt-0.5">
+                      Send notifications through configured providers
                     </p>
-                  </div>
-                  <div className="px-6 py-5 space-y-6">
-                    {/* Enable Notifications */}
-                    <div className="flex items-start gap-3">
-                      <input
-                        id="notification_enabled"
-                        type="checkbox"
-                        checked={formData.notification_enabled ?? false}
-                        onChange={(e) => handleChange('notification_enabled', e.target.checked)}
-                        className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
-                      />
-                      <div>
-                        <label htmlFor="notification_enabled" className="text-sm font-medium text-dark-text">
-                          Enable Notifications
-                        </label>
-                        <p className="text-sm text-dark-text-secondary mt-0.5">
-                          Send notifications through configured providers
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Notification Events */}
-                    <div className="space-y-4">
-                      <h3 className="text-sm font-medium text-dark-text">Notify When:</h3>
-
-                      <div className="flex items-start gap-3">
-                        <input
-                          id="notification_on_album_found"
-                          type="checkbox"
-                          checked={formData.notification_on_album_found ?? true}
-                          onChange={(e) => handleChange('notification_on_album_found', e.target.checked)}
-                          className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
-                        />
-                        <div>
-                          <label htmlFor="notification_on_album_found" className="text-sm font-medium text-dark-text">
-                            New Albums Found
-                          </label>
-                          <p className="text-sm text-dark-text-secondary mt-0.5">
-                            When new wanted albums are discovered
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-start gap-3">
-                        <input
-                          id="notification_on_album_imported"
-                          type="checkbox"
-                          checked={formData.notification_on_album_imported ?? true}
-                          onChange={(e) => handleChange('notification_on_album_imported', e.target.checked)}
-                          className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
-                        />
-                        <div>
-                          <label htmlFor="notification_on_album_imported" className="text-sm font-medium text-dark-text">
-                            Albums Imported
-                          </label>
-                          <p className="text-sm text-dark-text-secondary mt-0.5">
-                            When albums are imported to your library
-                          </p>
-                        </div>
-                      </div>
-                    </div>
                   </div>
                 </div>
 
-                {/* Notification Providers */}
-                <div className="card">
-                  <div className="px-6 py-5 border-b border-dark-border flex items-center justify-between">
+                <div className="space-y-4">
+                  <h3 className="text-sm font-medium text-dark-text">Notify When:</h3>
+
+                  <div className="flex items-start gap-3">
+                    <input
+                      id="notification_on_album_found"
+                      type="checkbox"
+                      checked={formData.notifications.on_album_found ?? true}
+                      onChange={(e) => handleChange('notifications', 'on_album_found', e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
+                    />
                     <div>
-                      <h2 className="text-lg font-medium text-dark-text">Notification Providers</h2>
-                      <p className="mt-1 text-sm text-dark-text-secondary">
-                        Configure services to send notifications to
+                      <label htmlFor="notification_on_album_found" className="text-sm font-medium text-dark-text">
+                        New Albums Found
+                      </label>
+                      <p className="text-sm text-dark-text-secondary mt-0.5">
+                        When new wanted albums are discovered
                       </p>
                     </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <input
+                      id="notification_on_album_imported"
+                      type="checkbox"
+                      checked={formData.notifications.on_album_imported ?? true}
+                      onChange={(e) => handleChange('notifications', 'on_album_imported', e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
+                    />
+                    <div>
+                      <label htmlFor="notification_on_album_imported" className="text-sm font-medium text-dark-text">
+                        Albums Imported
+                      </label>
+                      <p className="text-sm text-dark-text-secondary mt-0.5">
+                        When albums are imported to your library
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="px-6 py-5 border-b border-dark-border flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-medium text-dark-text">Notification Providers</h2>
+                  <p className="mt-1 text-sm text-dark-text-secondary">
+                    Configure services to send notifications to
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={addNotificationProvider}
+                  className="btn-primary text-sm"
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Provider
+                </button>
+              </div>
+              <div className="px-6 py-5">
+                {formData.notifications.providers && formData.notifications.providers.length > 0 ? (
+                  <div className="space-y-3">
+                    {formData.notifications.providers.map((provider, idx) => (
+                      <div key={idx} className="border border-dark-border rounded-lg p-4 hover:border-dark-border-bright transition-colors">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h3 className="text-sm font-medium text-dark-text">Pushover</h3>
+                              <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border bg-dark-accent/10 text-dark-accent border-dark-accent/30">
+                                {provider.type}
+                              </span>
+                            </div>
+                            <div className="text-xs text-dark-text-secondary space-y-1">
+                              <p>User Key: {provider.user_key.substring(0, 8)}...</p>
+                              <p>Priority: {provider.priority}</p>
+                              {provider.device && <p>Device: {provider.device}</p>}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 ml-4">
+                            <button
+                              type="button"
+                              onClick={() => editNotificationProvider(idx)}
+                              className="p-2 text-dark-text-tertiary hover:text-dark-accent transition-colors"
+                              title="Edit provider"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (confirm('Delete this notification provider?')) {
+                                  deleteNotificationProvider(idx);
+                                }
+                              }}
+                              className="p-2 text-dark-text-tertiary hover:text-dark-error transition-colors"
+                              title="Delete provider"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Bell className="mx-auto h-12 w-12 text-dark-text-tertiary" />
+                    <p className="mt-2 text-sm text-dark-text-secondary">No notification providers configured</p>
                     <button
                       type="button"
                       onClick={addNotificationProvider}
-                      className="btn-primary text-sm"
+                      className="btn-secondary mt-4"
                     >
-                      <Plus className="w-4 h-4 mr-1" />
-                      Add Provider
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Your First Provider
                     </button>
                   </div>
-                  <div className="px-6 py-5">
-                    {formData.notification_providers && formData.notification_providers.length > 0 ? (
-                      <div className="space-y-3">
-                        {formData.notification_providers.map((provider, idx) => (
-                          <div key={idx} className="border border-dark-border rounded-lg p-4 hover:border-dark-border-bright transition-colors">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-3 mb-2">
-                                  <h3 className="text-sm font-medium text-dark-text">Pushover</h3>
-                                  <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border bg-dark-accent/10 text-dark-accent border-dark-accent/30">
-                                    {provider.type}
-                                  </span>
-                                </div>
-                                <div className="text-xs text-dark-text-secondary space-y-1">
-                                  <p>User Key: {provider.user_key.substring(0, 8)}...</p>
-                                  <p>Priority: {provider.priority}</p>
-                                  {provider.device && <p>Device: {provider.device}</p>}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-2 ml-4">
-                                <button
-                                  type="button"
-                                  onClick={() => editNotificationProvider(idx)}
-                                  className="p-2 text-dark-text-tertiary hover:text-dark-accent transition-colors"
-                                  title="Edit provider"
-                                >
-                                  <Edit2 className="w-4 h-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (confirm('Delete this notification provider?')) {
-                                      deleteNotificationProvider(idx);
-                                    }
-                                  }}
-                                  className="p-2 text-dark-text-tertiary hover:text-dark-error transition-colors"
-                                  title="Delete provider"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <Bell className="mx-auto h-12 w-12 text-dark-text-tertiary" />
-                        <p className="mt-2 text-sm text-dark-text-secondary">No notification providers configured</p>
-                        <button
-                          type="button"
-                          onClick={addNotificationProvider}
-                          className="btn-secondary mt-4"
-                        >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Your First Provider
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                )}
               </div>
-            )}
+            </div>
+          </div>
+        )}
 
         {/* Form actions */}
         <div className="flex justify-end pt-4">
@@ -1420,7 +1067,6 @@ export default function Config() {
               </button>
             </div>
             <div className="px-6 py-4 space-y-4">
-              {/* Type */}
               <div>
                 <label className="block text-sm font-medium text-dark-text mb-2">Client Type</label>
                 <select
@@ -1442,7 +1088,6 @@ export default function Config() {
                 </select>
               </div>
 
-              {/* URL */}
               <div>
                 <label className="block text-sm font-medium text-dark-text mb-2">URL</label>
                 <input
@@ -1454,7 +1099,6 @@ export default function Config() {
                 />
               </div>
 
-              {/* API Key (for SABnzbd, NZBGet) */}
               {(editingClient.type === 'sabnzbd' || editingClient.type === 'nzbget') && (
                 <div>
                   <label className="block text-sm font-medium text-dark-text mb-2">API Key</label>
@@ -1468,7 +1112,6 @@ export default function Config() {
                 </div>
               )}
 
-              {/* Username (for Transmission, qBittorrent) */}
               {(editingClient.type === 'transmission' || editingClient.type === 'qbittorrent') && (
                 <>
                   <div>
@@ -1494,36 +1137,32 @@ export default function Config() {
                 </>
               )}
 
-              {/* Download Directory (for SABnzbd) */}
               {editingClient.type === 'sabnzbd' && (
-                <PathInput
-                  label="Download Directory"
-                  value={editingClient.download_dir || ''}
-                  onChange={(value) => updateEditingClient('download_dir', value || null)}
-                  type="directory"
-                  placeholder="/path/to/downloads"
-                  description="Base directory where SABnzbd stores completed downloads"
-                />
-              )}
-
-              {/* Category (for SABnzbd) */}
-              {editingClient.type === 'sabnzbd' && (
-                <div>
-                  <label className="block text-sm font-medium text-dark-text mb-2">Category</label>
-                  <input
-                    type="text"
-                    value={editingClient.category || ''}
-                    onChange={(e) => updateEditingClient('category', e.target.value || null)}
-                    className="input w-full"
-                    placeholder="music"
+                <>
+                  <PathInput
+                    label="Download Directory"
+                    value={editingClient.download_dir || ''}
+                    onChange={(value) => updateEditingClient('download_dir', value || null)}
+                    type="directory"
+                    placeholder="/path/to/downloads"
+                    description="Base directory where SABnzbd stores completed downloads"
                   />
-                  <p className="mt-1 text-sm text-dark-text-secondary">
-                    SABnzbd category to use (e.g., "music" or "headphones")
-                  </p>
-                </div>
+                  <div>
+                    <label className="block text-sm font-medium text-dark-text mb-2">Category</label>
+                    <input
+                      type="text"
+                      value={editingClient.category || ''}
+                      onChange={(e) => updateEditingClient('category', e.target.value || null)}
+                      className="input w-full"
+                      placeholder="music"
+                    />
+                    <p className="mt-1 text-sm text-dark-text-secondary">
+                      SABnzbd category to use
+                    </p>
+                  </div>
+                </>
               )}
 
-              {/* Enabled */}
               <div className="flex items-start">
                 <div className="flex items-center h-5">
                   <input
@@ -1585,7 +1224,6 @@ export default function Config() {
               </button>
             </div>
             <div className="px-6 py-4 space-y-4">
-              {/* Name */}
               <div>
                 <label className="block text-sm font-medium text-dark-text mb-2">Name</label>
                 <input
@@ -1597,7 +1235,6 @@ export default function Config() {
                 />
               </div>
 
-              {/* URL */}
               <div>
                 <label className="block text-sm font-medium text-dark-text mb-2">URL</label>
                 <input
@@ -1609,7 +1246,6 @@ export default function Config() {
                 />
               </div>
 
-              {/* API Key */}
               <div>
                 <label className="block text-sm font-medium text-dark-text mb-2">API Key (Optional)</label>
                 <input
@@ -1621,7 +1257,6 @@ export default function Config() {
                 />
               </div>
 
-              {/* Username */}
               <div>
                 <label className="block text-sm font-medium text-dark-text mb-2">Username (Optional)</label>
                 <input
@@ -1633,7 +1268,6 @@ export default function Config() {
                 />
               </div>
 
-              {/* Password */}
               <div>
                 <label className="block text-sm font-medium text-dark-text mb-2">Password (Optional)</label>
                 <input
@@ -1645,7 +1279,6 @@ export default function Config() {
                 />
               </div>
 
-              {/* Categories */}
               <div>
                 <label className="block text-sm font-medium text-dark-text mb-2">Categories</label>
                 <input
@@ -1658,10 +1291,9 @@ export default function Config() {
                   className="input w-full"
                   placeholder="3000, 3010"
                 />
-                <p className="mt-1 text-sm text-dark-text-secondary">Comma-separated Newznab category IDs (e.g., 3000 for Audio, 3010 for MP3)</p>
+                <p className="mt-1 text-sm text-dark-text-secondary">Comma-separated Newznab category IDs</p>
               </div>
 
-              {/* Priority */}
               <div>
                 <label className="block text-sm font-medium text-dark-text mb-2">Priority</label>
                 <input
@@ -1674,7 +1306,6 @@ export default function Config() {
                 <p className="mt-1 text-sm text-dark-text-secondary">Higher priority indexers are searched first</p>
               </div>
 
-              {/* Enabled */}
               <div className="flex items-start">
                 <div className="flex items-center h-5">
                   <input
@@ -1733,7 +1364,6 @@ export default function Config() {
               </button>
             </div>
             <div className="px-6 py-4 space-y-4">
-              {/* Provider Type */}
               <div>
                 <label className="block text-sm font-medium text-dark-text mb-2">Provider Type</label>
                 <select
@@ -1746,7 +1376,6 @@ export default function Config() {
                 <p className="mt-1 text-sm text-dark-text-secondary">Currently only Pushover is supported</p>
               </div>
 
-              {/* User Key */}
               <div>
                 <label className="block text-sm font-medium text-dark-text mb-2">User Key *</label>
                 <input
@@ -1756,10 +1385,9 @@ export default function Config() {
                   className="input w-full"
                   placeholder="Enter your Pushover user key"
                 />
-                <p className="mt-1 text-sm text-dark-text-secondary">Your Pushover user or group key (get it from pushover.net)</p>
+                <p className="mt-1 text-sm text-dark-text-secondary">Your Pushover user or group key</p>
               </div>
 
-              {/* Device */}
               <div>
                 <label className="block text-sm font-medium text-dark-text mb-2">Device Name (Optional)</label>
                 <input
@@ -1769,10 +1397,8 @@ export default function Config() {
                   className="input w-full"
                   placeholder="Leave empty for all devices"
                 />
-                <p className="mt-1 text-sm text-dark-text-secondary">Send to a specific device or leave empty for all devices</p>
               </div>
 
-              {/* Priority */}
               <div>
                 <label className="block text-sm font-medium text-dark-text mb-2">Priority</label>
                 <select
@@ -1786,7 +1412,6 @@ export default function Config() {
                   <option value="1">High (1)</option>
                   <option value="2">Emergency (2)</option>
                 </select>
-                <p className="mt-1 text-sm text-dark-text-secondary">Notification priority level</p>
               </div>
             </div>
             <div className="px-6 py-4 bg-dark-bg-subtle border-t border-dark-border flex justify-end gap-3">
