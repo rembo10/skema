@@ -1,14 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Configuration loading from YAML files.
+-- | Configuration loading from YAML files with environment variable overrides.
 --
--- This module handles loading and parsing YAML configuration files.
+-- Environment variables take precedence over config file values.
+-- See Schema.hs for the list of supported env vars (allEnvOverrides).
 module Skema.Config.Loader
   ( loadConfig
   , loadConfigFromFile
   ) where
 
 import Skema.Config.Types (Config, serverPassword, hashPassword, isHashedPassword)
+import Skema.Config.EnvOverrides (applyEnvOverrides)
 import Skema.Config.Validation (validateConfig)
 import Skema.Config.Safe (safeWriteConfig, createBackup)
 import Skema.Config.Migrations (migrateConfig, needsMigration)
@@ -45,8 +47,11 @@ loadConfig configPath = do
                 pure migratedCfg
           else pure cfg
 
+        -- Apply environment variable overrides
+        cfgWithEnv <- applyEnvOverrides cfgAfterMigration
+
         -- Check if password needs to be hashed
-        updatedCfg <- hashPasswordIfNeeded cfgAfterMigration pathStr
+        updatedCfg <- hashPasswordIfNeeded cfgWithEnv pathStr
         pure $ Right updatedCfg
 
 -- | Hash password if it's plaintext and save the config back.

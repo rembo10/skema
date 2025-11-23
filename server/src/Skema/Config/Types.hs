@@ -43,6 +43,7 @@ module Skema.Config.Types
   ) where
 
 import Data.Aeson (FromJSON (..), ToJSON (..), withObject, (.:), (.:?), (.!=), object, (.=), Object, Value(..))
+import Skema.Config.Schema (Default(..), Mergeable(..))
 import System.OsPath (OsPath)
 import qualified System.OsPath as OP
 import System.IO.Unsafe (unsafePerformIO)
@@ -723,3 +724,35 @@ defaultConfig = Config
   , media = defaultMediaConfig
   , notifications = defaultNotificationConfig
   }
+
+-- ============================================================================
+-- Default and Mergeable instances (for Schema2 integration)
+-- ============================================================================
+
+-- | Default instance for MusicBrainzServer
+instance Default MusicBrainzServer where
+  def = OfficialMusicBrainz
+
+-- | Config section instances - use Generic derivation
+-- These allow the schema system to work with existing types
+
+instance Default LibraryConfig where def = defaultLibraryConfig
+instance Default SystemConfig where def = defaultSystemConfig
+instance Default ServerConfig where def = defaultServerConfig
+instance Default DownloadConfig where def = defaultDownloadConfig
+instance Default IndexerConfig where def = defaultIndexerConfig
+instance Default MusicBrainzConfig where def = defaultMusicBrainzConfig
+instance Default MediaConfig where def = defaultMediaConfig
+instance Default NotificationConfig where def = defaultNotificationConfig
+instance Default Config where def = defaultConfig
+
+-- | Mergeable instances - use Generic derivation
+instance Mergeable LibraryConfig
+instance Mergeable SystemConfig
+instance Mergeable ServerConfig
+instance Mergeable DownloadConfig
+instance Mergeable IndexerConfig
+instance Mergeable MusicBrainzConfig
+instance Mergeable MediaConfig
+instance Mergeable NotificationConfig
+instance Mergeable Config

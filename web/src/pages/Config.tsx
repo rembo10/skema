@@ -63,8 +63,10 @@ export default function Config() {
     setSaving(true);
     try {
       const updated = await api.updateConfig(updatesWithPassword);
+      // Update the saved config state
       setConfig(updated);
-      setFormData(updated);
+      // Don't update formData here - it's the user's working copy
+      // This prevents overwriting any edits the user made while the save was in-flight
       // Reset password state after successful save
       if (includePassword) {
         setServerPassword('');
@@ -106,8 +108,11 @@ export default function Config() {
     const handleConfigUpdate = ((event: CustomEvent) => {
       const data = event.detail;
       console.log('[Config] Received config update:', data);
+      // Update the saved config state
       setConfig(data);
-      setFormData(data);
+      // Don't update formData here - it's the user's working copy
+      // Only update formData on initial load or after successful save (handled in performSave)
+      // This prevents overwriting unsaved local edits when config file changes externally
       // Don't reset password state here - it's not included in the response
       toast.success('Configuration saved');
     }) as EventListener;

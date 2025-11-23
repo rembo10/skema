@@ -53,11 +53,11 @@ library
     Skema.Config.Directories
     Skema.Config.PathExpansion
     Skema.Config.Validation
-    Skema.Config.SchemaClass
-    Skema.Config.SchemaInstances
     Skema.Config.Generate
     Skema.Config.Migrations
     Skema.Config.Safe
+    Skema.Config.Schema
+    Skema.Config.EnvOverrides
     Skema.Database.Types
     Skema.Database.Utils
     Skema.Database.Connection
@@ -114,7 +114,7 @@ library
     Skema.MusicBrainz.ArtistImage
     Skema.Domain.Identification
     Skema.Domain.Converters
-    Skema.Domain.Config
+    Skema.Domain.ConfigJSON
     Skema.Domain.Errors
     Skema.Domain.Metadata
     Skema.Domain.Quality
@@ -213,6 +213,7 @@ library
     , base16-bytestring >= 1.0 && < 1.1
     , JuicyPixels >= 3.3 && < 3.4
     , scalpel >= 0.6 && < 0.7
+    , template-haskell
 
 executable skema
   import: common-options
@@ -252,6 +253,7 @@ test-suite skema-test
     Integration.GrouperSpec
     Integration.ScanGroupIdentifySpec
     Integration.EndToEndSpec
+    Unit.ConfigSpec
     Helpers.TestEnv
     Helpers.Builders
     Helpers.EventAssertions
@@ -270,3 +272,5 @@ test-suite skema-test
     , katip >= 0.8 && < 0.9
     , time >= 1.12 && < 1.15
     , async >= 2.2 && < 2.3
+    , aeson >= 2.1 && < 2.3
+    , bytestring >= 0.11 && < 0.13

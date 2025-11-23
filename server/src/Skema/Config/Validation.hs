@@ -1,6 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Configuration validation and helper functions.
+--
+-- Note: Environment variable overrides are applied in Loader.hs.
+-- These helpers just read from the already-merged config.
 module Skema.Config.Validation
   ( -- * Validation
     validateConfig
@@ -25,52 +28,25 @@ validateConfig cfg
       Just "auto_scan_interval_mins must be at least 1"
   | otherwise = Nothing
 
--- | Get authentication credentials with environment variable overrides.
+-- | Get authentication credentials from config.
 --
--- Checks SKEMA_USERNAME and SKEMA_PASSWORD environment variables first,
--- then falls back to config file values.
 -- Returns (username, password) or Nothing if not configured.
+-- Note: Env vars (SKEMA_USERNAME, SKEMA_PASSWORD) are applied in Loader.hs
 getAuthCredentials :: ServerConfig -> IO (Maybe (Text, Text))
-getAuthCredentials cfg = do
-  envUsername <- lookupEnv "SKEMA_USERNAME"
-  envPassword <- lookupEnv "SKEMA_PASSWORD"
-
-  let username = case envUsername of
-        Just u -> Just (toText u)
-        Nothing -> serverUsername cfg
-
-  let password = case envPassword of
-        Just p -> Just (toText p)
-        Nothing -> serverPassword cfg
-
-  pure $ case (username, password) of
+getAuthCredentials cfg =
+  pure $ case (serverUsername cfg, serverPassword cfg) of
     (Just u, Just p) -> Just (u, p)
     _ -> Nothing
 
--- | Get server port with command line and environment variable overrides.
+-- | Get server port with optional CLI override.
 --
--- Priority order (highest to lowest):
--- 1. Command line --port/-p option
--- 2. SKEMA_PORT environment variable
--- 3. Config file value
+-- Priority: CLI option > config value (env vars already applied in Loader)
 getServerPort :: Maybe Int -> ServerConfig -> IO Int
-getServerPort cliPort cfg = do
-  case cliPort of
-    Just p -> pure p  -- CLI override has highest priority
-    Nothing -> do
-      envPort <- lookupEnv "SKEMA_PORT"
-      pure $ case envPort of
-        Just p -> fromMaybe (serverPort cfg) (readMaybe p)
-        Nothing -> serverPort cfg
+getServerPort cliPort cfg =
+  pure $ fromMaybe (serverPort cfg) cliPort
 
--- | Get server host with environment variable override.
+-- | Get server host from config.
 --
--- Priority order (highest to lowest):
--- 1. SKEMA_HOST environment variable
--- 2. Config file value
+-- Note: SKEMA_HOST env var is applied in Loader.hs
 getServerHost :: ServerConfig -> IO Text
-getServerHost cfg = do
-  envHost <- lookupEnv "SKEMA_HOST"
-  pure $ case envHost of
-    Just h -> toText h
-    Nothing -> serverHost cfg
+getServerHost cfg = pure $ serverHost cfg

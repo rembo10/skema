@@ -12,7 +12,7 @@ module Skema.API.Server
 import Skema.API.Types
 import Skema.API.Handlers.Auth (authServer)
 import Skema.API.Handlers.Library (libraryServer)
-import Skema.API.Handlers.Config (configServer)
+import Skema.API.Handlers.Config (configServer, configSchemaServer)
 import Skema.API.Handlers.Clusters (clustersServer)
 import Skema.API.Handlers.Stats (statsServer)
 import Skema.API.Handlers.Acquisition (acquisitionServer)
@@ -94,6 +94,7 @@ server le bus authStore serverCfg jwtSecret registry connPool libPath cacheDir c
   (authServer authStore jwtSecret configVar
    :<|> libraryServer le bus serverCfg jwtSecret registry connPool configVar
    :<|> configServer le bus serverCfg jwtSecret connPool configVar configPath
+   :<|> configSchemaServer
    :<|> diffsServer le bus serverCfg jwtSecret registry connPool configVar
    :<|> clustersServer le serverCfg jwtSecret registry connPool configVar
    :<|> statsServer serverCfg jwtSecret connPool configVar

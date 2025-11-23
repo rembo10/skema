@@ -24,7 +24,7 @@ module Skema.API.Types
 
 import Skema.API.Types.Auth (AuthAPI)
 import Skema.API.Types.Library (LibraryAPI, StatsAPI)
-import Skema.API.Types.Config (ConfigAPI)
+import Skema.API.Types.Config (ConfigAPI, ConfigSchemaAPI)
 import Skema.API.Types.Diffs (DiffsAPI)
 import Skema.API.Types.Clusters (ClustersAPI)
 import Skema.API.Types.Acquisition (AcquisitionAPI)
@@ -36,6 +36,6 @@ import Skema.API.Types.QualityProfiles (QualityProfilesAPI)
 import Servant
 
 -- | Top-level API combining all sub-APIs and static file serving.
-type API = "api" :> (AuthAPI :<|> LibraryAPI :<|> ConfigAPI :<|> DiffsAPI :<|> ClustersAPI :<|> StatsAPI :<|> AcquisitionAPI :<|> CatalogAPI :<|> DownloadsAPI :<|> EventsAPI :<|> FilesystemAPI :<|> QualityProfilesAPI)
+type API = "api" :> (AuthAPI :<|> LibraryAPI :<|> ConfigAPI :<|> ConfigSchemaAPI :<|> DiffsAPI :<|> ClustersAPI :<|> StatsAPI :<|> AcquisitionAPI :<|> CatalogAPI :<|> DownloadsAPI :<|> EventsAPI :<|> FilesystemAPI :<|> QualityProfilesAPI)
       :<|> "images" :> Raw
       :<|> Raw  -- Catch-all for frontend SPA
