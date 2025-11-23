@@ -12,13 +12,12 @@ module Skema.Notifications.Pushover
 
 import Skema.Notifications.Types (Notification(..), NotificationSender(..))
 import Skema.Config.Types (PushoverConfig(..))
-import Network.HTTP.Client (Manager, Request, parseRequest, httpLbs, responseBody, responseStatus, urlEncodedBody)
+import Network.HTTP.Client (Manager, parseRequest, httpLbs, responseBody, responseStatus, urlEncodedBody)
 import Network.HTTP.Types.Status (statusCode)
-import Data.Aeson (decode, Value, Object, withObject)
+import Data.Aeson (decode, Value, withObject)
 import qualified Data.Aeson as Aeson
 import Data.Aeson.Types (parseMaybe)
 import qualified Data.Text.Encoding as TE
-import qualified Data.ByteString.Lazy as LBS
 
 -- | Hardcoded Pushover application API token.
 pushoverAppToken :: Text

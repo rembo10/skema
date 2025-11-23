@@ -42,7 +42,7 @@ module Skema.Config.Types
   , downloadClientTypeName
   ) where
 
-import Data.Aeson (FromJSON (..), ToJSON (..), withObject, (.:), (.:?), (.!=), object, (.=), Object, Value(..))
+import Data.Aeson (FromJSON (..), ToJSON (..), withObject, (.:), (.:?), (.!=), object, (.=), Value(..))
 import Skema.Config.Schema (Default(..), Mergeable(..))
 import System.OsPath (OsPath)
 import qualified System.OsPath as OP
@@ -575,8 +575,9 @@ instance FromJSON NotificationProvider where
 
 instance ToJSON NotificationProvider where
   toJSON (PushoverProvider config) =
-    let Object obj = toJSON config
-    in Object (obj <> "type" .= ("pushover" :: Text))
+    case toJSON config of
+      Object obj -> Object (obj <> "type" .= ("pushover" :: Text))
+      other -> other  -- Shouldn't happen for PushoverConfig
 
 -- | Notification configuration.
 data NotificationConfig = NotificationConfig

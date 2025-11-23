@@ -7,7 +7,6 @@ module Skema.Notifications.Types
   , NotificationSender(..)
   ) where
 
-import GHC.Generics (Generic)
 
 -- | A notification to be sent.
 data Notification = Notification

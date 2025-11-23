@@ -12,7 +12,7 @@ import Skema.Config.Types (Config)
 import Data.Yaml (encodeFile, decodeFileEither, prettyPrintParseException)
 import System.Directory (copyFile, doesFileExist, renameFile, removeFile)
 import System.FilePath ((<.>))
-import Control.Exception (catch, SomeException, try)
+import Control.Exception (catch, try)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (formatTime, defaultTimeLocale)
 

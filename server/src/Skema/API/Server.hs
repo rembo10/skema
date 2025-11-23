@@ -28,7 +28,6 @@ import Skema.Auth.JWT (JWTSecret, getJWTSecret)
 import Skema.Database.Connection (ConnectionPool)
 import Skema.Config.Types (Config, ServerConfig)
 import qualified Skema.Config.Validation as CfgVal
-import qualified Skema.Config.Types as Cfg
 import Skema.Services.Registry (ServiceRegistry(..))
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus

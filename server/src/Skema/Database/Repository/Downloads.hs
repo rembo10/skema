@@ -6,13 +6,10 @@ module Skema.Database.Repository.Downloads
   , insertDownload
   ) where
 
-import Skema.Database.Connection
 import Skema.Database.Utils (insertReturningId)
 import Data.Time (UTCTime)
-import Database.SQLite.Simple (Only(..))
-import qualified Database.SQLite.Simple.ToRow as SQLite
-import qualified Database.SQLite.Simple.ToField as SQLite
 import qualified Database.SQLite.Simple as SQLite
+import qualified Database.SQLite.Simple.ToField as SQLite
 
 -- | Helper type for inserting downloads with more than 10 fields
 data DownloadInsert = DownloadInsert

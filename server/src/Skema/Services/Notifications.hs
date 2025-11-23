@@ -14,18 +14,16 @@ module Skema.Services.Notifications
   ) where
 
 import Skema.Services.Dependencies (NotificationDeps(..))
-import Skema.Events.Bus (EventBus, subscribe, publishAndLog)
+import Skema.Events.Bus (subscribe)
 import Skema.Events.Types (Event(..), EventEnvelope(..), envelopeEvent)
 import Skema.Config.Types (Config(..), NotificationConfig(..), NotificationProvider(..))
 import Skema.Notifications.Types (Notification(..), NotificationSender(..))
-import Skema.Notifications.Pushover (PushoverClient, newPushoverClient)
+import Skema.Notifications.Pushover (newPushoverClient)
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
-import Control.Monad ()
-import Control.Exception (try, SomeException)
-import Katip (LogEnv, Severity(..), logStr, logTM, runKatipContextT, sl, katipAddContext)
-import qualified Katip
+import Control.Exception (try)
+import Katip (Severity(..), logStr, logTM, runKatipContextT, sl, katipAddContext)
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Time.Format (parseTimeM, defaultTimeLocale)
 
