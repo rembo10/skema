@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { Save, Library, Settings, Server, Download, Search, Database, Plus, Edit2, Trash2, X, Bell } from 'lucide-react';
 import { api } from '../lib/api';
 import { PathInput } from '../components/PathInput';
+import { UrlInput } from '../components/UrlInput';
 import {
   LibraryConfigSection,
   SystemConfigSection,
@@ -1093,16 +1094,13 @@ export default function Config() {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-dark-text mb-2">URL</label>
-                <input
-                  type="text"
-                  value={editingClient.url}
-                  onChange={(e) => updateEditingClient('url', e.target.value)}
-                  className="input w-full"
-                  placeholder="http://localhost:8080"
-                />
-              </div>
+              <UrlInput
+                label="URL"
+                value={editingClient.url}
+                onChange={(value) => updateEditingClient('url', value)}
+                placeholder="localhost:8080"
+                defaultProtocol="http://"
+              />
 
               {(editingClient.type === 'sabnzbd' || editingClient.type === 'nzbget') && (
                 <div>
@@ -1240,16 +1238,12 @@ export default function Config() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-dark-text mb-2">URL</label>
-                <input
-                  type="text"
-                  value={editingIndexer.indexer.url}
-                  onChange={(e) => updateEditingIndexer('url', e.target.value)}
-                  className="input w-full"
-                  placeholder="https://indexer.example.com"
-                />
-              </div>
+              <UrlInput
+                label="URL"
+                value={editingIndexer.indexer.url}
+                onChange={(value) => updateEditingIndexer('url', value)}
+                placeholder="indexer.example.com"
+              />
 
               <div>
                 <label className="block text-sm font-medium text-dark-text mb-2">API Key (Optional)</label>

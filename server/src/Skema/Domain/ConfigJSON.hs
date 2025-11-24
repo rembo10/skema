@@ -20,6 +20,7 @@ module Skema.Domain.ConfigJSON
 
 import Data.Aeson (Value(..), ToJSON(..), encode, eitherDecode)
 import qualified Data.Aeson.KeyMap as KM
+import qualified Data.Text as T
 import qualified Skema.Config.Types as Cfg
 import qualified Skema.Config.Validation as CfgVal
 import qualified System.OsPath as OP
@@ -109,8 +110,11 @@ applyConfigJSONUpdate currentCfg updateValue maybeHashedPassword = do
   -- Deep merge: update values override current values
   let mergedJSON = deepMerge currentJSON updateWithHashedPassword
 
+  -- Normalize URLs (strip trailing slashes) before decoding
+  let normalizedJSON = normalizeConfigUrls mergedJSON
+
   -- Decode back to Config
-  let decoded = eitherDecode (encode mergedJSON) :: Either String Cfg.Config
+  let decoded = eitherDecode (encode normalizedJSON) :: Either String Cfg.Config
   case decoded of
     Left err -> pure $ Left $ "Failed to parse updated config: " <> toText err
     Right updatedCfg -> do
@@ -127,3 +131,53 @@ deepMerge :: Value -> Value -> Value
 deepMerge (Object base) (Object update) =
   Object $ KM.unionWith deepMerge base update
 deepMerge _ update = update
+
+-- | Normalize URLs in config JSON.
+--
+-- Strips trailing slashes from URL fields to ensure consistent formatting.
+-- This prevents issues when concatenating URL paths.
+normalizeConfigUrls :: Value -> Value
+normalizeConfigUrls (Object obj) = Object $ obj
+  -- Normalize download client URLs
+  & adjustValue "download" normalizeDownloadSection
+  -- Normalize indexer URLs
+  & adjustValue "indexers" normalizeIndexersSection
+normalizeConfigUrls other = other
+
+-- | Normalize URLs in the download section.
+normalizeDownloadSection :: Value -> Value
+normalizeDownloadSection (Object obj) = Object $ obj
+  & adjustValue "nzb_client" normalizeClientUrl
+  & adjustValue "torrent_client" normalizeClientUrl
+normalizeDownloadSection other = other
+
+-- | Normalize URL in a download client object.
+normalizeClientUrl :: Value -> Value
+normalizeClientUrl (Object obj) = Object $ adjustValue "url" normalizeUrl obj
+normalizeClientUrl other = other
+
+-- | Normalize URLs in the indexers section.
+normalizeIndexersSection :: Value -> Value
+normalizeIndexersSection (Object obj) = Object $ adjustValue "list" normalizeIndexerList obj
+normalizeIndexersSection other = other
+
+-- | Normalize URLs in a list of indexers.
+normalizeIndexerList :: Value -> Value
+normalizeIndexerList (Array arr) = Array $ fmap normalizeIndexerUrl arr
+normalizeIndexerList other = other
+
+-- | Normalize URL in an indexer object.
+normalizeIndexerUrl :: Value -> Value
+normalizeIndexerUrl (Object obj) = Object $ adjustValue "url" normalizeUrl obj
+normalizeIndexerUrl other = other
+
+-- | Normalize a URL value by stripping trailing slashes.
+normalizeUrl :: Value -> Value
+normalizeUrl (String url) = String $ T.dropWhileEnd (== '/') url
+normalizeUrl other = other
+
+-- | Adjust a value in a KeyMap by key, applying a function if the key exists.
+adjustValue :: KM.Key -> (Value -> Value) -> KM.KeyMap Value -> KM.KeyMap Value
+adjustValue key f km = case KM.lookup key km of
+  Just v -> KM.insert key (f v) km
+  Nothing -> km

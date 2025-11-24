@@ -231,7 +231,7 @@ export function PathInput({
   };
 
   return (
-    <div>
+    <div className="max-w-md">
       {label && (
         <label htmlFor={id} className="block text-sm font-medium text-dark-text mb-2">
           {label}
