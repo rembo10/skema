@@ -41,7 +41,7 @@ jobs:
       run: |
         cabal update
         cabal run skema-generate-config
-        git diff --exit-code config.example.yaml || \
+        git diff --exit-code ../config.example.yaml || \
           (echo "Error: Generated config file is out of sync. Run 'cabal run skema-generate-config' and commit the changes." && exit 1)
 
     - name: Build and run tests
