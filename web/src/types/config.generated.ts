@@ -187,7 +187,7 @@ export const systemSchema: SectionMeta = {
 ,
     {
       name: 'database_path',
-      description: 'SQLite database file path',
+      description: 'SQLite database file path (default: skema.db in data directory)',
       type: 'path'
     }
 
@@ -250,14 +250,14 @@ export const serverSchema: SectionMeta = {
 ,
     {
       name: 'username',
-      description: 'Username for API authentication',
+      description: 'Username for API authentication (required)',
       type: 'string'
     }
 
 ,
     {
       name: 'password',
-      description: 'Password for API authentication (will be bcrypt hashed)',
+      description: 'Password for API authentication (required, will be bcrypt hashed)',
       type: 'string',
       sensitive: true
     }

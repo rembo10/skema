@@ -250,7 +250,7 @@ export function SystemConfigSection({ config, onChange, showAdvanced = false }: 
         value={section.database_path}
         onChange={onChange}
         type="path"
-        description="SQLite database file path"
+        description="SQLite database file path (default: skema.db in data directory)"
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
@@ -347,7 +347,7 @@ export function ServerConfigSection({ config, onChange, showAdvanced = false }: 
         value={section.username}
         onChange={onChange}
         type="string"
-        description="Username for API authentication"
+        description="Username for API authentication (required)"
         showAdvanced={showAdvanced}
         sectionValues={section}
       />

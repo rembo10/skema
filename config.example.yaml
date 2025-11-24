@@ -5,7 +5,7 @@
 library:
   # Music library configuration
   # Path to music library directory
-  path: /path/to/music
+  path: null
   # Watch library directory for changes
   watch: true
   # Automatically scan library on interval
@@ -28,14 +28,14 @@ system:
   # System and paths configuration
   # Watch config file for changes and reload automatically
   watch_config_file: true
-  # SQLite database file path
-  database_path: skema.db
+  # SQLite database file path (default: skema.db in data directory)
+  database_path: null
   # Data directory override (default: platform-specific)
-  data_dir: ~/.local/share/skema
+  data_dir: null
   # Cache directory override (default: platform-specific)
-  cache_dir: ~/.cache/skema
+  cache_dir: null
   # State directory override (default: platform-specific)
-  state_dir: ~/.local/state/skema
+  state_dir: null
 
 
 server:
@@ -48,18 +48,18 @@ server:
   jwt_secret: null
   # JWT token expiration time in hours
   jwt_expiration_hours: 168
-  # Username for API authentication
-  username: admin
-  # Password for API authentication (will be bcrypt hashed)
-  password: your-secure-password
+  # Username for API authentication (required)
+  username: null
+  # Password for API authentication (required, will be bcrypt hashed)
+  password: null
 
 
 download:
   # Download client configuration
   # NZB download client configuration
-  nzb_client: { type = "sabnzbd", url = "http://localhost:8080", api_key = "..." }
+  nzb_client: null
   # Torrent download client configuration
-  torrent_client: { type = "transmission", url = "http://localhost:9091" }
+  torrent_client: null
   # Directory for completed downloads (before import)
   directory: ./downloads
   # How often to check for completed downloads (in seconds)
@@ -75,7 +75,14 @@ download:
 indexers:
   # Usenet/torrent indexer configuration
   # List of configured indexers
-  list: []
+  list: 
+    - name: Bullet
+      url: https://bullet.codeshy.com
+      api_key: your-api-key
+      enabled: false
+      priority: 0
+      categories: [3000, 3010]
+
   # Search timeout per indexer in seconds
   search_timeout: 30
 
@@ -85,7 +92,7 @@ musicbrainz:
   # Which MusicBrainz server to use
   server: official
   # Username for Headphones VIP (required if using VIP)
-  username: myuser
+  username: null
   # Password for Headphones VIP (required if using VIP)
   password: null
   # Primary album types to fetch (e.g., Album, EP)
@@ -97,7 +104,7 @@ musicbrainz:
 media:
   # Media providers configuration
   # Last.fm API key for artist images and scrobbling
-  lastfm_api_key: your-lastfm-api-key
+  lastfm_api_key: null
 
 
 notifications:

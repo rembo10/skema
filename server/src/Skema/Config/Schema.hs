@@ -118,7 +118,7 @@ data FieldMeta = FieldMeta
   , fmEnvVar :: Maybe Text   -- ^ Environment variable name
   , fmCliFlag :: Maybe Text  -- ^ CLI long flag
   , fmCliShort :: Maybe Char -- ^ CLI short flag
-  , fmExample :: Maybe Text  -- ^ Example value
+  , fmExample :: Maybe Text  -- ^ Default value (shown in YAML)
   , fmSensitive :: Bool      -- ^ Hide in logs/output
   , fmRequired :: Bool       -- ^ Is this field required?
   , fmAdvanced :: Bool       -- ^ Hidden unless "Show Advanced" is toggled
@@ -168,7 +168,7 @@ cliFlag flag fm = fm { fmCliFlag = Just flag }
 cliShort :: Char -> FieldMeta -> FieldMeta
 cliShort c fm = fm { fmCliShort = Just c }
 
--- | Add example value
+-- | Set default value (shown in YAML)
 example :: Text -> FieldMeta -> FieldMeta
 example ex fm = fm { fmExample = Just ex }
 
@@ -730,7 +730,7 @@ librarySchema :: Schema
 librarySchema = schema "library" "Music library configuration"
   [ "path" .:: "Path to music library directory"
       & pathField
-      & example "/path/to/music"
+      -- No example = null default
   , "watch" .:: "Watch library directory for changes"
       & boolField
       & example "true"
@@ -763,18 +763,18 @@ systemSchema = schema "system" "System and paths configuration"
   [ "watch_config_file" .:: "Watch config file for changes and reload automatically"
       & boolField
       & example "true"
-  , "database_path" .:: "SQLite database file path"
+  , "database_path" .:: "SQLite database file path (default: skema.db in data directory)"
       & pathField
-      & example "skema.db"
+      -- No example = null, uses default location
   , "data_dir" .:: "Data directory override (default: platform-specific)"
       & pathField
-      & example "~/.local/share/skema"
+      -- No example = null, uses platform default
   , "cache_dir" .:: "Cache directory override (default: platform-specific)"
       & pathField
-      & example "~/.cache/skema"
+      -- No example = null, uses platform default
   , "state_dir" .:: "State directory override (default: platform-specific)"
       & pathField
-      & example "~/.local/state/skema"
+      -- No example = null, uses platform default
   ]
 
 -- | Server configuration schema
@@ -788,15 +788,16 @@ serverSchema = schema "server" "HTTP server configuration"
   , "jwt_secret" .:: "JWT signing secret (auto-generated if not provided)"
       & sensitive
       & advanced
+      -- No example = null, auto-generated
   , "jwt_expiration_hours" .:: "JWT token expiration time in hours"
       & intField
       & example "168"
       & advanced
-  , "username" .:: "Username for API authentication"
-      & example "admin"
-  , "password" .:: "Password for API authentication (will be bcrypt hashed)"
+  , "username" .:: "Username for API authentication (required)"
+      -- No example = null, must be set by user
+  , "password" .:: "Password for API authentication (required, will be bcrypt hashed)"
       & sensitive
-      & example "your-secure-password"
+      -- No example = null, must be set by user
   ]
 
 -- | Download configuration schema
@@ -804,10 +805,10 @@ downloadSchema :: Schema
 downloadSchema = schema "download" "Download client configuration"
   [ "nzb_client" .:: "NZB download client configuration"
       & fieldType FTObject
-      & example "{ type = \"sabnzbd\", url = \"http://localhost:8080\", api_key = \"...\" }"
+      -- No example = null, optional
   , "torrent_client" .:: "Torrent download client configuration"
       & fieldType FTObject
-      & example "{ type = \"transmission\", url = \"http://localhost:9091\" }"
+      -- No example = null, optional
   , "directory" .:: "Directory for completed downloads (before import)"
       & pathField
       & example "./downloads"
@@ -830,7 +831,15 @@ indexerSchema :: Schema
 indexerSchema = schema "indexers" "Usenet/torrent indexer configuration"
   [ "list" .:: "List of configured indexers"
       & fieldType FTList
-      & example "[]"
+      & example (T.unlines
+          [ ""
+          , "    - name: Bullet"
+          , "      url: https://bullet.codeshy.com"
+          , "      api_key: your-api-key"
+          , "      enabled: false"
+          , "      priority: 0"
+          , "      categories: [3000, 3010]"
+          ])
   , "search_timeout" .:: "Search timeout per indexer in seconds"
       & intField
       & example "30"
@@ -843,9 +852,10 @@ musicbrainzSchema = schema "musicbrainz" "MusicBrainz metadata provider configur
       & enumField ["official", "headphones_vip"]
       & example "official"
   , "username" .:: "Username for Headphones VIP (required if using VIP)"
-      & example "myuser"
+      -- No example = null
   , "password" .:: "Password for Headphones VIP (required if using VIP)"
       & sensitive
+      -- No example = null
   , "album_types" .:: "Primary album types to fetch (e.g., Album, EP)"
       & fieldType FTList
       & example "[\"Album\"]"
@@ -859,7 +869,7 @@ mediaSchema :: Schema
 mediaSchema = schema "media" "Media providers configuration"
   [ "lastfm_api_key" .:: "Last.fm API key for artist images and scrobbling"
       & sensitive
-      & example "your-lastfm-api-key"
+      -- No example = null
   ]
 
 -- | Notification configuration schema
