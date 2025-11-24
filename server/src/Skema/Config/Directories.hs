@@ -23,7 +23,6 @@ module Skema.Config.Directories
     -- * Environment variables
   , envDataDir
   , envCacheDir
-  , envStateDir
   , envLogFile
   ) where
 
@@ -33,14 +32,12 @@ import System.Directory
   , createDirectoryIfMissing
   )
 import System.FilePath ((</>), takeDirectory)
-import Control.Exception (catch)
 -- Note: lookupEnv is provided by Relude
 
 -- | Environment variable names for directory overrides.
-envDataDir, envCacheDir, envStateDir, envLogFile :: String
+envDataDir, envCacheDir, envLogFile :: String
 envDataDir = "SKEMA_DATA_DIR"
 envCacheDir = "SKEMA_CACHE_DIR"
-envStateDir = "SKEMA_STATE_DIR"
 envLogFile = "SKEMA_LOG_FILE"
 
 -- | Directory overrides from command-line or config.
@@ -49,26 +46,20 @@ data DirectoryOverrides = DirectoryOverrides
     -- ^ CLI override (highest priority)
   , overrideCacheDir :: Maybe FilePath
     -- ^ CLI override (highest priority)
-  , overrideStateDir :: Maybe FilePath
-    -- ^ CLI override (highest priority)
   , overrideLogFile :: Maybe FilePath
     -- ^ CLI override (highest priority)
   , configDataDir :: Maybe FilePath
     -- ^ Config file value (lower priority than CLI/ENV, higher than defaults)
   , configCacheDir :: Maybe FilePath
     -- ^ Config file value (lower priority than CLI/ENV, higher than defaults)
-  , configStateDir :: Maybe FilePath
-    -- ^ Config file value (lower priority than CLI/ENV, higher than defaults)
   } deriving (Show, Eq)
 
 -- | Resolved Skema directories for the current platform.
 data SkemaDirectories = SkemaDirectories
   { dataDir :: FilePath
-    -- ^ Persistent data directory (database, etc.)
+    -- ^ Persistent data directory (database, logs, etc.)
   , cacheDir :: FilePath
     -- ^ Cache directory (artist images, HTTP cache, etc.)
-  , stateDir :: FilePath
-    -- ^ State directory (logs, runtime state)
   , logFile :: Maybe FilePath
     -- ^ Optional log file path (Nothing = stdout only)
   } deriving (Show, Eq)
@@ -89,7 +80,6 @@ getSkemaDirectories overrides = do
   -- Check environment variables
   envData <- lookupEnv envDataDir
   envCache <- lookupEnv envCacheDir
-  envState <- lookupEnv envStateDir
   envLog <- lookupEnv envLogFile
 
   -- Apply precedence: CLI > ENV > config > defaults
@@ -107,22 +97,16 @@ getSkemaDirectories overrides = do
         `orElse` Just (cacheDir defaults)
         `orDefault` cacheDir defaults
 
-  let resolvedStateDir =
-        overrideStateDir overrides
-        `orElse` envState
-        `orElse` configStateDir overrides
-        `orElse` Just (stateDir defaults)
-        `orDefault` stateDir defaults
-
+  -- Log file: if data dir was overridden, update log path to be in data dir
+  let defaultLogInDataDir = Just (resolvedDataDir </> "logs" </> "skema.log")
   let resolvedLogFile =
         overrideLogFile overrides
         `orElse` envLog
-        `orElse` logFile defaults
+        `orElse` defaultLogInDataDir
 
   -- Ensure directories exist
   createDirectoryIfMissing True resolvedDataDir
   createDirectoryIfMissing True resolvedCacheDir
-  createDirectoryIfMissing True resolvedStateDir
 
   -- Ensure log directory exists if log file is specified
   case resolvedLogFile of
@@ -132,7 +116,6 @@ getSkemaDirectories overrides = do
   pure $ SkemaDirectories
     { dataDir = resolvedDataDir
     , cacheDir = resolvedCacheDir
-    , stateDir = resolvedStateDir
     , logFile = resolvedLogFile
     }
   where
@@ -155,22 +138,15 @@ getPlatformDefaults :: IO SkemaDirectories
 getPlatformDefaults = do
   -- XdgData:  Linux: ~/.local/share/skema  Windows: %APPDATA%\skema  macOS: ~/Library/Application Support/skema
   -- XdgCache: Linux: ~/.cache/skema        Windows: %LOCALAPPDATA%\skema  macOS: ~/Library/Caches/skema
-  -- XdgState: Linux: ~/.local/state/skema  (no direct Windows/macOS equiv, uses cache)
 
   dataDirPath <- getXdgDirectory XdgData "skema"
   cacheDirPath <- getXdgDirectory XdgCache "skema"
 
-  -- XdgState might not be available on all platforms/versions
-  -- Fall back to cache dir if not available
-  stateDirPath <- (getXdgDirectory XdgState "skema") `catch`
-    (\(_ :: SomeException) -> pure $ cacheDirPath </> "state")
-
-  -- Default log file in state directory
-  let defaultLogFile = stateDirPath </> "logs" </> "skema.log"
+  -- Default log file in data directory
+  let defaultLogFile = dataDirPath </> "logs" </> "skema.log"
 
   pure $ SkemaDirectories
     { dataDir = dataDirPath
     , cacheDir = cacheDirPath
-    , stateDir = stateDirPath
     , logFile = Just defaultLogFile  -- By default, enable log files
     }

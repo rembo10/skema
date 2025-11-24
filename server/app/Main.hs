@@ -34,7 +34,6 @@ data Options = Options
   { optConfigFile :: Maybe FilePath
   , optDataDir :: Maybe FilePath
   , optCacheDir :: Maybe FilePath
-  , optStateDir :: Maybe FilePath
   , optPort :: Maybe Int
   } deriving (Show)
 
@@ -54,10 +53,6 @@ optionsParser = Options
       ( long "cache-dir"
      <> metavar "DIR"
      <> help "Cache directory (overrides config and XDG defaults)" ))
-  <*> optional (strOption
-      ( long "state-dir"
-     <> metavar "DIR"
-     <> help "State directory (overrides config and XDG defaults)" ))
   <*> optional (option auto
       ( long "port"
      <> short 'p'
@@ -97,11 +92,9 @@ main = do
       let overrides = DirectoryOverrides
             { overrideDataDir = optDataDir opts
             , overrideCacheDir = optCacheDir opts
-            , overrideStateDir = optStateDir opts
             , overrideLogFile = Nothing  -- Always use stdout
             , configDataDir = fmap toString (systemDataDir sysConfig)
             , configCacheDir = fmap toString (systemCacheDir sysConfig)
-            , configStateDir = fmap toString (systemStateDir sysConfig)
             }
 
       -- Resolve directories (CLI > ENV > config > platform defaults)
@@ -116,7 +109,6 @@ main = do
           -- Log resolved directories
           $(logTM) InfoS $ logStr $ "Data directory: " <> toText (dataDir dirs)
           $(logTM) InfoS $ logStr $ "Cache directory: " <> toText (cacheDir dirs)
-          $(logTM) InfoS $ logStr $ "State directory: " <> toText (stateDir dirs)
 
           -- Set up database from config
           -- If database path is relative, use the data directory

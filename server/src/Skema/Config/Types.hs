@@ -166,8 +166,6 @@ data SystemConfig = SystemConfig
     -- ^ Data directory override (Nothing = use platform default)
   , systemCacheDir :: Maybe Text
     -- ^ Cache directory override (Nothing = use platform default)
-  , systemStateDir :: Maybe Text
-    -- ^ State directory override (Nothing = use platform default)
   } deriving (Show, Eq, Generic)
 
 instance FromJSON SystemConfig where
@@ -185,18 +183,14 @@ instance FromJSON SystemConfig where
     cacheDir <- o .:? "cache_dir"
     let expandedCacheDir = fmap (unsafePerformIO . PathExpansion.expandPathIO) cacheDir
 
-    stateDir <- o .:? "state_dir"
-    let expandedStateDir = fmap (unsafePerformIO . PathExpansion.expandPathIO) stateDir
-
-    pure $ SystemConfig watchConfig expandedDbPath expandedDataDir expandedCacheDir expandedStateDir
+    pure $ SystemConfig watchConfig expandedDbPath expandedDataDir expandedCacheDir
 
 instance ToJSON SystemConfig where
-  toJSON (SystemConfig watchConfig dbPath dataDir cacheDir stateDir) = object
+  toJSON (SystemConfig watchConfig dbPath dataDir cacheDir) = object
     [ "watch_config_file" .= watchConfig
     , "database_path" .= dbPath
     , "data_dir" .= dataDir
     , "cache_dir" .= cacheDir
-    , "state_dir" .= stateDir
     ]
 
 -- | Server configuration.
@@ -636,7 +630,6 @@ defaultSystemConfig = SystemConfig
   , systemDatabasePath = "skema.db"
   , systemDataDir = Nothing      -- Use platform default
   , systemCacheDir = Nothing     -- Use platform default
-  , systemStateDir = Nothing     -- Use platform default
   }
 
 -- | Default server configuration.

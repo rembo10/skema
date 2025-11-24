@@ -772,9 +772,6 @@ systemSchema = schema "system" "System and paths configuration"
   , "cache_dir" .:: "Cache directory override (default: platform-specific)"
       & pathField
       -- No example = null, uses platform default
-  , "state_dir" .:: "State directory override (default: platform-specific)"
-      & pathField
-      -- No example = null, uses platform default
   ]
 
 -- | Server configuration schema

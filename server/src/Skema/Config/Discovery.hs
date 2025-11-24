@@ -117,7 +117,6 @@ applyPortToConfig maybePort config = do
   -- Check for directory environment variables
   envDataDir <- lookupEnv "SKEMA_DATA_DIR"
   envCacheDir <- lookupEnv "SKEMA_CACHE_DIR"
-  envStateDir <- lookupEnv "SKEMA_STATE_DIR"
 
   -- Apply port override
   let srvConfig = server config
@@ -130,7 +129,6 @@ applyPortToConfig maybePort config = do
   let updatedSystemConfig = sysConfig
         { systemDataDir = fmap toText envDataDir `orElse` systemDataDir sysConfig
         , systemCacheDir = fmap toText envCacheDir `orElse` systemCacheDir sysConfig
-        , systemStateDir = fmap toText envStateDir `orElse` systemStateDir sysConfig
         }
 
   pure $ config
