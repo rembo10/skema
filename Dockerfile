@@ -72,9 +72,11 @@ COPY --from=backend-builder /build/skema /usr/local/bin/skema
 # Copy frontend assets from frontend builder
 COPY --from=frontend-builder /build/web/dist /usr/share/skema/web
 
-# Set environment variables
+# Set environment variables for Docker deployment
 ENV SKEMA_WEB_ROOT=/usr/share/skema/web
 ENV SKEMA_PORT=8182
+ENV SKEMA_DATA_DIR=/data
+ENV SKEMA_CACHE_DIR=/cache
 
 # Switch to non-root user
 USER skema

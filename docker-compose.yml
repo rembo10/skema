@@ -20,6 +20,9 @@ services:
       # Skema needs write access for metadata writing and file management
       - /path/to/your/music:/music
       # Download directory (if using download clients)
+      # Mount the same path your download client uses for completed downloads
+      # Then set download_directory in config.yaml to match the container path
+      # Example: if Transmission downloads to /downloads, mount and configure:
       # - /path/to/downloads:/downloads
     environment:
       # Server host - must be 0.0.0.0 for Docker (not 127.0.0.1)
@@ -29,7 +32,9 @@ services:
       # Authentication credentials (optional)
       # - SKEMA_USERNAME=admin
       # - SKEMA_PASSWORD=changeme
-      # Web root is set in Dockerfile, no need to override
+      # Data/cache directories (defaults set in Dockerfile, override if needed)
+      # - SKEMA_DATA_DIR=/data
+      # - SKEMA_CACHE_DIR=/cache
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8182/"]
       interval: 30s
