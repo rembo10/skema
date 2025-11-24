@@ -19,7 +19,7 @@ import qualified Data.ByteString.Lazy as BSL
 import System.Environment (setEnv, unsetEnv)
 
 import Skema.Config.Types
-import Skema.Config.EnvOverrides (applyEnvOverrides, fieldToEnvVar)
+import Skema.Config.EnvOverrides (applyEnvOverrides, fieldToEnvVar, fieldToEnvVars)
 import Skema.Config.Schema (schemaToJSON, allSchemas)
 import Skema.Domain.ConfigJSON (configToAPIJSON, applyConfigJSONUpdate)
 
@@ -81,6 +81,53 @@ envOverrideTests = testGroup "Env Var Overrides"
 
       -- Port should still be default
       serverPort (server updatedCfg) @?= 8182
+
+  , testCase "SKEMA_PORT (short form) overrides server port" $ do
+      let cfg = defaultConfig
+      -- Ensure full form is not set
+      unsetEnv "SKEMA_SERVER_PORT"
+      setEnv "SKEMA_PORT" "7777"
+
+      updatedCfg <- applyEnvOverrides cfg
+
+      unsetEnv "SKEMA_PORT"
+
+      serverPort (server updatedCfg) @?= 7777
+
+  , testCase "SKEMA_HOST (short form) overrides server host" $ do
+      let cfg = defaultConfig
+      unsetEnv "SKEMA_SERVER_HOST"
+      setEnv "SKEMA_HOST" "192.168.1.1"
+
+      updatedCfg <- applyEnvOverrides cfg
+
+      unsetEnv "SKEMA_HOST"
+
+      serverHost (server updatedCfg) @?= "192.168.1.1"
+
+  , testCase "Full form takes precedence over short form" $ do
+      let cfg = defaultConfig
+      -- Set both forms - full should win
+      setEnv "SKEMA_SERVER_PORT" "9999"
+      setEnv "SKEMA_PORT" "7777"
+
+      updatedCfg <- applyEnvOverrides cfg
+
+      unsetEnv "SKEMA_SERVER_PORT"
+      unsetEnv "SKEMA_PORT"
+
+      serverPort (server updatedCfg) @?= 9999
+
+  , testCase "SKEMA_DATA_DIR (short form) overrides system data dir" $ do
+      let cfg = defaultConfig
+      unsetEnv "SKEMA_SYSTEM_DATA_DIR"
+      setEnv "SKEMA_DATA_DIR" "/custom/data"
+
+      updatedCfg <- applyEnvOverrides cfg
+
+      unsetEnv "SKEMA_DATA_DIR"
+
+      systemDataDir (system updatedCfg) @?= Just "/custom/data"
   ]
 
 -- =============================================================================
@@ -100,6 +147,28 @@ fieldToEnvVarTests = testGroup "Field to Env Var Conversion"
 
   , testCase "mbUsername -> SKEMA_MB_USERNAME" $
       fieldToEnvVar "mbUsername" @?= "SKEMA_MB_USERNAME"
+
+  -- fieldToEnvVars tests (with short form fallbacks)
+  , testCase "serverPort -> [SKEMA_SERVER_PORT, SKEMA_PORT]" $
+      fieldToEnvVars "serverPort" @?= ["SKEMA_SERVER_PORT", "SKEMA_PORT"]
+
+  , testCase "serverHost -> [SKEMA_SERVER_HOST, SKEMA_HOST]" $
+      fieldToEnvVars "serverHost" @?= ["SKEMA_SERVER_HOST", "SKEMA_HOST"]
+
+  , testCase "serverUsername -> [SKEMA_SERVER_USERNAME, SKEMA_USERNAME]" $
+      fieldToEnvVars "serverUsername" @?= ["SKEMA_SERVER_USERNAME", "SKEMA_USERNAME"]
+
+  , testCase "systemDataDir -> [SKEMA_SYSTEM_DATA_DIR, SKEMA_DATA_DIR]" $
+      fieldToEnvVars "systemDataDir" @?= ["SKEMA_SYSTEM_DATA_DIR", "SKEMA_DATA_DIR"]
+
+  , testCase "systemCacheDir -> [SKEMA_SYSTEM_CACHE_DIR, SKEMA_CACHE_DIR]" $
+      fieldToEnvVars "systemCacheDir" @?= ["SKEMA_SYSTEM_CACHE_DIR", "SKEMA_CACHE_DIR"]
+
+  , testCase "libraryPath has no short form" $
+      fieldToEnvVars "libraryPath" @?= ["SKEMA_LIBRARY_PATH"]
+
+  , testCase "mbUsername has no short form" $
+      fieldToEnvVars "mbUsername" @?= ["SKEMA_MB_USERNAME"]
   ]
 
 -- =============================================================================

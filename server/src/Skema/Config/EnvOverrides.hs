@@ -8,17 +8,24 @@
 --
 -- Derives env var names automatically from field names:
 --   libraryPath -> SKEMA_LIBRARY_PATH
---   serverPort  -> SKEMA_SERVER_PORT
+--   serverPort  -> SKEMA_SERVER_PORT (also accepts SKEMA_PORT)
+--   systemDataDir -> SKEMA_SYSTEM_DATA_DIR (also accepts SKEMA_DATA_DIR)
+--
+-- For server.* and system.* config sections, both the full form and short
+-- form (without section prefix) are accepted. The full form takes precedence.
 module Skema.Config.EnvOverrides
   ( EnvParseable(..)
   , loadEnvOverrides
   , applyEnvOverrides
   , fieldToEnvVar
+  , fieldToEnvVars
+  , lookupEnvField
   ) where
 
 import GHC.Generics
 import qualified Data.Text as T
-import Data.Char (isUpper, toUpper)
+import Data.Char (isUpper, toUpper, toLower)
+import Data.List (stripPrefix)
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Skema.Config.Types as Cfg
 import System.OsPath (OsPath)
@@ -81,15 +88,44 @@ instance EnvParseable [Cfg.NotificationProvider] where
 -- e.g., "libraryPath" -> "SKEMA_LIBRARY_PATH"
 fieldToEnvVar :: String -> String
 fieldToEnvVar fieldName = "SKEMA_" ++ toUpperSnake fieldName
-  where
-    toUpperSnake :: String -> String
-    toUpperSnake = map toUpper . camelToSnake
 
-    camelToSnake :: String -> String
-    camelToSnake [] = []
-    camelToSnake (c:cs)
-      | isUpper c = '_' : toUpper c : camelToSnake cs
-      | otherwise = toUpper c : camelToSnake cs
+-- | Get all valid env var names for a field, in priority order.
+-- For server.* and system.* fields, also accepts the short form.
+-- e.g., "serverPort" -> ["SKEMA_SERVER_PORT", "SKEMA_PORT"]
+--       "systemDataDir" -> ["SKEMA_SYSTEM_DATA_DIR", "SKEMA_DATA_DIR"]
+--       "libraryPath" -> ["SKEMA_LIBRARY_PATH"]
+fieldToEnvVars :: String -> [String]
+fieldToEnvVars fieldName =
+  let fullName = fieldToEnvVar fieldName
+      -- Try to strip server/system prefix for short form
+      shortForm = case stripPrefix "server" fieldName of
+        Just (c:cs) | isUpper c -> Just $ "SKEMA_" ++ toUpperSnake (toLower c : cs)
+        _ -> case stripPrefix "system" fieldName of
+          Just (c:cs) | isUpper c -> Just $ "SKEMA_" ++ toUpperSnake (toLower c : cs)
+          _ -> Nothing
+  in fullName : maybe [] pure shortForm
+
+-- | Look up an env var for a field, checking all valid names in priority order.
+lookupEnvField :: String -> IO (Maybe String)
+lookupEnvField fieldName = firstJustM lookupEnv (fieldToEnvVars fieldName)
+
+-- Helper: find first Just result from a list of monadic lookups
+firstJustM :: Monad m => (a -> m (Maybe b)) -> [a] -> m (Maybe b)
+firstJustM _ [] = pure Nothing
+firstJustM f (x:xs) = do
+  result <- f x
+  case result of
+    Just v -> pure (Just v)
+    Nothing -> firstJustM f xs
+
+toUpperSnake :: String -> String
+toUpperSnake = map toUpper . camelToSnake
+
+camelToSnake :: String -> String
+camelToSnake [] = []
+camelToSnake (c:cs)
+  | isUpper c = '_' : toUpper c : camelToSnake cs
+  | otherwise = toUpper c : camelToSnake cs
 
 -- =============================================================================
 -- Generic env var loading
@@ -113,8 +149,8 @@ instance GEnvLoad a => GEnvLoad (M1 C c a) where
 instance (Selector s, EnvParseable a) => GEnvLoad (M1 S s (K1 i a)) where
   gEnvLoad m@(M1 (K1 _)) = do
     let fieldName = selName m
-        envVarName = fieldToEnvVar fieldName
-    maybeEnvVal <- lookupEnv envVarName
+    -- Check all valid env var names (full form first, then short form)
+    maybeEnvVal <- lookupEnvField fieldName
     pure $ case maybeEnvVal >>= parseEnvValue of
       Nothing -> m
       Just newVal -> M1 (K1 newVal)

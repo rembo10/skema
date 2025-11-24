@@ -9,6 +9,7 @@ import Skema.Database.Migrations
 import Skema.API.Server
 import Skema.Logging (initializeLogging, withKatipNamespace)
 import Skema.Config.Discovery
+import Skema.Config.EnvOverrides (lookupEnvField)
 import Skema.Config.Types (Config(..), SystemConfig(..), LibraryConfig(..))
 import Skema.Config.Directories
   ( SkemaDirectories(..)
@@ -61,7 +62,7 @@ optionsParser = Options
       ( long "port"
      <> short 'p'
      <> metavar "PORT"
-     <> help "Server port (overrides config and SKEMA_PORT env var)" ))
+     <> help "Server port (overrides config and SKEMA_SERVER_PORT/SKEMA_PORT env var)" ))
 
 -- | Main entry point.
 main :: IO ()
@@ -74,10 +75,11 @@ main = do
 
   -- Resolve port from CLI and environment (for config creation if needed)
   -- Priority: CLI > env var > default (config doesn't exist yet)
+  -- Uses same env var logic as config system (SKEMA_SERVER_PORT or SKEMA_PORT)
   resolvedPort <- case optPort opts of
     Just p -> pure (Just p)
     Nothing -> do
-      envPort <- lookupEnv "SKEMA_PORT"
+      envPort <- lookupEnvField "serverPort"
       pure $ envPort >>= readMaybe
 
   -- Load configuration first (needed for directory overrides)
