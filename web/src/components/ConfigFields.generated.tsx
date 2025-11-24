@@ -320,16 +320,6 @@ export function ServerConfigSection({ config, onChange, showAdvanced = false }: 
       />
       <ConfigField
         section="server"
-        field="username"
-        value={section.username}
-        onChange={onChange}
-        type="string"
-        description="Username for API authentication"
-        showAdvanced={showAdvanced}
-        sectionValues={section}
-      />
-      <ConfigField
-        section="server"
         field="jwt_secret"
         value={section.jwt_secret}
         onChange={onChange}
@@ -348,6 +338,16 @@ export function ServerConfigSection({ config, onChange, showAdvanced = false }: 
         type="integer"
         description="JWT token expiration time in hours"
         advanced
+        showAdvanced={showAdvanced}
+        sectionValues={section}
+      />
+      <ConfigField
+        section="server"
+        field="username"
+        value={section.username}
+        onChange={onChange}
+        type="string"
+        description="Username for API authentication"
         showAdvanced={showAdvanced}
         sectionValues={section}
       />

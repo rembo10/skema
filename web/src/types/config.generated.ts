@@ -29,10 +29,10 @@ export interface SystemConfig {
 export interface ServerConfig {
   host: string;
   port: number;
-  username: string;
-  password: string;
   jwt_secret: string;
   jwt_expiration_hours: number;
+  username: string;
+  password: string;
 }
 
 export interface DownloadConfig {
@@ -234,21 +234,6 @@ export const serverSchema: SectionMeta = {
 
 ,
     {
-      name: 'username',
-      description: 'Username for API authentication',
-      type: 'string'
-    }
-
-,
-    {
-      name: 'password',
-      description: 'Password for API authentication (will be bcrypt hashed)',
-      type: 'string',
-      sensitive: true
-    }
-
-,
-    {
       name: 'jwt_secret',
       description: 'JWT signing secret (auto-generated if not provided)',
       type: 'string',
@@ -260,6 +245,21 @@ export const serverSchema: SectionMeta = {
       name: 'jwt_expiration_hours',
       description: 'JWT token expiration time in hours',
       type: 'integer'
+    }
+
+,
+    {
+      name: 'username',
+      description: 'Username for API authentication',
+      type: 'string'
+    }
+
+,
+    {
+      name: 'password',
+      description: 'Password for API authentication (will be bcrypt hashed)',
+      type: 'string',
+      sensitive: true
     }
 
   ],

@@ -785,11 +785,6 @@ serverSchema = schema "server" "HTTP server configuration"
   , "port" .:: "Server port"
       & intField
       & example "8182"
-  , "username" .:: "Username for API authentication"
-      & example "admin"
-  , "password" .:: "Password for API authentication (will be bcrypt hashed)"
-      & sensitive
-      & example "your-secure-password"
   , "jwt_secret" .:: "JWT signing secret (auto-generated if not provided)"
       & sensitive
       & advanced
@@ -797,6 +792,11 @@ serverSchema = schema "server" "HTTP server configuration"
       & intField
       & example "168"
       & advanced
+  , "username" .:: "Username for API authentication"
+      & example "admin"
+  , "password" .:: "Password for API authentication (will be bcrypt hashed)"
+      & sensitive
+      & example "your-secure-password"
   ]
 
 -- | Download configuration schema

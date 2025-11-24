@@ -44,14 +44,14 @@ server:
   host: 0.0.0.0
   # Server port
   port: 8182
-  # Username for API authentication
-  username: admin
-  # Password for API authentication (will be bcrypt hashed)
-  password: your-secure-password
   # JWT signing secret (auto-generated if not provided)
   jwt_secret: null
   # JWT token expiration time in hours
   jwt_expiration_hours: 168
+  # Username for API authentication
+  username: admin
+  # Password for API authentication (will be bcrypt hashed)
+  password: your-secure-password
 
 
 download:

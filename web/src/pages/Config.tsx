@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { Save, Library, Settings, Server, Download, Search, Database, Plus, Edit2, Trash2, X, Bell, ChevronDown, ChevronUp } from 'lucide-react';
+import { Save, Library, Settings, Server, Download, Search, Database, Plus, Edit2, Trash2, X, Bell } from 'lucide-react';
 import { api } from '../lib/api';
 import { PathInput } from '../components/PathInput';
 import {
@@ -354,14 +354,19 @@ export default function Config() {
             Configure your application
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowAdvanced(!showAdvanced)}
-          className="btn-secondary text-sm flex items-center gap-2"
-        >
-          {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          {showAdvanced ? 'Hide Advanced' : 'Show Advanced'}
-        </button>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <span className="text-sm text-dark-text">Show Advanced</span>
+          <div className="relative">
+            <input
+              type="checkbox"
+              checked={showAdvanced}
+              onChange={(e) => setShowAdvanced(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-10 h-6 bg-dark-bg-subtle rounded-full peer peer-checked:bg-dark-accent transition-colors"></div>
+            <div className="absolute left-1 top-1 w-4 h-4 bg-dark-text-tertiary rounded-full transition-all peer-checked:translate-x-4 peer-checked:bg-white"></div>
+          </div>
+        </label>
       </div>
 
       {/* Tab Navigation */}
