@@ -181,7 +181,6 @@ export interface SystemConfig {
   database_path: string | null;
   data_dir: string | null;
   cache_dir: string | null;
-  state_dir: string | null;
 }
 
 export interface ServerConfig {

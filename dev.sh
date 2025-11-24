@@ -107,12 +107,10 @@ launch_server() {
   # Set development data directories (keeps everything in project)
   export SKEMA_DATA_DIR="../data"
   export SKEMA_CACHE_DIR="../cache"
-  export SKEMA_STATE_DIR="../state"
 
   echo "📁 Development directories:"
   echo "   Data:  $SKEMA_DATA_DIR"
   echo "   Cache: $SKEMA_CACHE_DIR"
-  echo "   State: $SKEMA_STATE_DIR"
   echo "   Config: $CONFIG_PATH"
   echo ""
 

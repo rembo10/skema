@@ -23,7 +23,6 @@ export interface SystemConfig {
   database_path: string | null;
   data_dir: string | null;
   cache_dir: string | null;
-  state_dir: string | null;
 }
 
 export interface ServerConfig {
@@ -202,13 +201,6 @@ export const systemSchema: SectionMeta = {
     {
       name: 'cache_dir',
       description: 'Cache directory override (default: platform-specific)',
-      type: 'path'
-    }
-
-,
-    {
-      name: 'state_dir',
-      description: 'State directory override (default: platform-specific)',
       type: 'path'
     }
 

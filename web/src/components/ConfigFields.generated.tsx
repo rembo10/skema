@@ -274,16 +274,6 @@ export function SystemConfigSection({ config, onChange, showAdvanced = false }: 
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
-      <ConfigField
-        section="system"
-        field="state_dir"
-        value={section.state_dir}
-        onChange={onChange}
-        type="path"
-        description="State directory override (default: platform-specific)"
-        showAdvanced={showAdvanced}
-        sectionValues={section}
-      />
     </div>
   );
 }

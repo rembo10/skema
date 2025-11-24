@@ -34,8 +34,6 @@ system:
   data_dir: null
   # Cache directory override (default: platform-specific)
   cache_dir: null
-  # State directory override (default: platform-specific)
-  state_dir: null
 
 
 server:
