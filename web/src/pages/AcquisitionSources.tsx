@@ -51,8 +51,14 @@ export default function AcquisitionSources() {
         await api.enableAcquisitionSource(sourceId);
         toast.success('Source enabled');
       }
-      // Reload data to reflect changes
-      await loadData();
+      // Optimistically update just the toggled source
+      setSources(prevSources =>
+        prevSources.map(source =>
+          source.id === sourceId
+            ? { ...source, enabled: !currentlyEnabled }
+            : source
+        )
+      );
     } catch (error) {
       console.error('Failed to toggle source:', error);
       toast.error('Failed to update source');

@@ -146,7 +146,19 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
     throw new ApiError(error.message || `API error: ${response.status}`, response.status);
   }
 
-  return response.json();
+  // Handle empty responses (204 No Content or empty body)
+  const contentType = response.headers.get('content-type');
+  if (response.status === 204 || !contentType?.includes('application/json')) {
+    return undefined as T;
+  }
+
+  // Check if response has content before parsing JSON
+  const text = await response.text();
+  if (!text) {
+    return undefined as T;
+  }
+
+  return JSON.parse(text) as T;
 }
 
 export const api = {
