@@ -241,8 +241,8 @@ data CatalogArtistRecord = CatalogArtistRecord
   , catalogArtistFollowed :: Bool
   , catalogArtistAddedBySourceId :: Maybe Int64
   , catalogArtistSourceClusterId :: Maybe Int64
-  , catalogArtistQualityProfileId :: Maybe Int64
   , catalogArtistLastCheckedAt :: Maybe UTCTime
+  , catalogArtistQualityProfileId :: Maybe Int64
   , catalogArtistCreatedAt :: Maybe UTCTime
   , catalogArtistUpdatedAt :: Maybe UTCTime
   } deriving (Show, Eq, Generic)
