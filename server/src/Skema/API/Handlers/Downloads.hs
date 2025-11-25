@@ -12,6 +12,7 @@ import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
 import Skema.Domain.Converters (downloadRecordToResponse)
 import qualified Skema.Database.Types as DBTypes
+import qualified Skema.Database.Repository.Downloads as DownloadsRepo
 import qualified Skema.Config.Types as Cfg
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
@@ -36,8 +37,6 @@ downloadsServer le bus _serverCfg jwtSecret connPool progressMap configVar = \ma
   getAllDownloadsHandler maybeAuthHeader
   :<|> getDownloadHandler maybeAuthHeader
   :<|> queueDownloadHandler maybeAuthHeader
-  :<|> pauseDownloadHandler maybeAuthHeader
-  :<|> resumeDownloadHandler maybeAuthHeader
   :<|> deleteDownloadHandler maybeAuthHeader
   :<|> reidentifyDownloadHandler maybeAuthHeader
   where
@@ -106,26 +105,13 @@ downloadsServer le bus _serverCfg jwtSecret connPool progressMap configVar = \ma
       -- 4. Emit DownloadQueued event
       throw500 "Download queueing not yet implemented"
 
-    pauseDownloadHandler :: Maybe Text -> Int64 -> Handler NoContent
-    pauseDownloadHandler authHeader _downloadId = do
+    deleteDownloadHandler :: Maybe Text -> Int64 -> Handler NoContent
+    deleteDownloadHandler authHeader downloadId = do
       _ <- requireAuth configVar jwtSecret authHeader
-      -- TODO: Implement pause
-      -- Get download client info and call pauseDownload
-      throw500 "Pause not yet implemented"
-
-    resumeDownloadHandler :: Maybe Text -> Int64 -> Handler NoContent
-    resumeDownloadHandler authHeader _downloadId = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      -- TODO: Implement resume
-      -- Get download client info and call resumeDownload
-      throw500 "Resume not yet implemented"
-
-    deleteDownloadHandler :: Maybe Text -> Int64 -> Maybe Bool -> Handler NoContent
-    deleteDownloadHandler authHeader _downloadId _deleteFiles = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      -- TODO: Implement delete
-      -- Get download client info and call removeDownload
-      throw500 "Delete not yet implemented"
+      -- Delete the download record from the database
+      liftIO $ withConnection connPool $ \conn ->
+        DownloadsRepo.deleteDownload conn downloadId
+      pure NoContent
 
     reidentifyDownloadHandler :: Maybe Text -> Int64 -> Handler NoContent
     reidentifyDownloadHandler authHeader downloadId = do

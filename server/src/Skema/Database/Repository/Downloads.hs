@@ -4,6 +4,7 @@
 module Skema.Database.Repository.Downloads
   ( DownloadInsert(..)
   , insertDownload
+  , deleteDownload
   ) where
 
 import Skema.Database.Utils (insertReturningId)
@@ -89,3 +90,8 @@ insertDownload conn catalogAlbumId indexerName downloadUrl downloadClient downlo
     "INSERT INTO downloads (catalog_album_id, indexer_name, download_url, download_client, download_client_id, status, download_path, title, size_bytes, quality, format, seeders, progress, error_message, queued_at) \
     \VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
     downloadInsert
+
+-- | Delete a download record from the database.
+deleteDownload :: SQLite.Connection -> Int64 -> IO ()
+deleteDownload conn downloadId =
+  SQLite.execute conn "DELETE FROM downloads WHERE id = ?" (SQLite.Only downloadId)

@@ -519,21 +519,8 @@ export const api = {
     return fetchApi<Download>(`/downloads/${downloadId}`);
   },
 
-  async pauseDownload(downloadId: number): Promise<void> {
-    return fetchApi<void>(`/downloads/${downloadId}/pause`, {
-      method: 'PUT',
-    });
-  },
-
-  async resumeDownload(downloadId: number): Promise<void> {
-    return fetchApi<void>(`/downloads/${downloadId}/resume`, {
-      method: 'PUT',
-    });
-  },
-
-  async deleteDownload(downloadId: number, deleteFiles: boolean = false): Promise<void> {
-    const params = deleteFiles ? '?deleteFiles=true' : '';
-    return fetchApi<void>(`/downloads/${downloadId}${params}`, {
+  async deleteDownload(downloadId: number): Promise<void> {
+    return fetchApi<void>(`/downloads/${downloadId}`, {
       method: 'DELETE',
     });
   },

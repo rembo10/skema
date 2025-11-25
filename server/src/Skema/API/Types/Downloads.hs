@@ -20,9 +20,7 @@ type DownloadsAPI = "downloads" :> Header "Authorization" Text :>
   ( Get '[JSON] [DownloadResponse]
   :<|> Capture "downloadId" Int64 :> Get '[JSON] DownloadResponse
   :<|> "queue" :> ReqBody '[JSON] QueueDownloadRequest :> PostCreated '[JSON] QueueDownloadResponse
-  :<|> Capture "downloadId" Int64 :> "pause" :> Put '[JSON] NoContent
-  :<|> Capture "downloadId" Int64 :> "resume" :> Put '[JSON] NoContent
-  :<|> Capture "downloadId" Int64 :> QueryParam "deleteFiles" Bool :> DeleteNoContent
+  :<|> Capture "downloadId" Int64 :> DeleteNoContent
   :<|> Capture "downloadId" Int64 :> "reidentify" :> Post '[JSON] NoContent
   )
 

@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../lib/api';
 import type { Download, DownloadStatus } from '../types/api';
-import { Download as DownloadIcon, Pause, Play, Trash2, Clock, CheckCircle2, XCircle, Archive, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Download as DownloadIcon, Trash2, Clock, CheckCircle2, XCircle, Archive, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
 
@@ -40,37 +40,11 @@ export default function Downloads() {
     }
   };
 
-  const handlePause = async (download: Download) => {
-    try {
-      await api.pauseDownload(download.id);
-      toast.success(`Paused ${download.title}`);
-      await loadDownloads();
-    } catch (error) {
-      toast.error('Failed to pause download');
-      console.error('Error pausing download:', error);
-    }
-  };
-
-  const handleResume = async (download: Download) => {
-    try {
-      await api.resumeDownload(download.id);
-      toast.success(`Resumed ${download.title}`);
-      await loadDownloads();
-    } catch (error) {
-      toast.error('Failed to resume download');
-      console.error('Error resuming download:', error);
-    }
-  };
-
-  const handleDelete = async (download: Download, deleteFiles: boolean = false) => {
-    const confirmMessage = deleteFiles
-      ? `Delete ${download.title} and remove downloaded files?`
-      : `Delete ${download.title} from history?`;
-
-    if (!confirm(confirmMessage)) return;
+  const handleDelete = async (download: Download) => {
+    if (!confirm(`Delete ${download.title} from history?`)) return;
 
     try {
-      await api.deleteDownload(download.id, deleteFiles);
+      await api.deleteDownload(download.id);
       toast.success('Download deleted');
       await loadDownloads();
     } catch (error) {
@@ -222,24 +196,6 @@ export default function Downloads() {
 
             {/* Action buttons */}
             <div className="flex items-center gap-2">
-              {download.status === 'downloading' && (
-                <button
-                  onClick={() => handlePause(download)}
-                  className="p-2 rounded-lg hover:bg-dark-bg-hover text-dark-text-secondary hover:text-dark-text transition-colors"
-                  title="Pause download"
-                >
-                  <Pause className="w-4 h-4" />
-                </button>
-              )}
-              {(download.status === 'queued' || download.status === 'failed') && (
-                <button
-                  onClick={() => handleResume(download)}
-                  className="p-2 rounded-lg hover:bg-dark-bg-hover text-dark-text-secondary hover:text-dark-text transition-colors"
-                  title="Resume download"
-                >
-                  <Play className="w-4 h-4" />
-                </button>
-              )}
               {download.status === 'identification_failure' && (
                 <button
                   onClick={() => handleReidentify(download)}
@@ -250,7 +206,7 @@ export default function Downloads() {
                 </button>
               )}
               <button
-                onClick={() => handleDelete(download, download.status === 'completed')}
+                onClick={() => handleDelete(download)}
                 className="p-2 rounded-lg hover:bg-dark-bg-hover text-dark-text-secondary hover:text-dark-error transition-colors"
                 title="Delete download"
               >
