@@ -20,8 +20,9 @@ module Skema.MusicBrainz.Client
   ) where
 
 import Skema.MusicBrainz.Types
-import Skema.HTTP.Client (HttpClient, HttpError, getJSON, prettyHttpError)
-import Skema.Config.Types (MusicBrainzConfig, getMusicBrainzServerUrl)
+import Skema.HTTP.Client (HttpClient, HttpError, getJSON, getJSONWithBasicAuth, prettyHttpError)
+import Skema.Config.Types (MusicBrainzConfig, MusicBrainzServer(..), getMusicBrainzServerUrl, mbServer, mbUsername, mbPassword)
+import Data.Aeson (FromJSON)
 import qualified Data.Text as T
 import Network.HTTP.Types.URI (urlEncode)
 
@@ -42,13 +43,15 @@ data MBClientEnv = MBClientEnv
     -- ^ Centralized HTTP client (handles rate limiting, retries, auth)
   , mbBaseUrl :: Text
     -- ^ Base URL (official musicbrainz.org or VIP mirror)
+  , mbConfig :: MusicBrainzConfig
+    -- ^ MusicBrainz configuration (for per-request auth)
   }
 
 -- | Create a new MusicBrainz client environment
 newMBClientEnv :: HttpClient -> MusicBrainzConfig -> MBClientEnv
-newMBClientEnv httpClient mbConfig =
-  let baseUrl = getMusicBrainzServerUrl mbConfig <> "/ws/2"
-  in MBClientEnv httpClient baseUrl
+newMBClientEnv httpClient config =
+  let baseUrl = getMusicBrainzServerUrl config <> "/ws/2"
+  in MBClientEnv httpClient baseUrl config
 
 -- | URL encode a query parameter
 encodeParam :: Text -> Text
@@ -61,6 +64,18 @@ buildMBUrl baseUrl endpoint params =
       separator = if null params then "" else "?"
   in baseUrl <> "/" <> endpoint <> separator <> paramStr
 
+-- | Make a request with appropriate auth based on config
+--
+-- Applies Basic Auth if using Headphones VIP with credentials configured.
+-- Otherwise uses regular getJSON (which may apply domain-level auth if configured).
+mbGetJSON :: FromJSON a => MBClientEnv -> Text -> IO (Either HttpError a)
+mbGetJSON MBClientEnv{..} url =
+  case (mbServer mbConfig, mbUsername mbConfig, mbPassword mbConfig) of
+    (HeadphonesVIP, Just user, Just pass) ->
+      getJSONWithBasicAuth mbHttpClient url user pass
+    _ ->
+      getJSON mbHttpClient url
+
 -- | Search for releases matching a query.
 --
 -- The query follows Lucene syntax. Examples:
@@ -70,13 +85,13 @@ buildMBUrl baseUrl endpoint params =
 --
 -- Automatically retries with exponential backoff via centralized HTTP client.
 searchReleases :: MBClientEnv -> Text -> Maybe Int -> Maybe Int -> IO (Either MBClientError MBReleaseSearch)
-searchReleases MBClientEnv{..} query limit offset = do
+searchReleases env@MBClientEnv{..} query limit offset = do
   let params = [("query", query), ("fmt", "json")]
              <> maybe [] (\l -> [("limit", show l)]) limit
              <> maybe [] (\o -> [("offset", show o)]) offset
       url = buildMBUrl mbBaseUrl "release" params
 
-  result <- getJSON mbHttpClient url
+  result <- mbGetJSON env url
   pure $ case result of
     Left err -> Left $ MBHttpError err
     Right releases -> Right releases
@@ -87,13 +102,13 @@ searchReleases MBClientEnv{..} query limit offset = do
 --
 -- Automatically retries with exponential backoff via centralized HTTP client.
 getRelease :: MBClientEnv -> ReleaseMBID -> IO (Either MBClientError MBRelease)
-getRelease MBClientEnv{..} (MBID mbid) = do
+getRelease env@MBClientEnv{..} (MBID mbid) = do
   -- Include comprehensive metadata for accurate identification and diff checking
   let includes = "recordings+artist-credits+labels+genres+media+release-groups"
       params = [("inc", includes), ("fmt", "json")]
       url = buildMBUrl mbBaseUrl ("release/" <> mbid) params
 
-  result <- getJSON mbHttpClient url
+  result <- mbGetJSON env url
   pure $ case result of
     Left err -> Left $ MBHttpError err
     Right release -> Right release
@@ -102,13 +117,13 @@ getRelease MBClientEnv{..} (MBID mbid) = do
 --
 -- Automatically retries with exponential backoff via centralized HTTP client.
 getArtist :: MBClientEnv -> ArtistMBID -> IO (Either MBClientError MBArtist)
-getArtist MBClientEnv{..} (MBID mbid) = do
+getArtist env@MBClientEnv{..} (MBID mbid) = do
   -- Include release groups to see the artist's discography
   let includes = "release-groups"
       params = [("inc", includes), ("fmt", "json")]
       url = buildMBUrl mbBaseUrl ("artist/" <> mbid) params
 
-  result <- getJSON mbHttpClient url
+  result <- mbGetJSON env url
   pure $ case result of
     Left err -> Left $ MBHttpError err
     Right artist -> Right artist
@@ -121,13 +136,13 @@ getArtist MBClientEnv{..} (MBID mbid) = do
 --
 -- Automatically retries with exponential backoff via centralized HTTP client.
 searchArtists :: MBClientEnv -> Text -> Maybe Int -> Maybe Int -> IO (Either MBClientError MBArtistSearch)
-searchArtists MBClientEnv{..} query limit offset = do
+searchArtists env@MBClientEnv{..} query limit offset = do
   let params = [("query", query), ("fmt", "json")]
              <> maybe [] (\l -> [("limit", show l)]) limit
              <> maybe [] (\o -> [("offset", show o)]) offset
       url = buildMBUrl mbBaseUrl "artist" params
 
-  result <- getJSON mbHttpClient url
+  result <- mbGetJSON env url
   pure $ case result of
     Left err -> Left $ MBHttpError err
     Right artists -> Right artists
@@ -140,13 +155,13 @@ searchArtists MBClientEnv{..} query limit offset = do
 --
 -- Automatically retries with exponential backoff via centralized HTTP client.
 searchReleaseGroups :: MBClientEnv -> Text -> Maybe Int -> Maybe Int -> IO (Either MBClientError MBReleaseGroupSearch)
-searchReleaseGroups MBClientEnv{..} query limit offset = do
+searchReleaseGroups env@MBClientEnv{..} query limit offset = do
   let params = [("query", query), ("fmt", "json")]
              <> maybe [] (\l -> [("limit", show l)]) limit
              <> maybe [] (\o -> [("offset", show o)]) offset
       url = buildMBUrl mbBaseUrl "release-group" params
 
-  result <- getJSON mbHttpClient url
+  result <- mbGetJSON env url
   pure $ case result of
     Left err -> Left $ MBHttpError err
     Right releaseGroups -> Right releaseGroups

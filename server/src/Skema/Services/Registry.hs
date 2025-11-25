@@ -29,17 +29,10 @@ import Skema.Services.Notifications (startNotificationService)
 import Skema.Events.Bus (EventBus, subscribe, publishAndLog)
 import Skema.Events.Types (Event(..), EventEnvelope(..))
 import Skema.Database.Connection (ConnectionPool)
-import Skema.Config.Types
-  ( Config(..)
-  , LibraryConfig(..)
-  , MusicBrainzServer(..)
-  , MusicBrainzConfig(..)
-  , Indexer(..)
-  , IndexerConfig(..)
-  )
+import Skema.Config.Types (Config(..), LibraryConfig(..))
 import Skema.Config.Loader (loadConfigFromFile)
 import Skema.MusicBrainz.Client (newMBClientEnv, MBClientEnv)
-import Skema.HTTP.Client (HttpClient, newHttpClient, getManager, defaultHttpConfig, defaultUserAgentData, headphonesVIPDomainConfig, HttpConfig(..), DomainConfig(..), HttpAuth(..), defaultDomainConfig)
+import Skema.HTTP.Client (HttpClient, newHttpClient, getManager, defaultHttpConfig, defaultUserAgentData)
 import Network.HTTP.Client (Manager)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
@@ -64,27 +57,6 @@ data ServiceRegistry = ServiceRegistry
     -- ^ In-memory map of download progress and status (download_id -> (progress 0.0-1.0, display_status))
   }
 
--- | Extract domain from a URL
-extractDomain :: Text -> Maybe Text
-extractDomain url =
-  case T.breakOn "//" url of
-    (_, rest) ->
-      let afterProtocol = T.drop 2 rest
-          domain = T.takeWhile (\c -> c /= '/' && c /= ':') afterProtocol
-      in if T.null domain then Nothing else Just domain
-
--- | Create a DomainConfig for an indexer
-indexerToDomainConfig :: Indexer -> Maybe (Text, DomainConfig)
-indexerToDomainConfig Indexer{..} = do
-  domain <- extractDomain indexerUrl
-  let auth = case (indexerUsername, indexerPassword) of
-        (Just user, Just password) -> Just $ BasicAuth user password
-        _ -> Nothing
-      config = defaultDomainConfig
-        { domainAuth = auth
-        , domainRateLimit = 2.0  -- Default 2 req/sec for indexers
-        }
-  pure (domain, config)
 
 -- | Start all services.
 --
@@ -112,30 +84,12 @@ startAllServices le bus pool config cacheDir configPath = do
     -- Create shared HTTP client for all services (ensures rate limiting, retries, auth)
     $(logTM) InfoS $ logStr ("Initializing HTTP client..." :: Text)
 
-    -- Configure HTTP client with MusicBrainz and indexer settings
-    let mbConfig = musicbrainz config
-        -- Add Headphones VIP config if using that server
-        mbDomainConfigs = case (mbServer mbConfig, mbUsername mbConfig, mbPassword mbConfig) of
-          (HeadphonesVIP, Just user, Just password) ->
-            Map.singleton "musicbrainz.codeshy.com" (headphonesVIPDomainConfig user password)
-          _ -> Map.empty
-
-        -- Add all indexer domain configs
-        indexerDomainConfigs = Map.fromList $ mapMaybe indexerToDomainConfig (indexerList $ indexers config)
-
-        -- Combine all domain configs (indexers override defaults if there's a conflict)
-        allDomainConfigs = httpDomainConfigs defaultHttpConfig
-                           `Map.union` mbDomainConfigs
-                           `Map.union` indexerDomainConfigs
-
-        httpConfig = defaultHttpConfig
-          { httpDomainConfigs = allDomainConfigs
-          }
-
-    httpClient <- liftIO $ newHttpClient le httpConfig defaultUserAgentData
+    -- Use default HTTP config
+    -- Note: Both indexer and MusicBrainz auth are now handled per-request, not via domain config
+    httpClient <- liftIO $ newHttpClient le defaultHttpConfig defaultUserAgentData
 
     $(logTM) InfoS $ logStr ("Initializing MusicBrainz API client..." :: Text)
-    let mbEnv = newMBClientEnv httpClient mbConfig
+    let mbEnv = newMBClientEnv httpClient (musicbrainz config)
 
     -- Create TVar for config (allows live updates)
     configVar <- liftIO $ STM.newTVarIO config

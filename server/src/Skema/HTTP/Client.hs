@@ -33,8 +33,10 @@ module Skema.HTTP.Client
   , makeRequestWithRetry
     -- * Convenience methods
   , get
+  , getWithBasicAuth
   , post
   , getJSON
+  , getJSONWithBasicAuth
   , postJSON
   , prettyHttpError
   ) where
@@ -490,6 +492,23 @@ get client url = do
       result <- makeRequestWithRetry client reqWithAuth
       pure $ fmap responseBody result
 
+-- | Convenience method: GET request with Basic Auth (overrides domain-based auth)
+getWithBasicAuth :: HttpClient -> Text -> Text -> Text -> IO (Either HttpError LBS.ByteString)
+getWithBasicAuth client url username password = do
+  case parseRequest (toString url) of
+    Nothing -> pure $ Left $ HttpParseError ("Invalid URL: " <> url)
+    Just req -> do
+      let domain = fromMaybe "unknown" $ extractDomain url
+          userAgent = getUserAgentForDomain client domain
+          reqWithUA = req
+            { requestHeaders = (hUserAgent, TE.encodeUtf8 userAgent) : requestHeaders req
+            , method = "GET"
+            }
+          -- Apply Basic Auth directly (overrides domain config)
+          reqWithAuth = applyBasicAuth (TE.encodeUtf8 username) (TE.encodeUtf8 password) reqWithUA
+      result <- makeRequestWithRetry client reqWithAuth
+      pure $ fmap responseBody result
+
 -- | Convenience method: POST request
 post :: HttpClient -> Text -> LBS.ByteString -> [(Text, Text)] -> IO (Either HttpError LBS.ByteString)
 post client url body headers = do
@@ -514,6 +533,23 @@ post client url body headers = do
 getJSON :: FromJSON a => HttpClient -> Text -> IO (Either HttpError a)
 getJSON client url = do
   result <- get client url
+  case result of
+    Left err -> pure $ Left err
+    Right body ->
+      case decode body of
+        Nothing -> do
+          -- Log the raw response body for debugging
+          let bodyText = TE.decodeUtf8 (LBS.toStrict body)
+              bodyPreview = T.take 500 bodyText  -- Limit to first 500 chars
+          runKatipContextT (hcLogEnv client) () "http-client" $ do
+            $(logTM) ErrorS $ logStr $ ("Failed to decode JSON from " <> url <> ". Response body: " <> bodyPreview :: Text)
+          pure $ Left $ HttpDecodeError "Failed to parse JSON response"
+        Just val -> pure $ Right val
+
+-- | Convenience method: GET request with Basic Auth expecting JSON response
+getJSONWithBasicAuth :: FromJSON a => HttpClient -> Text -> Text -> Text -> IO (Either HttpError a)
+getJSONWithBasicAuth client url username password = do
+  result <- getWithBasicAuth client url username password
   case result of
     Left err -> pure $ Left err
     Right body ->

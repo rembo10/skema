@@ -144,8 +144,10 @@ searchIndexerImpl client Indexer{..} SearchQuery{..} = do
                   <> "&limit=" <> T.pack (show sqLimit)
                   <> "&offset=" <> T.pack (show sqOffset)
 
-  -- Make request using centralized client (handles rate limiting, retries, auth)
-  result <- getJSON client searchUrl
+  -- Make request with indexer-specific auth (username/password)
+  result <- case (indexerUsername, indexerPassword) of
+    (Just user, Just pass) -> HTTP.getJSONWithBasicAuth client searchUrl user pass
+    _ -> HTTP.getJSON client searchUrl
 
   case result of
     Left err -> fail $ "HTTP error: " <> T.unpack (prettyHttpError err)
@@ -217,8 +219,10 @@ testIndexerImpl client Indexer{..} = do
         Nothing -> ""
       capsUrl = indexerUrl <> "/api?t=caps" <> apiKeyParam
 
-  -- Make request using centralized client (handles rate limiting, retries, auth)
-  result <- HTTP.get client capsUrl
+  -- Make request with indexer-specific auth (username/password)
+  result <- case (indexerUsername, indexerPassword) of
+    (Just user, Just pass) -> HTTP.getWithBasicAuth client capsUrl user pass
+    _ -> HTTP.get client capsUrl
 
   case result of
     Left err -> fail $ "HTTP error: " <> T.unpack (prettyHttpError err)
