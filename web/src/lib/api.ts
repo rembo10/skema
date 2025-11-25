@@ -22,7 +22,7 @@ function detectBasePath(): string {
     '/diffs',
     '/metadata-changes',
     '/acquisition',
-    '/wanted',
+    '/albums',
     '/catalog',
     '/downloads',
     '/settings',

@@ -58,7 +58,7 @@ function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: { isMobileMenuOpen: 
     { to: '/', icon: LayoutDashboard, label: 'Overview' },
     { to: '/diffs', icon: Database, label: 'Library' },
     { to: '/artists', icon: Music, label: 'Artists' },
-    { to: '/wanted', icon: Disc, label: 'Albums' },
+    { to: '/albums', icon: Disc, label: 'Albums' },
     { to: '/downloads', icon: Download, label: 'Downloads' },
     { to: '/sources', icon: Sliders, label: 'Input Sources' },
     { to: '/quality', icon: Award, label: 'Quality Profiles' },
@@ -157,7 +157,7 @@ const routeTitles: Record<string, string> = {
   '/diffs': 'Library',
   '/identification': 'Album Identification',
   '/artists': 'Artists',
-  '/wanted': 'Albums',
+  '/albums': 'Albums',
   '/downloads': 'Downloads',
   '/sources': 'Input Sources',
   '/quality': 'Quality Profiles',
@@ -285,7 +285,7 @@ function AppContent() {
               <Route path="/identification" element={<ProtectedRoute><Identification /></ProtectedRoute>} />
               <Route path="/artists" element={<ProtectedRoute><FollowedArtists /></ProtectedRoute>} />
               <Route path="/artists/:id" element={<ProtectedRoute><ArtistDetail /></ProtectedRoute>} />
-              <Route path="/wanted" element={<ProtectedRoute><WantedAlbums /></ProtectedRoute>} />
+              <Route path="/albums" element={<ProtectedRoute><WantedAlbums /></ProtectedRoute>} />
               <Route path="/sources" element={<ProtectedRoute><AcquisitionSources /></ProtectedRoute>} />
               <Route path="/downloads" element={<ProtectedRoute><Downloads /></ProtectedRoute>} />
               <Route path="/quality" element={<ProtectedRoute><QualityProfiles /></ProtectedRoute>} />
