@@ -416,84 +416,99 @@ scoreRelease ReleaseInfo{..} =
 -- Uses an event-driven approach: loads initial state on startup, then subscribes
 -- to download events to know when to start/stop polling download clients.
 -- When downloads are active, polls every 1 second and emits progress events.
+-- Download client instances are created once at startup and recreated only when
+-- the config changes (via ConfigUpdated event).
 runDownloadMonitor :: DownloadDeps -> IO ()
 runDownloadMonitor DownloadDeps{..} = do
-  -- Read current config from TVar
-  config <- STM.atomically $ STM.readTVar dlConfigVar
-
   runKatipContextT dlLogEnv () "download.monitor" $ do
     let bus = dlEventBus
         pool = dlDbPool
-        downloadCfg = download config
         httpClient = dlHttpClient
 
     $(logTM) InfoS "Starting download monitor"
 
-    clients <- liftIO $ createClientInstances httpClient downloadCfg
+    -- Create initial client instances from config
+    config <- liftIO $ STM.atomically $ STM.readTVar dlConfigVar
+    let downloadCfg = download config
+    initialClients <- liftIO $ createClientInstances httpClient downloadCfg
 
-    if null clients
-      then $(logTM) WarningS "No download clients configured, monitor will not run"
-      else do
-        $(logTM) InfoS $ logStr $ ("Created " <> show (length clients) <> " client instances" :: Text)
-        forM_ clients $ \(clientName, _) ->
-          $(logTM) InfoS $ logStr $ ("  - Client: '" <> clientName <> "'" :: Text)
+    $(logTM) InfoS $ logStr $ ("Created " <> show (length initialClients) <> " initial client instances" :: Text)
+    forM_ initialClients $ \(clientName, _) ->
+      $(logTM) InfoS $ logStr $ ("  - Client: '" <> clientName <> "'" :: Text)
 
-        -- Check initial state: are there any active downloads?
-        initialCount <- liftIO $ withConnection pool $ \conn -> do
-          results <- queryRows conn
-            "SELECT COUNT(*) FROM downloads WHERE status IN ('queued', 'downloading')"
-            () :: IO [Only Int]
-          case results of
-            [Only count] -> pure count
-            _ -> pure 0
+    -- Store clients in a TVar so they can be updated when config changes
+    clientsVar <- liftIO $ STM.atomically $ STM.newTVar initialClients
 
-        $(logTM) InfoS $ logStr $ ("Found " <> show initialCount <> " active downloads on startup" :: Text)
+    -- Check initial state: are there any active downloads?
+    initialCount <- liftIO $ withConnection pool $ \conn -> do
+      results <- queryRows conn
+        "SELECT COUNT(*) FROM downloads WHERE status IN ('queued', 'downloading')"
+        () :: IO [Only Int]
+      case results of
+        [Only count] -> pure count
+        _ -> pure 0
 
-        -- Create a TVar to track the count of active downloads
-        activeCountVar <- liftIO $ STM.atomically $ STM.newTVar initialCount
+    $(logTM) InfoS $ logStr $ ("Found " <> show initialCount <> " active downloads on startup" :: Text)
 
-        -- Subscribe to download events to maintain the count
-        eventChan <- liftIO $ STM.atomically $ subscribe bus
-        _ <- liftIO $ async $ forever $ do
-          envelope <- STM.atomically $ readTChan eventChan
-          case envelopeEvent envelope of
-            DownloadStarted{} -> do
-              -- Increment active download count
-              STM.atomically $ STM.modifyTVar' activeCountVar (+1)
+    -- Create a TVar to track the count of active downloads
+    activeCountVar <- liftIO $ STM.atomically $ STM.newTVar initialCount
 
-            DownloadCompleted{} -> do
-              -- Decrement active download count
-              STM.atomically $ STM.modifyTVar' activeCountVar (\n -> max 0 (n - 1))
+    -- Subscribe to events to maintain the count and reload clients on config changes
+    eventChan <- liftIO $ STM.atomically $ subscribe bus
+    _ <- liftIO $ async $ forever $ do
+      envelope <- STM.atomically $ readTChan eventChan
+      case envelopeEvent envelope of
+        DownloadStarted{} -> do
+          -- Increment active download count
+          STM.atomically $ STM.modifyTVar' activeCountVar (+1)
 
-            DownloadFailed{} -> do
-              -- Decrement active download count
-              STM.atomically $ STM.modifyTVar' activeCountVar (\n -> max 0 (n - 1))
+        DownloadCompleted{} -> do
+          -- Decrement active download count
+          STM.atomically $ STM.modifyTVar' activeCountVar (\n -> max 0 (n - 1))
 
-            _ -> pure ()  -- Ignore other events
+        DownloadFailed{} -> do
+          -- Decrement active download count
+          STM.atomically $ STM.modifyTVar' activeCountVar (\n -> max 0 (n - 1))
 
-        -- Spawn monitoring loop in background thread
-        _ <- liftIO $ async $ runKatipContextT dlLogEnv () "download.monitor" $ forever $ do
-          -- Check if there are active downloads
-          activeCount <- liftIO $ STM.atomically $ STM.readTVar activeCountVar
+        ConfigUpdated{} -> do
+          -- Config changed - recreate download client instances
+          runKatipContextT dlLogEnv () "download.monitor" $ do
+            $(logTM) InfoS "Config updated, recreating download client instances"
+          newConfig <- STM.atomically $ STM.readTVar dlConfigVar
+          let newDownloadCfg = download newConfig
+          newClients <- createClientInstances httpClient newDownloadCfg
+          runKatipContextT dlLogEnv () "download.monitor" $ do
+            $(logTM) InfoS $ logStr $ ("Created " <> show (length newClients) <> " client instances from updated config" :: Text)
+          STM.atomically $ STM.writeTVar clientsVar newClients
 
-          $(logTM) DebugS $ logStr $ ("Monitor loop: activeCount=" <> show activeCount :: Text)
+        _ -> pure ()  -- Ignore other events
 
-          if activeCount > 0
-            then do
-              -- Active downloads exist - poll every 1 second for real-time updates
-              $(logTM) DebugS $ logStr $ ("Checking " <> show (length clients) <> " clients..." :: Text)
-              forM_ clients $ \(clientName, client) ->
-                liftIO $ checkAndUpdateDownloads dlLogEnv bus pool dlProgressMap clientName client
+    -- Spawn monitoring loop in background thread
+    _ <- liftIO $ async $ runKatipContextT dlLogEnv () "download.monitor" $ forever $ do
+      -- Read current client instances (only changes when config changes)
+      clients <- liftIO $ STM.atomically $ STM.readTVar clientsVar
 
-              -- Sleep for 1 second to provide real-time updates to frontend
-              liftIO $ threadDelay 1000000  -- 1 second
+      -- Check if there are active downloads
+      activeCount <- liftIO $ STM.atomically $ STM.readTVar activeCountVar
 
-            else do
-              -- No active downloads - just sleep and check again later
-              $(logTM) DebugS "No active downloads, sleeping..."
-              liftIO $ threadDelay 5000000  -- 5 seconds
+      $(logTM) DebugS $ logStr $ ("Monitor loop: activeCount=" <> show activeCount <> ", clients=" <> show (length clients) :: Text)
 
-        pure ()
+      if activeCount > 0 && not (null clients)
+        then do
+          -- Active downloads exist - poll every 1 second for real-time updates
+          $(logTM) DebugS $ logStr $ ("Checking " <> show (length clients) <> " clients..." :: Text)
+          forM_ clients $ \(clientName, client) ->
+            liftIO $ checkAndUpdateDownloads dlLogEnv bus pool dlProgressMap clientName client
+
+          -- Sleep for 1 second to provide real-time updates to frontend
+          liftIO $ threadDelay 1000000  -- 1 second
+
+        else do
+          -- No active downloads or no clients - just sleep and check again later
+          $(logTM) DebugS "No active downloads or no clients, sleeping..."
+          liftIO $ threadDelay 5000000  -- 5 seconds
+
+    pure ()
   pure ()
 
 -- | Create download client instances from configuration
