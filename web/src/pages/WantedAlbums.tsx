@@ -7,6 +7,7 @@ import { useAppStore } from '../store';
 
 export default function WantedAlbums() {
   const catalogAlbums = useAppStore((state) => state.catalogAlbums);
+  const setCatalogAlbums = useAppStore((state) => state.setCatalogAlbums);
   const updateCatalogAlbum = useAppStore((state) => state.updateCatalogAlbum);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -27,14 +28,16 @@ export default function WantedAlbums() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [profiles, defaultProf, artistsData] = await Promise.all([
+      const [profiles, defaultProf, artistsData, albumsData] = await Promise.all([
         api.getQualityProfiles(),
         api.getDefaultQualityProfile(),
         api.getCatalogArtists(),
+        api.getCatalogAlbums(),
       ]);
       setQualityProfiles(profiles);
       setDefaultProfile(defaultProf);
       setArtists(artistsData);
+      setCatalogAlbums(albumsData);
     } catch (error) {
       toast.error('Failed to load data');
       console.error('Error loading data:', error);
