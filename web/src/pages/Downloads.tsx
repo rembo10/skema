@@ -9,7 +9,7 @@ export default function Downloads() {
   const downloads = useAppStore((state) => state.downloads);
   const setDownloads = useAppStore((state) => state.setDownloads);
   const [loading, setLoading] = useState(true);
-  const [selectedTab, setSelectedTab] = useState<'active' | 'recent' | 'history'>('active');
+  const [selectedTab, setSelectedTab] = useState<'active' | 'history'>('active');
   const connectionStatus = useAppStore((state) => state.connectionStatus);
   const prevConnectionStatus = useRef(connectionStatus);
 
@@ -137,27 +137,9 @@ export default function Downloads() {
 
   // Group downloads by status
   const activeDownloads = downloads.filter(d => d.status === 'queued' || d.status === 'downloading');
-  const recentDownloads = downloads.filter(d => {
-    // Always show identification failures in recent
-    if (d.status === 'identification_failure') return true;
-    if (d.status !== 'completed' && d.status !== 'imported' && d.status !== 'failed') return false;
-    // Recent = last 24 hours
-    const completedAt = d.completed_at || d.imported_at || d.queued_at;
-    if (!completedAt) return false;
-    const hoursSince = (Date.now() - new Date(completedAt).getTime()) / (1000 * 60 * 60);
-    return hoursSince < 24;
-  });
-  const historyDownloads = downloads.filter(d => {
-    if (d.status === 'queued' || d.status === 'downloading' || d.status === 'identification_failure') return false;
-    const completedAt = d.completed_at || d.imported_at || d.queued_at;
-    if (!completedAt) return true;
-    const hoursSince = (Date.now() - new Date(completedAt).getTime()) / (1000 * 60 * 60);
-    return hoursSince >= 24;
-  });
+  const historyDownloads = downloads.filter(d => d.status !== 'queued' && d.status !== 'downloading');
 
-  const currentDownloads = selectedTab === 'active' ? activeDownloads
-    : selectedTab === 'recent' ? recentDownloads
-    : historyDownloads;
+  const currentDownloads = selectedTab === 'active' ? activeDownloads : historyDownloads;
 
   const DownloadItem = ({ download }: { download: Download }) => (
     <div className="bg-dark-bg-elevated rounded-lg p-4 border border-dark-border hover:border-dark-border-hover transition-all">
@@ -296,16 +278,6 @@ export default function Downloads() {
           Active {activeDownloads.length > 0 && `(${activeDownloads.length})`}
         </button>
         <button
-          onClick={() => setSelectedTab('recent')}
-          className={`px-4 py-2 font-medium transition-all ${
-            selectedTab === 'recent'
-              ? 'text-dark-accent border-b-2 border-dark-accent'
-              : 'text-dark-text-secondary hover:text-dark-text'
-          }`}
-        >
-          Recent {recentDownloads.length > 0 && `(${recentDownloads.length})`}
-        </button>
-        <button
           onClick={() => setSelectedTab('history')}
           className={`px-4 py-2 font-medium transition-all ${
             selectedTab === 'history'
@@ -323,9 +295,7 @@ export default function Downloads() {
           <div className="text-center py-12">
             <DownloadIcon className="w-12 h-12 text-dark-text-secondary mx-auto mb-4 opacity-50" />
             <p className="text-dark-text-secondary">
-              {selectedTab === 'active' && 'No active downloads'}
-              {selectedTab === 'recent' && 'No recent downloads'}
-              {selectedTab === 'history' && 'No download history'}
+              {selectedTab === 'active' ? 'No active downloads' : 'No download history'}
             </p>
           </div>
         ) : (
