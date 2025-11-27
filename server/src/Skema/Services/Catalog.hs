@@ -240,28 +240,29 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                     Nothing -> do
                       -- New album discovered! Add to catalog
                       -- artistId is already available from the artist record
-                      let artistId = case DB.catalogArtistId artist of
-                            Just aid -> aid
-                            Nothing -> error "Artist ID should be available here"
-                      albumId <- liftIO $ withConnection pool $ \conn ->
-                        upsertCatalogAlbum conn rgId title artistId artistMBID artistName albumType firstReleaseDate False Nothing
+                      case DB.catalogArtistId artist of
+                        Nothing -> do
+                          $(logTM) ErrorS $ logStr $ ("Artist has no ID, skipping album: " <> title :: Text)
+                        Just artistId -> do
+                          albumId <- liftIO $ withConnection pool $ \conn ->
+                            upsertCatalogAlbum conn rgId title artistId artistMBID artistName albumType firstReleaseDate False Nothing
 
-                      liftIO $ Data.IORef.modifyIORef' newAlbumsCount (+1)
-                      $(logTM) InfoS $ logStr $ ("NEW album discovered: " <> title :: Text)
+                          liftIO $ Data.IORef.modifyIORef' newAlbumsCount (+1)
+                          $(logTM) InfoS $ logStr $ ("NEW album discovered: " <> title :: Text)
 
-                      -- Emit CatalogAlbumAdded event with complete album data
-                      -- This eliminates the need for frontend to make GET requests
-                      liftIO $ publishAndLog bus le "catalog" $ CatalogAlbumAdded
-                        { catalogAlbumId = albumId
-                        , catalogAlbumReleaseGroupMBID = rgId
-                        , catalogAlbumTitle = title
-                        , catalogAlbumArtistId = artistId
-                        , catalogAlbumArtistMBID = artistMBID
-                        , catalogAlbumArtistName = artistName
-                        , catalogAlbumType = albumType
-                        , catalogAlbumFirstReleaseDate = firstReleaseDate
-                        , catalogAlbumWanted = False
-                        }
+                          -- Emit CatalogAlbumAdded event with complete album data
+                          -- This eliminates the need for frontend to make GET requests
+                          liftIO $ publishAndLog bus le "catalog" $ CatalogAlbumAdded
+                            { catalogAlbumId = albumId
+                            , catalogAlbumReleaseGroupMBID = rgId
+                            , catalogAlbumTitle = title
+                            , catalogAlbumArtistId = artistId
+                            , catalogAlbumArtistMBID = artistMBID
+                            , catalogAlbumArtistName = artistName
+                            , catalogAlbumType = albumType
+                            , catalogAlbumFirstReleaseDate = firstReleaseDate
+                            , catalogAlbumWanted = False
+                            }
 
                 newCount <- liftIO $ Data.IORef.readIORef newAlbumsCount
                 $(logTM) InfoS $ logStr $ ("Catalog refresh complete. Found " <> show newCount <> " new albums for " <> artistName :: Text)

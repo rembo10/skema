@@ -47,6 +47,35 @@ import Skema.Database.Utils (downloadStatusToText)
 import qualified Skema.DownloadClient.Types as DC
 import Katip
 
+-- ============================================================================
+-- CONSTANTS
+-- ============================================================================
+
+-- | Timeout for multi-indexer search (30 seconds in microseconds)
+searchTimeoutMicros :: Int
+searchTimeoutMicros = 30 * 1000000
+
+-- | Poll interval when downloads are active (1 second in microseconds)
+activePollingIntervalMicros :: Int
+activePollingIntervalMicros = 1000000
+
+-- | Poll interval when no downloads active (5 seconds in microseconds)
+idlePollingIntervalMicros :: Int
+idlePollingIntervalMicros = 5000000
+
+-- | Newznab categories for audio content
+-- 3000 = Audio, 3010 = MP3, 3020 = FLAC
+audioCategories :: [Int]
+audioCategories = [3000, 3010, 3020]
+
+-- | Maximum number of results per indexer search
+maxResultsPerIndexer :: Int
+maxResultsPerIndexer = 50
+
+-- ============================================================================
+-- TYPES
+-- ============================================================================
+
 -- | Wrapper for different download client types
 data DownloadClientInstance
   = SABInstance SABnzbdClient
@@ -162,10 +191,9 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
 
           -- Start concurrent search with timeout
           startTime <- liftIO getCurrentTime
-          let searchTimeout = 30 * 1000000  -- 30 seconds in microseconds
 
           searchResult <- liftIO $ race
-            (threadDelay searchTimeout)
+            (threadDelay searchTimeoutMicros)
             (searchAllIndexersWithTracking bus le httpClient indexerConfig albumTitle artistName)
 
           endTime <- liftIO getCurrentTime
@@ -174,7 +202,7 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
           case searchResult of
             Left () -> do
               -- Timeout occurred
-              $(logTM) WarningS $ logStr ("Search timed out after 30 seconds" :: Text)
+              $(logTM) WarningS $ logStr $ ("Search timed out after " <> show (searchTimeoutMicros `div` 1000000) <> " seconds" :: Text)
               liftIO $ publishAndLog bus le "download" $ AlbumSearchCompleted
                 { searchTotalResults = 0
                 , searchBestScore = Nothing
@@ -368,8 +396,8 @@ buildSearchQuery albumTitle artistName = SearchQuery
   , sqAlbum = Just albumTitle
   , sqYear = Nothing
   , sqQuery = Nothing
-  , sqCategories = [3000, 3010, 3020]  -- Audio, MP3, FLAC
-  , sqLimit = 50
+  , sqCategories = audioCategories
+  , sqLimit = maxResultsPerIndexer
   , sqOffset = 0
   }
 
@@ -500,13 +528,13 @@ runDownloadMonitor DownloadDeps{..} = do
           forM_ clients $ \(clientName, client) ->
             liftIO $ checkAndUpdateDownloads dlLogEnv bus pool dlProgressMap clientName client
 
-          -- Sleep for 1 second to provide real-time updates to frontend
-          liftIO $ threadDelay 1000000  -- 1 second
+          -- Sleep briefly to provide real-time updates to frontend
+          liftIO $ threadDelay activePollingIntervalMicros
 
         else do
           -- No active downloads or no clients - just sleep and check again later
           $(logTM) DebugS "No active downloads or no clients, sleeping..."
-          liftIO $ threadDelay 5000000  -- 5 seconds
+          liftIO $ threadDelay idlePollingIntervalMicros
 
     pure ()
   pure ()

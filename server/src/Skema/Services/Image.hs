@@ -22,7 +22,6 @@ import Skema.Media.Storage (downloadAndStoreImages)
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
-import Data.Maybe (fromJust)
 import Control.Exception (try)
 import Database.SQLite.Simple (Only(..))
 import Katip
@@ -58,7 +57,7 @@ startImageService deps = do
               (Just artistId, Nothing) -> do
                 -- Artist has ID but no image - fetch it
                 _ <- async $ do
-                  result <- try $ handleArtistImageFetch deps artistId catalogArtistMBID catalogArtistName "catalog_artists"
+                  result <- try $ handleArtistImageFetch deps artistId catalogArtistMBID catalogArtistName
                   case result of
                     Left (e :: SomeException) -> do
                       let le = imgLogEnv deps
@@ -88,8 +87,8 @@ startImageService deps = do
       _ -> pure ()  -- Ignore other events
 
 -- | Handle artist image fetching and storage.
-handleArtistImageFetch :: ImageDeps -> Int64 -> Text -> Text -> Text -> IO ()
-handleArtistImageFetch ImageDeps{..} artistId artistMBID artistName targetTable = do
+handleArtistImageFetch :: ImageDeps -> Int64 -> Text -> Text -> IO ()
+handleArtistImageFetch ImageDeps{..} artistId artistMBID artistName = do
   let le = imgLogEnv
   let pool = imgDbPool
   let bus = imgEventBus
@@ -131,13 +130,14 @@ handleArtistImageFetch ImageDeps{..} artistId artistMBID artistName targetTable 
                 $(logTM) ErrorS $ logStr $ ("Failed to download image: " <> err :: Text)
               Right (localPath, maybeThumbPath) -> do
                 $(logTM) InfoS $ logStr $ ("Image stored locally: " <> localPath :: Text)
-                when (isJust maybeThumbPath) $ do
-                  $(logTM) InfoS $ logStr $ ("Thumbnail stored locally: " <> (fromJust maybeThumbPath) :: Text)
+                forM_ maybeThumbPath $ \thumbPath ->
+                  $(logTM) InfoS $ logStr $ ("Thumbnail stored locally: " <> thumbPath :: Text)
 
-                -- Update the appropriate table with both image URLs using internal ID
-                let updateSql = "UPDATE " <> targetTable <> " SET image_url = ?, thumbnail_url = ? WHERE id = ?"
-                liftIO $ withConnection pool $ \conn -> do
-                  executeQuery conn updateSql (Just localPath, maybeThumbPath, artistId)
+                -- Update catalog_artists with image URLs using internal ID
+                liftIO $ withConnection pool $ \conn ->
+                  executeQuery conn
+                    "UPDATE catalog_artists SET image_url = ?, thumbnail_url = ? WHERE id = ?"
+                    (Just localPath, maybeThumbPath, artistId)
 
                 -- Emit event that image is ready (with both full and thumbnail URLs)
                 liftIO $ publishAndLog bus le "image.artist" $ ArtistImageFetched
@@ -192,8 +192,8 @@ handleAlbumCoverFetch ImageDeps{..} releaseGroupMBID albumTitle albumId = do
                 $(logTM) ErrorS $ logStr $ ("Failed to download cover: " <> err :: Text)
               Right (localPath, maybeThumbPath) -> do
                 $(logTM) InfoS $ logStr $ ("Cover stored locally: " <> localPath :: Text)
-                when (isJust maybeThumbPath) $ do
-                  $(logTM) InfoS $ logStr $ ("Cover thumbnail stored locally: " <> (fromJust maybeThumbPath) :: Text)
+                forM_ maybeThumbPath $ \thumbPath ->
+                  $(logTM) InfoS $ logStr $ ("Cover thumbnail stored locally: " <> thumbPath :: Text)
 
                 -- Update catalog_albums with both cover URLs using internal ID
                 liftIO $ withConnection pool $ \conn -> do

@@ -225,22 +225,21 @@ matchAndAddAlbum pool mbClient source artistName albumTitle = do
         Nothing -> pure False
 
         Just rg -> do
-          -- Get the source ID
-          let sid = case sourceId source of
-                Just sourceIdVal -> sourceIdVal
-                Nothing -> error "Source has no ID"  -- Should never happen for persisted sources
-
-          -- Add to wanted albums
-          withConnection pool $ \conn -> do
-            _ <- insertWantedAlbum
-              conn
-              (unMBID $ mbrgsReleaseGroupId rg)
-              (mbrgsTitle rg)
-              (case mbrgsArtistId rg of
-                Just aid -> unMBID aid
-                Nothing -> "")  -- Fallback if no artist MBID
-              (mbrgsArtistName rg)
-              Wanted
-              sid
-              (mbrgsFirstReleaseDate rg)
-            pure True
+          -- Get the source ID (should always exist for persisted sources)
+          case sourceId source of
+            Nothing -> pure False  -- Defensive: skip sources without ID
+            Just sid -> do
+              -- Add to wanted albums
+              withConnection pool $ \conn -> do
+                _ <- insertWantedAlbum
+                  conn
+                  (unMBID $ mbrgsReleaseGroupId rg)
+                  (mbrgsTitle rg)
+                  (case mbrgsArtistId rg of
+                    Just aid -> unMBID aid
+                    Nothing -> "")  -- Fallback if no artist MBID
+                  (mbrgsArtistName rg)
+                  Wanted
+                  sid
+                  (mbrgsFirstReleaseDate rg)
+                pure True

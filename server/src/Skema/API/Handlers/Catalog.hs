@@ -269,31 +269,28 @@ catalogServer le bus _serverCfg jwtSecret registry connPool _cacheDir configVar 
 
       -- First, ensure the artist exists in catalog_artists (or create it)
       -- Skip Various Artists - albums can still be created without artist entry
+      when (DBTypes.isVariousArtists (createCatalogAlbumArtistMBID req)) $
+        throw400 "Cannot create catalog album for Various Artists - use a compilation source instead"
+
       artistId <- liftIO $ withConnection connPool $ \conn -> do
-        if DBTypes.isVariousArtists (createCatalogAlbumArtistMBID req)
-          then do
-            -- For Various Artists, we'll use a sentinel ID of 0 (or create a special entry)
-            -- Actually, let's just return error - Various Artists albums shouldn't have artist_id
-            error "Cannot create catalog album for Various Artists - use a compilation source instead"
-          else do
-            maybeArtist <- DB.getCatalogArtistByMBID conn (createCatalogAlbumArtistMBID req)
-            case maybeArtist of
-              Just artist -> case DBTypes.catalogArtistId artist of
-                Just aid -> pure aid
-                Nothing -> error "Artist record has no ID"
-              Nothing -> do
-                -- Artist doesn't exist, create it with followed=false
-                DB.upsertCatalogArtist
-                  conn
-                  (createCatalogAlbumArtistMBID req)
-                  (createCatalogAlbumArtistName req)
-                  Nothing  -- artist_type
-                  Nothing  -- image_url
-                  Nothing  -- thumbnail_url
-                  False    -- followed (not automatically following)
-                  Nothing  -- added_by_rule_id
-                  Nothing  -- source_cluster_id
-                  Nothing  -- last_checked_at
+        maybeArtist <- DB.getCatalogArtistByMBID conn (createCatalogAlbumArtistMBID req)
+        case maybeArtist of
+          Just artist -> case DBTypes.catalogArtistId artist of
+            Just aid -> pure aid
+            Nothing -> fail "Artist record has no ID"  -- Shouldn't happen, but fail safely
+          Nothing -> do
+            -- Artist doesn't exist, create it with followed=false
+            DB.upsertCatalogArtist
+              conn
+              (createCatalogAlbumArtistMBID req)
+              (createCatalogAlbumArtistName req)
+              Nothing  -- artist_type
+              Nothing  -- image_url
+              Nothing  -- thumbnail_url
+              False    -- followed (not automatically following)
+              Nothing  -- added_by_rule_id
+              Nothing  -- source_cluster_id
+              Nothing  -- last_checked_at
 
       _ <- liftIO $ withConnection connPool $ \conn ->
         DB.upsertCatalogAlbum

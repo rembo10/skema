@@ -97,7 +97,7 @@ export function useSSE(enabled: boolean = true) {
       };
 
       // Helper to auto-clear status after a delay
-      const setStatusWithTimeout = (status: any, clearAfterMs: number = 5000) => {
+      const setStatusWithTimeout = (status: { type: 'in_progress' | 'success' | 'error'; message: string; progress?: { current: number; total: number } }, clearAfterMs: number = 5000) => {
         setCurrentStatus(status);
 
         if (statusTimeoutRef.current) {

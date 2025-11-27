@@ -3,6 +3,41 @@
 // Source: Skema.Config.Schema
 
 // ===================================================================
+// Nested Config Types
+// ===================================================================
+
+export type DownloadClientType = 'sabnzbd' | 'nzbget' | 'transmission' | 'qbittorrent';
+
+export interface DownloadClient {
+  type: DownloadClientType;
+  url: string;
+  api_key?: string | null;
+  username?: string | null;
+  password?: string | null;
+  enabled: boolean;
+  download_dir?: string | null;
+  category?: string | null;
+}
+
+export interface Indexer {
+  name: string;
+  url: string;
+  api_key: string;
+  enabled: boolean;
+  priority: number;
+}
+
+export type NotificationProviderType = 'pushover';
+
+export interface NotificationProvider {
+  type: NotificationProviderType;
+  enabled: boolean;
+  user_key: string;
+  api_token: string;
+  priority?: number;
+}
+
+// ===================================================================
 // Config Types
 // ===================================================================
 
@@ -35,17 +70,17 @@ export interface ServerConfig {
 }
 
 export interface DownloadConfig {
-  nzb_client?: any;
-  torrent_client?: any;
+  nzb_client?: DownloadClient | null;
+  torrent_client?: DownloadClient | null;
   directory: string | null;
   check_interval: number;
   auto_import: boolean;
-  min_seeders: number;
-  max_size: number;
+  min_seeders: number | null;
+  max_size: number | null;
 }
 
 export interface IndexersConfig {
-  list: any[];
+  list: Indexer[];
   search_timeout: number;
 }
 
@@ -53,17 +88,17 @@ export interface MusicbrainzConfig {
   server: 'official' | 'headphones_vip';
   username: string;
   password: string;
-  album_types: any[];
-  exclude_secondary_types: any[];
+  album_types: string[];
+  exclude_secondary_types: string[];
 }
 
 export interface MediaConfig {
-  lastfm_api_key: string;
+  lastfm_api_key: string | null;
 }
 
 export interface NotificationsConfig {
   enabled: boolean;
-  providers: any[];
+  providers: NotificationProvider[];
   on_album_found: boolean;
   on_album_downloaded: boolean;
   on_album_imported: boolean;

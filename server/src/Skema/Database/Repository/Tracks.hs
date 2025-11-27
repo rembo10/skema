@@ -238,7 +238,7 @@ upsertTrackWithMetadata conn path meta = do
 
   tid <- case viaNonEmpty head results of
     Just (Only tid) -> pure tid
-    Nothing -> error "Failed to get track ID after upsert"
+    Nothing -> fail "Failed to get track ID after upsert"  -- Should never happen with UPSERT
 
   -- Upsert metadata with MB IDs using custom ToRow instance
   let mbIds = M.musicBrainzIds meta

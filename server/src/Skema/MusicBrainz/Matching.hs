@@ -26,29 +26,24 @@ import Monatone.Metadata (Metadata(..), AudioProperties(..))
 import qualified Monatone.Metadata as M
 
 -- | Group scanned files by probable release (directory + album tag).
+-- Returns Nothing for empty input or if grouping produces empty groups.
 groupFilesByRelease :: [(OsPath, Metadata)] -> [FileGroup]
 groupFilesByRelease files =
   let grouped = Map.fromListWith (<>)
         [ (groupKey meta, [(path, meta)])
         | (path, meta) <- files
         ]
-  in map (uncurry makeFileGroup) (Map.toList grouped)
+  in mapMaybe (uncurry makeFileGroup) (Map.toList grouped)
   where
     groupKey meta = (album meta, albumArtist meta <|> artist meta)
 
-    makeFileGroup (albumName, artistName) fileList =
-      let -- Get first metadata (list should never be empty due to grouping)
-          firstMeta = case viaNonEmpty head fileList of
-            Just (_, meta) -> meta
-            Nothing -> error "Empty file list in makeFileGroup"
-
-          -- Get directory from first file
-          directory = case viaNonEmpty head fileList of
-            Just (path, _) -> OP.takeDirectory path
-            Nothing -> error "Empty file list in makeFileGroup"
-
+    -- Returns Nothing if the file list is empty (defensive, shouldn't happen)
+    makeFileGroup :: (Maybe Text, Maybe Text) -> [(OsPath, Metadata)] -> Maybe FileGroup
+    makeFileGroup _ [] = Nothing  -- Empty file list - skip this group
+    makeFileGroup (albumName, artistName) fileList@((firstPath, firstMeta):_) =
+      let directory = OP.takeDirectory firstPath
           mbIds = musicBrainzIds firstMeta
-      in FileGroup
+      in Just FileGroup
         { fgDirectory = directory
         , fgAlbum = albumName
         , fgArtist = artistName
