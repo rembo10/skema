@@ -342,6 +342,44 @@ createSchema conn = do
     \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
     \)"
 
+  -- Create search_history table to store search results for each album
+  executeQuery_ conn
+    "CREATE TABLE IF NOT EXISTS search_history ( \
+    \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
+    \  catalog_album_id INTEGER NOT NULL REFERENCES catalog_albums(id) ON DELETE CASCADE, \
+    \  searched_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
+    \  total_results INTEGER NOT NULL DEFAULT 0, \
+    \  search_duration_ms INTEGER, \
+    \  selected_release_title TEXT, \
+    \  selected_release_indexer TEXT, \
+    \  selected_release_score INTEGER, \
+    \  outcome TEXT NOT NULL DEFAULT 'no_results' \
+    \)"
+
+  -- Create search_history_results table to store individual results
+  executeQuery_ conn
+    "CREATE TABLE IF NOT EXISTS search_history_results ( \
+    \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
+    \  search_history_id INTEGER NOT NULL REFERENCES search_history(id) ON DELETE CASCADE, \
+    \  indexer_name TEXT NOT NULL, \
+    \  title TEXT NOT NULL, \
+    \  download_url TEXT NOT NULL, \
+    \  info_url TEXT, \
+    \  size_bytes INTEGER, \
+    \  publish_date TIMESTAMP, \
+    \  seeders INTEGER, \
+    \  peers INTEGER, \
+    \  grabs INTEGER, \
+    \  download_type TEXT NOT NULL, \
+    \  quality TEXT, \
+    \  score INTEGER NOT NULL, \
+    \  rank INTEGER NOT NULL \
+    \)"
+
+  -- Create index for faster lookups by album
+  executeQuery_ conn
+    "CREATE INDEX IF NOT EXISTS idx_search_history_album ON search_history(catalog_album_id)"
+
 -- | Create the default acquisition source if it doesn't exist.
 createDefaultAcquisitionSource :: SQLite.Connection -> IO ()
 createDefaultAcquisitionSource conn = do

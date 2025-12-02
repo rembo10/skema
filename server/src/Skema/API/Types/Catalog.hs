@@ -14,10 +14,13 @@ module Skema.API.Types.Catalog
   , UpdateCatalogArtistRequest(..)
   , CreateCatalogAlbumRequest(..)
   , UpdateCatalogAlbumRequest(..)
+  , SearchHistoryResponse(..)
+  , SearchHistoryResultResponse(..)
   ) where
 
 import Skema.API.Types.Events (EventResponse)
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
+import Data.Time (UTCTime)
 import GHC.Generics ()
 import Servant
 
@@ -34,6 +37,8 @@ type CatalogAPI = "catalog" :> Header "Authorization" Text :>
   :<|> "albums" :> ReqBody '[JSON] CreateCatalogAlbumRequest :> PostCreated '[JSON] CatalogAlbumResponse
   :<|> "albums" :> Capture "albumId" Int64 :> ReqBody '[JSON] UpdateCatalogAlbumRequest :> Patch '[JSON] CatalogAlbumResponse
   :<|> "albums" :> Capture "albumId" Int64 :> DeleteNoContent
+  :<|> "albums" :> Capture "albumId" Int64 :> "search-history" :> Get '[JSON] [SearchHistoryResponse]
+  :<|> "albums" :> Capture "albumId" Int64 :> "search-history" :> Capture "historyId" Int64 :> "results" :> Get '[JSON] [SearchHistoryResultResponse]
   )
 
 -- | Request for universal catalog search (searches both artists and albums).
@@ -180,3 +185,45 @@ instance ToJSON UpdateCatalogAlbumRequest where
 
 instance FromJSON UpdateCatalogAlbumRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
+
+-- | Search history response - one entry per search attempt.
+data SearchHistoryResponse = SearchHistoryResponse
+  { searchHistoryResponseId :: Int64
+  , searchHistoryResponseSearchedAt :: UTCTime
+  , searchHistoryResponseTotalResults :: Int
+  , searchHistoryResponseDurationMs :: Maybe Int
+  , searchHistoryResponseSelectedTitle :: Maybe Text
+  , searchHistoryResponseSelectedIndexer :: Maybe Text
+  , searchHistoryResponseSelectedScore :: Maybe Int
+  , searchHistoryResponseOutcome :: Text
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON SearchHistoryResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 21 }
+
+instance FromJSON SearchHistoryResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 21 }
+
+-- | Individual search result response.
+data SearchHistoryResultResponse = SearchHistoryResultResponse
+  { searchHistoryResultResponseId :: Int64
+  , searchHistoryResultResponseIndexerName :: Text
+  , searchHistoryResultResponseTitle :: Text
+  , searchHistoryResultResponseDownloadUrl :: Text
+  , searchHistoryResultResponseInfoUrl :: Maybe Text
+  , searchHistoryResultResponseSizeBytes :: Maybe Integer
+  , searchHistoryResultResponsePublishDate :: Maybe UTCTime
+  , searchHistoryResultResponseSeeders :: Maybe Int
+  , searchHistoryResultResponsePeers :: Maybe Int
+  , searchHistoryResultResponseGrabs :: Maybe Int
+  , searchHistoryResultResponseDownloadType :: Text
+  , searchHistoryResultResponseQuality :: Maybe Text
+  , searchHistoryResultResponseScore :: Int
+  , searchHistoryResultResponseRank :: Int
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON SearchHistoryResultResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 27 }
+
+instance FromJSON SearchHistoryResultResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 27 }

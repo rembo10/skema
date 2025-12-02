@@ -35,7 +35,7 @@ import Skema.MusicBrainz.Identify (identifyFileGroup)
 import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), MBRelease(..), MBID(..), unMBID, mbSearchReleases, TrackMatch(..), MBTrack(..))
 import Skema.MusicBrainz.Client (MBClientEnv, searchReleases)
 import Skema.Domain.Identification (IdentifyConfig(..), buildSearchQuery)
-import Skema.Config.Types (Config(..), LibraryConfig(..))
+import Skema.Config.Types (Config(..), LibraryConfig(..), DownloadConfig(..), ImportMode(..))
 import qualified Monatone.Metadata as M
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
@@ -147,8 +147,8 @@ handleDownloadCompleted ImporterDeps{..} downloadId = do
 
 -- | Import a download into the library.
 importDownload :: Config -> LogEnv -> EventBus -> ConnectionPool -> MBClientEnv -> DownloadRecord -> CatalogAlbumRecord -> IO ()
-importDownload config le bus pool mbClientEnv download catalogAlbum = do
-  let downloadPathText = fromMaybe "" (DB.downloadPath download)
+importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
+  let downloadPathText = fromMaybe "" (DB.downloadPath downloadRec)
 
   runKatipContextT le () "importer" $ do
     -- 1. Parse download path to OsPath
@@ -250,7 +250,7 @@ importDownload config le bus pool mbClientEnv download catalogAlbum = do
             $(logTM) ErrorS $ logStr $ ("Album: " <> albumName <>
                                         ", Artist: " <> artistName :: Text)
             let errorMsg = "MusicBrainz identification failed: " <> show err
-            liftIO $ markDownloadAsIdentificationFailure pool (fromMaybe 0 (DB.downloadId download)) errorMsg
+            liftIO $ markDownloadAsIdentificationFailure pool (fromMaybe 0 (DB.downloadId downloadRec)) errorMsg
             $(logTM) InfoS $ logStr ("Download marked as identification_failure - can be retried later" :: Text)
 
           Right (candidateCount, Nothing, _) -> do
@@ -259,7 +259,7 @@ importDownload config le bus pool mbClientEnv download catalogAlbum = do
             $(logTM) InfoS $ logStr $ ("MusicBrainz returned " <> show candidateCount <> " search results" :: Text)
             $(logTM) ErrorS $ logStr ("Album not found in MusicBrainz database or no candidates could be fetched" :: Text)
             let errorMsg = "No MusicBrainz match found (" <> show candidateCount <> " candidates searched). The release may not be in MusicBrainz database, or no candidate details could be fetched."
-            liftIO $ markDownloadAsIdentificationFailure pool (fromMaybe 0 (DB.downloadId download)) errorMsg
+            liftIO $ markDownloadAsIdentificationFailure pool (fromMaybe 0 (DB.downloadId downloadRec)) errorMsg
             $(logTM) InfoS $ logStr ("Download marked as identification_failure - can be retried later" :: Text)
 
           Right (candidateCount, Just match, minConfidence) -> do
@@ -317,7 +317,7 @@ importDownload config le bus pool mbClientEnv download catalogAlbum = do
                 $(logTM) InfoS $ logStr ("Suggestion: Lower the confidence threshold in config or check if track titles/counts match" :: Text)
                 let errorMsg = "Best match confidence (" <> show (round (confidence * 100) :: Integer) <>
                                "%) is below threshold (" <> show (round (minConfidence * 100) :: Integer) <> "%)."
-                liftIO $ markDownloadAsIdentificationFailure pool (fromMaybe 0 (DB.downloadId download)) errorMsg
+                liftIO $ markDownloadAsIdentificationFailure pool (fromMaybe 0 (DB.downloadId downloadRec)) errorMsg
                 $(logTM) InfoS $ logStr ("Download marked as identification_failure - can be retried later" :: Text)
               else do
                 -- Confidence meets threshold, proceed with import
@@ -410,10 +410,16 @@ importDownload config le bus pool mbClientEnv download catalogAlbum = do
                   formattedFileNameOsPath <- OP.encodeUtf (toString formattedFileName)
                   let newPath = targetDir </> formattedFileNameOsPath
 
-                  -- Move file to new path
+                  -- Import file based on import mode
                   sourceStr <- OP.decodeUtf oldPath
                   targetStr <- OP.decodeUtf newPath
-                  Dir.renameFile sourceStr targetStr
+                  let downloadConfig = download config
+                      importMode = downloadImportMode downloadConfig
+                  case importMode of
+                    ImportMove -> Dir.renameFile sourceStr targetStr
+                    ImportCopy -> Dir.copyFile sourceStr targetStr
+                    ImportHardlink -> Dir.createFileLink sourceStr targetStr
+                    ImportSymlink -> Dir.createFileLink sourceStr targetStr  -- TODO: Use createSymbolicLink
 
                   -- Insert/update track record
                   withConnection pool $ \conn -> do
@@ -428,7 +434,7 @@ importDownload config le bus pool mbClientEnv download catalogAlbum = do
                 liftIO $ withConnection pool $ \conn ->
                   executeQuery conn
                     "UPDATE downloads SET matched_cluster_id = ?, library_path = ? WHERE id = ?"
-                    (clusterId, dirPath, DB.downloadId download)
+                    (clusterId, dirPath, DB.downloadId downloadRec)
 
                 -- 13. Link catalog_album to cluster (if not already linked)
                 liftIO $ withConnection pool $ \conn ->
@@ -441,15 +447,36 @@ importDownload config le bus pool mbClientEnv download catalogAlbum = do
                 liftIO $ withConnection pool $ \conn ->
                   executeQuery conn
                     "UPDATE downloads SET status = ?, imported_at = ? WHERE id = ?"
-                    (downloadStatusToText DB.DownloadImported, now, DB.downloadId download)
+                    (downloadStatusToText DB.DownloadImported, now, DB.downloadId downloadRec)
 
                 -- 15. Emit DownloadImported event
                 liftIO $ publishAndLog bus le "importer" $ DownloadImported
-                  { downloadId = fromMaybe 0 (DB.downloadId download)
-                  , downloadTitle = DB.downloadTitle download
+                  { downloadId = fromMaybe 0 (DB.downloadId downloadRec)
+                  , downloadTitle = DB.downloadTitle downloadRec
                   }
 
                 $(logTM) InfoS $ logStr ("Import completed successfully" :: Text)
+
+                -- 16. Delete source folder if configured
+                -- For move mode: renameFile only moves individual files, folder may still exist
+                -- For copy mode: source files still exist
+                let downloadConfig = download config
+                    shouldDelete = downloadDeleteAfterImport downloadConfig
+                    importMode = downloadImportMode downloadConfig
+                    -- Delete for move (cleanup empty folder) or copy (delete source)
+                    shouldDeleteFolder = shouldDelete && (importMode == ImportMove || importMode == ImportCopy)
+                when shouldDeleteFolder $ do
+                  $(logTM) InfoS $ logStr $ ("Deleting source folder: " <> downloadPathText :: Text)
+                  liftIO $ do
+                    downloadPathStr <- OP.decodeUtf downloadPath
+                    -- Check if it's a directory or file
+                    isDir <- Dir.doesDirectoryExist downloadPathStr
+                    if isDir
+                      then Dir.removeDirectoryRecursive downloadPathStr
+                      else do
+                        exists <- Dir.doesFileExist downloadPathStr
+                        when exists $ Dir.removeFile downloadPathStr
+                  $(logTM) InfoS $ logStr ("Source folder deleted" :: Text)
 
 -- | Extract release metadata from MusicBrainz release for path formatting.
 data ReleaseMetadata = ReleaseMetadata

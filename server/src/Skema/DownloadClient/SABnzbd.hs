@@ -236,6 +236,7 @@ queueSlotToDownloadInfo SABnzbdClient{..} SABQueueSlot{..} =
         Nothing -> Nothing  -- Can't construct path without base dir
   in DownloadInfo
     { diClientId = sabSlotNzoId
+    , diName = Just sabSlotFilename  -- NZB filename for matching
     , diStatus = status
     , diProgress = progress
     , diDownloadPath = downloadPath
@@ -271,6 +272,7 @@ historySlotToDownloadInfo SABnzbdClient{..} SABHistorySlot{..} =
             Nothing -> Nothing  -- Can't construct path without base dir
   in DownloadInfo
     { diClientId = sabHistNzoId
+    , diName = Just sabHistName  -- NZB name for matching
     , diStatus = status
     , diProgress = if status == DSCompleted then 1.0 else 0.0
     , diDownloadPath = downloadPath

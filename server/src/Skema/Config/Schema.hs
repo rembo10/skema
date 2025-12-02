@@ -815,6 +815,9 @@ downloadSchema = schema "download" "Download client configuration"
   , "auto_import" .:: "Automatically import completed downloads"
       & boolField
       & example "true"
+  , "refresh_artist_on_import" .:: "Refresh artist discography when a download is imported"
+      & boolField
+      & example "false"
   , "min_seeders" .:: "Minimum seeders for torrents (null = no minimum)"
       & intField
       & example "5"

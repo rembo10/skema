@@ -26,24 +26,29 @@ import Skema.Database.Repository
 import Skema.HTTP.Client (HttpClient)
 import Skema.Indexer.Search (rankResultsWithContext)
 import Skema.Indexer.Client (searchIndexer)
+import Skema.Indexer.Prowlarr (searchProwlarr, grabRelease, ProwlarrRelease(..))
 import Skema.Indexer.Types
-import Skema.Config.Types (Config(..), Indexer(..), IndexerConfig(..), DownloadClient(..), DownloadConfig(..), DownloadClientType(..), downloadClientTypeName)
+import Skema.Config.Types (Config(..), Indexer(..), IndexerConfig(..), ProwlarrConfig(..), DownloadClient(..), DownloadConfig(..), DownloadClientType(..), downloadClientTypeName)
 import Skema.DownloadClient.Types (DownloadClientAPI(..), AddDownloadRequest(..), AddDownloadResult(..))
 import Skema.DownloadClient.SABnzbd (createSABnzbdClient, SABnzbdClient)
 import Skema.DownloadClient.Transmission (createTransmissionClient, TransmissionClient)
 import Skema.DownloadClient.QBittorrent (createQBittorrentClient, QBittorrentClient)
+import Skema.DownloadClient.Deluge (createDelugeClient, DelugeClient)
 import Control.Concurrent.Async (Async, async, race, mapConcurrently)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Concurrent (threadDelay)
 import Control.Monad ()
 import Control.Exception (try)
+import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Time (getCurrentTime, diffUTCTime)
 import qualified Data.Map.Strict as Map
 import Database.SQLite.Simple (Only(..))
-import Skema.Database.Types (DownloadRecord(..))
+import Skema.Database.Types (DownloadRecord(..), SearchOutcome(..))
 import qualified Skema.Database.Types as DB
 import Skema.Database.Utils (downloadStatusToText)
+import qualified Skema.Domain.Quality as Quality
 import qualified Skema.DownloadClient.Types as DC
 import Katip
 
@@ -52,35 +57,43 @@ data DownloadClientInstance
   = SABInstance SABnzbdClient
   | TransmissionInstance TransmissionClient
   | QBittorrentInstance QBittorrentClient
+  | DelugeInstance DelugeClient
 
 instance DownloadClientAPI DownloadClientInstance where
   testConnection (SABInstance c) = testConnection c
   testConnection (TransmissionInstance c) = testConnection c
   testConnection (QBittorrentInstance c) = testConnection c
+  testConnection (DelugeInstance c) = testConnection c
 
   addDownload (SABInstance c) = addDownload c
   addDownload (TransmissionInstance c) = addDownload c
   addDownload (QBittorrentInstance c) = addDownload c
+  addDownload (DelugeInstance c) = addDownload c
 
   getDownloadStatus (SABInstance c) = getDownloadStatus c
   getDownloadStatus (TransmissionInstance c) = getDownloadStatus c
   getDownloadStatus (QBittorrentInstance c) = getDownloadStatus c
+  getDownloadStatus (DelugeInstance c) = getDownloadStatus c
 
   getAllDownloads (SABInstance c) = getAllDownloads c
   getAllDownloads (TransmissionInstance c) = getAllDownloads c
   getAllDownloads (QBittorrentInstance c) = getAllDownloads c
+  getAllDownloads (DelugeInstance c) = getAllDownloads c
 
   pauseDownload (SABInstance c) = pauseDownload c
   pauseDownload (TransmissionInstance c) = pauseDownload c
   pauseDownload (QBittorrentInstance c) = pauseDownload c
+  pauseDownload (DelugeInstance c) = pauseDownload c
 
   resumeDownload (SABInstance c) = resumeDownload c
   resumeDownload (TransmissionInstance c) = resumeDownload c
   resumeDownload (QBittorrentInstance c) = resumeDownload c
+  resumeDownload (DelugeInstance c) = resumeDownload c
 
   removeDownload (SABInstance c) = removeDownload c
   removeDownload (TransmissionInstance c) = removeDownload c
   removeDownload (QBittorrentInstance c) = removeDownload c
+  removeDownload (DelugeInstance c) = removeDownload c
 
 -- | Start the unified download service.
 --
@@ -180,10 +193,17 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
                 , searchBestScore = Nothing
                 , searchDuration = searchDuration
                 }
+              -- Save search history with timeout
+              _ <- liftIO $ saveSearchHistory pool catalogAlbumId searchDuration [] [] Nothing SearchTimeout
+              pure ()
 
             Right searchResults -> do
-              -- Got results from indexers
-              let allReleases = concat $ map irReleases $ srResults searchResults
+              -- Got results from indexers with indexer names attached
+              let indexedResults = concat 
+                    [ [(irIndexerName ir, rel) | rel <- irReleases ir] 
+                    | ir <- srResults searchResults 
+                    ]
+                  allReleases = map snd indexedResults
                   totalResults = length allReleases
 
               $(logTM) InfoS $ logStr $ ("Found " <> show totalResults <> " total releases across all indexers" :: Text)
@@ -208,6 +228,9 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
               case bestRelease of
                 Nothing -> do
                   $(logTM) WarningS $ logStr ("No releases found for album" :: Text)
+                  -- Save search history with no results
+                  _ <- liftIO $ saveSearchHistory pool catalogAlbumId searchDuration indexedResults rankedReleases Nothing SearchNoResults
+                  pure ()
 
                 Just release -> do
                   $(logTM) InfoS $ logStr $ ("Best release: " <> riTitle release :: Text)
@@ -231,24 +254,58 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
                             NZB -> "NZB" :: Text
                             Torrent -> "Torrent"
                       $(logTM) ErrorS $ logStr $ ("No " <> clientType <> " download client configured, cannot queue download" :: Text)
+                      -- Save search history with no client
+                      _ <- liftIO $ saveSearchHistory pool catalogAlbumId searchDuration indexedResults rankedReleases (Just release) SearchNoClient
+                      pure ()
 
                     Just client | not (dcEnabled client) -> do
                       $(logTM) ErrorS $ logStr $ ("Download client " <> downloadClientTypeName (dcType client) <> " is disabled" :: Text)
+                      -- Save search history with no client (disabled)
+                      _ <- liftIO $ saveSearchHistory pool catalogAlbumId searchDuration indexedResults rankedReleases (Just release) SearchNoClient
+                      pure ()
 
                     Just client -> do
                       $(logTM) InfoS $ logStr $ ("Submitting download to client: " <> downloadClientTypeName (dcType client) :: Text)
                       $(logTM) InfoS $ logStr $ ("Category: " <> fromMaybe "<none>" (dcCategory client) :: Text)
 
-                      -- Create download client instance
-                      clientInstance <- liftIO $ createClientInstance httpClient client
+                      -- Check if this is a Prowlarr release and Prowlarr is configured
+                      -- If so, use Prowlarr's grab API to let Prowlarr handle the download client
+                      let prowlarrConfig = indexerProwlarr indexerConfig
+                          isProwlarrRelease = case (riProwlarrGuid release, riProwlarrIndexerId release) of
+                            (Just _, Just _) -> True
+                            _ -> False
+                          useProwlarrGrab = isProwlarrRelease && 
+                                           maybe False prowlarrEnabled prowlarrConfig
 
-                      -- Submit to download client
-                      addResult <- liftIO $ addDownload clientInstance (AddDownloadRequest
-                        { adrUrl = riDownloadUrl release
-                        , adrTitle = riTitle release
-                        , adrCategory = dcCategory client  -- Use category from config
-                        , adrPriority = Nothing  -- Priority not needed (only one client per type)
-                        })
+                      addResult <- if useProwlarrGrab
+                        then do
+                          -- Use Prowlarr's grab API
+                          $(logTM) InfoS $ logStr ("Using Prowlarr grab API to send to download client" :: Text)
+                          let Just guid = riProwlarrGuid release
+                              Just indexerId = riProwlarrIndexerId release
+                              Just pConfig = prowlarrConfig
+                              prowlarrRelease = ProwlarrRelease
+                                { prGuid = guid
+                                , prIndexerId = indexerId
+                                , prTitle = riTitle release
+                                }
+                          grabResult <- liftIO $ grabRelease httpClient pConfig prowlarrRelease
+                          case grabResult of
+                            Left err -> pure $ Left err
+                            Right () -> pure $ Right AddDownloadResult
+                              { adrClientId = guid  -- Use guid as client ID for tracking
+                              , adrSuccess = True
+                              , adrMessage = Just "Sent to Prowlarr"
+                              }
+                        else do
+                          -- Direct submission to download client
+                          clientInstance <- liftIO $ createClientInstance httpClient client
+                          liftIO $ addDownload clientInstance (AddDownloadRequest
+                            { adrUrl = riDownloadUrl release
+                            , adrTitle = riTitle release
+                            , adrCategory = dcCategory client
+                            , adrPriority = Nothing
+                            })
 
                       case addResult of
                         Left err -> do
@@ -283,6 +340,10 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
                             , downloadError = Just err
                             }
 
+                          -- Save search history with failed download
+                          _ <- liftIO $ saveSearchHistory pool catalogAlbumId searchDuration indexedResults rankedReleases (Just release) SearchFailed
+                          pure ()
+
                         Right addResultData -> do
                           $(logTM) InfoS $ logStr $ ("Download added to client with ID: " <> adrClientId addResultData :: Text)
 
@@ -316,15 +377,21 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
 
                           $(logTM) InfoS $ logStr $ ("Download started with DB ID: " <> show downloadId :: Text)
 
+                          -- Save search history with successful download
+                          _ <- liftIO $ saveSearchHistory pool catalogAlbumId searchDuration indexedResults rankedReleases (Just release) SearchDownloaded
+                          pure ()
+
 -- | Search all indexers and emit events for each completion.
+-- Also searches Prowlarr if configured and enabled.
 searchAllIndexersWithTracking :: EventBus -> LogEnv -> HttpClient -> IndexerConfig -> Text -> Text -> IO SearchResult
 searchAllIndexersWithTracking bus le httpClient indexerConfig albumTitle artistName = do
   let enabledIndexers = filter indexerEnabled (indexerList indexerConfig)
+      searchQuery = buildSearchQuery albumTitle artistName
 
-  -- Search each indexer and track completion
+  -- Search each manual indexer and track completion
   indexerResults <- mapConcurrently (\indexer -> do
     startTime <- getCurrentTime
-    result <- searchIndexer httpClient indexer (buildSearchQuery albumTitle artistName)
+    result <- searchIndexer httpClient indexer searchQuery
     endTime <- getCurrentTime
     let duration = realToFrac $ diffUTCTime endTime startTime :: Double
 
@@ -351,8 +418,42 @@ searchAllIndexersWithTracking bus le httpClient indexerConfig albumTitle artistN
         pure $ Right indexerResult
     ) enabledIndexers
 
-  -- Partition results into successes and failures
-  let (errors, successes) = partitionEithers indexerResults
+  -- Also search Prowlarr if configured and enabled
+  prowlarrResults <- case indexerProwlarr indexerConfig of
+    Just prowlarrConfig | prowlarrEnabled prowlarrConfig -> do
+      runKatipContextT le () "download.search" $ do
+        $(logTM) InfoS "Searching Prowlarr..."
+      startTime <- getCurrentTime
+      result <- searchProwlarr httpClient prowlarrConfig searchQuery
+      endTime <- getCurrentTime
+      let duration = realToFrac $ diffUTCTime endTime startTime :: Double
+
+      case result of
+        Left err -> do
+          runKatipContextT le () "download.search" $ do
+            $(logTM) WarningS $ logStr $ ("Prowlarr search failed: " <> ieError err :: Text)
+          publishAndLog bus le "download" $ IndexerSearchCompleted
+            { searchIndexerName = "Prowlarr"
+            , searchResultCount = 0
+            , searchDuration = duration
+            }
+          pure [Left err]
+
+        Right prowlarrResult -> do
+          let resultCount = length (irReleases prowlarrResult)
+          runKatipContextT le () "download.search" $ do
+            $(logTM) InfoS $ logStr $ ("Prowlarr returned " <> show resultCount <> " results" :: Text)
+          publishAndLog bus le "download" $ IndexerSearchCompleted
+            { searchIndexerName = "Prowlarr"
+            , searchResultCount = resultCount
+            , searchDuration = duration
+            }
+          pure [Right prowlarrResult]
+    _ -> pure []  -- Prowlarr not configured or disabled
+
+  -- Combine all results
+  let allResults = indexerResults ++ prowlarrResults
+      (errors, successes) = partitionEithers allResults
       totalReleases = sum $ map (length . irReleases) successes
 
   pure SearchResult
@@ -551,6 +652,14 @@ createClientInstances httpClient DownloadConfig{..} = do
               httpClient
             pure $ Just $ QBittorrentInstance client'
 
+          Deluge -> do
+            let password = fromMaybe "" (dcPassword client)
+            client' <- createDelugeClient
+              (dcUrl client)
+              password
+              httpClient
+            pure $ Just $ DelugeInstance client'
+
         pure $ fmap (\inst -> (downloadClientTypeName (dcType client), inst)) instance'
     )
 
@@ -577,9 +686,75 @@ checkAndUpdateDownloads le bus pool progressMap clientName client = do
       Just clientId -> do
         statusResult <- getDownloadStatus client clientId
 
-        case statusResult of
-          Left err -> runKatipContextT le () "download.monitor" $ do
-            $(logTM) ErrorS $ logStr $ ("Failed to get download status for " <> DB.downloadTitle download <> ": " <> err :: Text)
+        -- If lookup by ID fails, try to find by title (for Prowlarr-grabbed torrents)
+        finalResult <- case statusResult of
+          Left _ -> do
+            -- Try to find by scanning all downloads and matching title/name
+            allDownloads <- getAllDownloads client
+            case allDownloads of
+              Left _ -> pure statusResult  -- Keep original error
+              Right downloads -> do
+                let title = DB.downloadTitle download
+                    -- Normalize title for matching (remove indexer suffix like "[TorrentGalaxyClone]")
+                    cleanTitle = T.strip $ fst $ T.breakOn "[" title
+                    normalizedTitle = T.toLower cleanTitle
+                    -- Try to match by name (torrent name from client)
+                    matchingDownload = find (\d -> 
+                      -- Match by torrent name (most reliable)
+                      maybe False (\name -> 
+                        let normalizedName = T.toLower name
+                        in normalizedTitle `T.isInfixOf` normalizedName ||
+                           normalizedName `T.isInfixOf` normalizedTitle ||
+                           -- Also try matching individual words
+                           matchesMostWords normalizedTitle normalizedName
+                      ) (DC.diName d) ||
+                      -- Fallback: match by download path
+                      maybe False (\p -> normalizedTitle `T.isInfixOf` T.toLower p) (DC.diDownloadPath d)
+                      ) downloads
+                case matchingDownload of
+                  Just foundDownload -> do
+                    -- Update the client_id in database to the actual torrent hash
+                    runKatipContextT le () "download.monitor" $ do
+                      $(logTM) InfoS $ logStr $ ("Found matching torrent by name: " <> fromMaybe "?" (DC.diName foundDownload) :: Text)
+                    withConnection pool $ \conn ->
+                      executeQuery conn
+                        "UPDATE downloads SET download_client_id = ? WHERE id = ?"
+                        (DC.diClientId foundDownload, DB.downloadId download)
+                    pure $ Right foundDownload
+                  Nothing -> pure statusResult  -- Keep original error
+          Right _ -> pure statusResult
+
+        case finalResult of
+          Left err -> do
+            -- Only log at debug level for torrent clients since title matching is unreliable
+            -- For NZB clients (SABnzbd), we can be more confident about "not found" errors
+            let isTorrentClient = clientName `elem` ["Deluge", "Transmission", "qBittorrent"]
+            if isTorrentClient
+              then runKatipContextT le () "download.monitor" $ do
+                $(logTM) DebugS $ logStr $ ("Could not find torrent in " <> clientName <> " for: " <> DB.downloadTitle download :: Text)
+              else do
+                runKatipContextT le () "download.monitor" $ do
+                  $(logTM) ErrorS $ logStr $ ("Failed to get download status for " <> DB.downloadTitle download <> ": " <> err :: Text)
+                
+                -- Only mark as failed for NZB clients where ID tracking is reliable
+                when ("not found" `T.isInfixOf` T.toLower err || "does not exist" `T.isInfixOf` T.toLower err) $ do
+                  runKatipContextT le () "download.monitor" $ do
+                    $(logTM) WarningS $ logStr $ ("Marking download as failed (not found in client): " <> DB.downloadTitle download :: Text)
+                  now <- getCurrentTime
+                  withConnection pool $ \conn -> do
+                    executeQuery conn
+                      "UPDATE downloads SET status = ?, error_message = ?, completed_at = ? WHERE id = ?"
+                      ( downloadStatusToText DB.DownloadFailed
+                      , Just ("Download not found in client: " <> err)
+                      , Just now
+                      , DB.downloadId download
+                      )
+                  -- Emit failed event
+                  publishAndLog bus le "download" $ DownloadFailed
+                    { downloadId = fromMaybe 0 (DB.downloadId download)
+                    , downloadTitle = DB.downloadTitle download
+                    , downloadError = Just $ "Download not found in client: " <> err
+                    }
 
           Right downloadInfo -> do
             let oldStatus = DB.downloadStatus download
@@ -700,3 +875,68 @@ createClientInstance httpClient DownloadClient{..} = do
           password = fromMaybe "" dcPassword
       client <- createQBittorrentClient dcUrl username password httpClient
       pure $ QBittorrentInstance client
+
+    Deluge -> do
+      let password = fromMaybe "" dcPassword
+      client <- createDelugeClient dcUrl password httpClient
+      pure $ DelugeInstance client
+
+-- | Check if most words from title1 appear in title2
+-- This helps match titles like "GRiZ Ouroboros 2023 Mp3 320kbps PMEDIA" with
+-- torrent names like "GRiZ - Ouroboros (2023) [MP3 320]"
+matchesMostWords :: Text -> Text -> Bool
+matchesMostWords title1 title2 =
+  let words1 = filter (\w -> T.length w > 2) $ T.words $ T.toLower title1
+      words2 = T.toLower title2
+      matchCount = length $ filter (`T.isInfixOf` words2) words1
+      totalWords = length words1
+  in totalWords > 0 && matchCount >= (totalWords * 2 `div` 3)  -- At least 2/3 of words match
+
+-- | Save search history to database
+saveSearchHistory :: ConnectionPool
+                  -> Int64                    -- ^ catalog_album_id
+                  -> Double                   -- ^ search_duration (seconds)
+                  -> [(Text, ReleaseInfo)]    -- ^ indexed results with indexer name
+                  -> [ReleaseInfo]            -- ^ ranked results
+                  -> Maybe ReleaseInfo        -- ^ selected release (if any)
+                  -> SearchOutcome            -- ^ outcome
+                  -> IO Int64
+saveSearchHistory pool albumId durationSecs indexedResults rankedResults selectedRelease outcome = do
+  now <- getCurrentTime
+  let durationMs = Just $ round (durationSecs * 1000)
+      totalResults = length rankedResults
+      selectedTitle = riTitle <$> selectedRelease
+      selectedIndexer = selectedRelease >>= \rel -> 
+        listToMaybe [idx | (idx, r) <- indexedResults, riDownloadUrl r == riDownloadUrl rel]
+      selectedScore = scoreRelease <$> selectedRelease
+
+  -- Insert search history record
+  historyId <- withConnection pool $ \conn ->
+    insertSearchHistory conn albumId now totalResults durationMs selectedTitle selectedIndexer selectedScore outcome
+
+  -- Insert individual results (top 50 to avoid storing too much)
+  let topResults = take 50 $ zip [1..] rankedResults
+  withConnection pool $ \conn ->
+    forM_ topResults $ \(rank, rel) -> do
+      let indexerName = fromMaybe "unknown" $ 
+            listToMaybe [idx | (idx, r) <- indexedResults, riDownloadUrl r == riDownloadUrl rel]
+          downloadType = case riDownloadType rel of
+            NZB -> "nzb"
+            Torrent -> "torrent"
+          qualityText = Just $ Quality.qualityToText (riQuality rel)
+      insertSearchHistoryResult conn historyId
+        indexerName
+        (riTitle rel)
+        (riDownloadUrl rel)
+        (riInfoUrl rel)
+        (riSize rel)
+        (riPublishDate rel)
+        (riSeeders rel)
+        (riPeers rel)
+        (riGrabs rel)
+        downloadType
+        qualityText
+        (scoreRelease rel)
+        rank
+
+  pure historyId

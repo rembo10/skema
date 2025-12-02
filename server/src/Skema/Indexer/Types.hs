@@ -43,6 +43,8 @@ data ReleaseInfo = ReleaseInfo
   , riGrabs :: Maybe Int    -- Download count
   , riDownloadType :: DownloadType
   , riQuality :: Quality.Quality  -- Parsed quality from title
+  , riProwlarrGuid :: Maybe Text  -- Prowlarr GUID for grab API
+  , riProwlarrIndexerId :: Maybe Int  -- Prowlarr indexer ID for grab API
   } deriving (Show, Eq, Generic)
 
 -- | Result from a single indexer

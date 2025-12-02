@@ -34,11 +34,15 @@ module Skema.HTTP.Client
     -- * Convenience methods
   , get
   , getWithBasicAuth
+  , getWithHeaders
   , post
   , getJSON
   , getJSONWithBasicAuth
+  , getJSONWithHeaders
   , postJSON
+  , getFollowRedirects
   , prettyHttpError
+  , urlEncode
   ) where
 
 import Relude hiding (get)
@@ -59,6 +63,7 @@ import qualified Control.Concurrent as Concurrent
 import Control.Exception (try)
 import Data.Time.Clock (UTCTime, getCurrentTime, diffUTCTime, addUTCTime)
 import Data.Aeson (FromJSON, ToJSON, decode, encode)
+import Text.Printf (printf)
 import Katip
 import qualified Paths_skema as Paths
 import Data.Version (showVersion)
@@ -575,3 +580,96 @@ postJSON client url reqData = do
       case decode respBody of
         Nothing -> pure $ Left $ HttpDecodeError "Failed to parse JSON response"
         Just val -> pure $ Right val
+
+-- | Convenience method: GET request with custom headers
+getWithHeaders :: HttpClient -> Text -> [(Text, Text)] -> IO (Either HttpError LBS.ByteString)
+getWithHeaders client url customHeaders = do
+  case parseRequest (toString url) of
+    Nothing -> pure $ Left $ HttpParseError ("Invalid URL: " <> url)
+    Just req -> do
+      let domain = fromMaybe "unknown" $ extractDomain url
+          userAgent = getUserAgentForDomain client domain
+          reqWithHeaders = req
+            { requestHeaders =
+                (hUserAgent, TE.encodeUtf8 userAgent) :
+                fmap (\(k, v) -> (fromString $ toString k, TE.encodeUtf8 v)) customHeaders <>
+                requestHeaders req
+            , method = "GET"
+            }
+      result <- makeRequestWithRetry client reqWithHeaders
+      pure $ fmap responseBody result
+
+-- | Convenience method: GET request with custom headers expecting JSON response
+getJSONWithHeaders :: FromJSON a => HttpClient -> Text -> [(Text, Text)] -> IO (Either HttpError a)
+getJSONWithHeaders client url customHeaders = do
+  result <- getWithHeaders client url customHeaders
+  case result of
+    Left err -> pure $ Left err
+    Right body ->
+      case decode body of
+        Nothing -> do
+          let bodyText = TE.decodeUtf8 (LBS.toStrict body)
+              bodyPreview = T.take 500 bodyText
+          runKatipContextT (hcLogEnv client) () "http-client" $ do
+            $(logTM) ErrorS $ logStr $ ("Failed to decode JSON from " <> url <> ". Response body: " <> bodyPreview :: Text)
+          pure $ Left $ HttpDecodeError "Failed to parse JSON response"
+        Just val -> pure $ Right val
+
+-- | URL encode a text string
+urlEncode :: Text -> Text
+urlEncode = T.concatMap encodeChar
+  where
+    encodeChar c
+      | c >= 'a' && c <= 'z' = T.singleton c
+      | c >= 'A' && c <= 'Z' = T.singleton c
+      | c >= '0' && c <= '9' = T.singleton c
+      | c `elem` ("-_.~" :: String) = T.singleton c
+      | otherwise = "%" <> T.pack (printf "%02X" (fromEnum c :: Int))
+
+-- | GET request that follows redirects and returns the final response body
+-- This is useful for downloading files from URLs that may redirect
+getFollowRedirects :: HttpClient -> Text -> IO (Either HttpError LBS.ByteString)
+getFollowRedirects client url = go url 0
+  where
+    maxRedirects = 10 :: Int
+    
+    go currentUrl redirectCount
+      | redirectCount > maxRedirects = 
+          pure $ Left $ HttpStatusError 301 ("Too many redirects (max " <> show maxRedirects <> ")") Nothing
+      | otherwise = do
+          case parseRequest (toString currentUrl) of
+            Nothing -> pure $ Left $ HttpParseError ("Invalid URL: " <> currentUrl)
+            Just req -> do
+              let domain = fromMaybe "unknown" $ extractDomain currentUrl
+                  userAgent = getUserAgentForDomain client domain
+                  reqWithUA = req
+                    { requestHeaders = (hUserAgent, TE.encodeUtf8 userAgent) : requestHeaders req
+                    , method = "GET"
+                    }
+              
+              -- Make request without retry wrapper to handle redirects ourselves
+              result <- makeRequest client reqWithUA
+              case result of
+                Left err -> pure $ Left err
+                Right response -> do
+                  let status = statusCode $ responseStatus response
+                      body = responseBody response
+                      headers = responseHeaders response
+                  
+                  if status >= 200 && status < 300
+                    then pure $ Right body
+                    else if status >= 300 && status < 400
+                      then do
+                        -- Follow redirect
+                        case List.lookup "Location" headers of
+                          Just locationBS -> do
+                            let location = TE.decodeUtf8 locationBS
+                                -- Handle relative URLs
+                                nextUrl = if "http" `T.isPrefixOf` location
+                                          then location
+                                          else currentUrl <> location  -- Simplified; might need proper URL joining
+                            go nextUrl (redirectCount + 1)
+                          Nothing -> 
+                            pure $ Left $ HttpStatusError status "Redirect without Location header" Nothing
+                      else
+                        pure $ Left $ HttpStatusError status (TE.decodeUtf8 $ LBS.toStrict body) Nothing

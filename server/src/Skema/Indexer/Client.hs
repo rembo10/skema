@@ -210,6 +210,8 @@ parseItem NewznabItem{..} = do
     , riGrabs = grabs
     , riDownloadType = downloadType
     , riQuality = quality
+    , riProwlarrGuid = Nothing  -- Not from Prowlarr
+    , riProwlarrIndexerId = Nothing
     }
 
 -- | Test connection to an indexer

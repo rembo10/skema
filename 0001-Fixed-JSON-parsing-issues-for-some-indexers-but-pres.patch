@@ -1,0 +1,58 @@
+From 52f309d6da19f3aafa27257d1c7fc5081a0dab1f Mon Sep 17 00:00:00 2001
+From: Clive Watts <clive@clivewatts.net>
+Date: Tue, 2 Dec 2025 08:04:25 +0200
+Subject: [PATCH] Fixed JSON parsing issues for some indexers but preserved
+ reverse compatability
+
+---
+ server/src/Skema/Indexer/Client.hs | 17 +++++++++++++----
+ 1 file changed, 13 insertions(+), 4 deletions(-)
+
+diff --git a/server/src/Skema/Indexer/Client.hs b/server/src/Skema/Indexer/Client.hs
+index e6a4834..f5a024a 100644
+--- a/server/src/Skema/Indexer/Client.hs
++++ b/server/src/Skema/Indexer/Client.hs
+@@ -9,8 +9,9 @@ module Skema.Indexer.Client
+   ) where
+ 
+ import Control.Exception (try)
+-import Data.Aeson (FromJSON(..), (.:), (.:?), withObject, Value(..))
+-import Data.Aeson.Types (Parser)
++import Data.Aeson (FromJSON(..), (.:), (.:?), withObject, Value(..), withText)
++import Data.Aeson.Types (Parser, explicitParseFieldMaybe)
++import Text.Read (readMaybe)
+ import qualified Data.Text as T
+ import Data.Time (UTCTime)
+ import Data.Time.Format (parseTimeM, defaultTimeLocale)
+@@ -78,7 +79,7 @@ instance FromJSON NewznabItem where
+     niLink <- v .: "link"
+     niComments <- v .:? "comments"
+     niPubDate <- v .:? "pubDate"
+-    niSize <- v .:? "size"
++    niSize <- explicitParseFieldMaybe parseIntegerOrString v "size"
+     niEnclosure <- v .:? "enclosure"
+     niAttr <- v .:? "attr"
+     pure NewznabItem{..}
+@@ -88,10 +89,18 @@ instance FromJSON NewznabEnclosure where
+     -- Enclosure attributes are nested in @attributes wrapper
+     attrs <- v .: "@attributes"
+     neUrl <- attrs .: "url"
+-    neLength <- attrs .:? "length"
++    neLength <- explicitParseFieldMaybe parseIntegerOrString attrs "length"
+     neType <- attrs .:? "type"
+     pure NewznabEnclosure{..}
+ 
++-- | Parse a value that could be either a JSON number or a string containing a number
++parseIntegerOrString :: Value -> Parser Integer
++parseIntegerOrString (Number n) = pure $ round n
++parseIntegerOrString (String s) = case readMaybe (T.unpack s) of
++  Just i -> pure i
++  Nothing -> fail $ "Cannot parse integer from string: " <> T.unpack s
++parseIntegerOrString _ = fail "Expected number or string for integer field"
++
+ instance FromJSON NewznabAttr where
+   parseJSON = withObject "NewznabAttr" $ \v -> do
+     -- Attributes are nested in @attributes wrapper
+-- 
+2.52.0
+

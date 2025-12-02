@@ -293,6 +293,7 @@ torrentToDownloadInfo TransTorrent{..} =
       errorMsg = if ttError /= 0 then ttErrorString else Nothing
   in DownloadInfo
     { diClientId = T.pack $ show ttId
+    , diName = Just ttName  -- Torrent name for matching
     , diStatus = status
     , diProgress = ttPercentDone
     , diDownloadPath = ttDownloadDir

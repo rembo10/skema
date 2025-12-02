@@ -236,6 +236,7 @@ qbtTorrentToDownloadInfo QBTorrent{..} =
            | otherwise -> DSQueued
   in DownloadInfo
     { diClientId = qbtHash
+    , diName = Just qbtName  -- Torrent name for matching
     , diStatus = status
     , diProgress = qbtProgress
     , diDownloadPath = qbtSavePath

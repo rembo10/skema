@@ -67,6 +67,23 @@ instance EnvParseable Cfg.MusicBrainzServer where
     "vip"            -> Cfg.HeadphonesVIP
     _                -> Cfg.OfficialMusicBrainz
 
+instance EnvParseable Cfg.ImportMode where
+  parseEnvValue s = case T.toLower (toText s) of
+    "move"     -> Just Cfg.ImportMove
+    "copy"     -> Just Cfg.ImportCopy
+    "hardlink" -> Just Cfg.ImportHardlink
+    "symlink"  -> Just Cfg.ImportSymlink
+    _          -> Nothing
+
+instance EnvParseable Cfg.DownloadPreference where
+  parseEnvValue s = case T.toLower (toText s) of
+    "nzb"     -> Just Cfg.PreferNzb
+    "usenet"  -> Just Cfg.PreferNzb
+    "torrent" -> Just Cfg.PreferTorrent
+    "best"    -> Just Cfg.PreferBest
+    "auto"    -> Just Cfg.PreferBest
+    _         -> Nothing
+
 -- Instances for complex types that shouldn't be loaded from env
 instance EnvParseable (Maybe Cfg.DownloadClient) where
   parseEnvValue _ = Nothing  -- Can't parse complex types from env
@@ -78,6 +95,25 @@ instance EnvParseable [Text] where
   parseEnvValue _ = Nothing
 
 instance EnvParseable [Cfg.NotificationProvider] where
+  parseEnvValue _ = Nothing
+
+instance EnvParseable (Maybe Cfg.ProwlarrConfig) where
+  parseEnvValue _ = Nothing  -- Can't parse complex types from env
+
+-- Integration config types (complex, can't parse from env)
+instance EnvParseable (Maybe Cfg.AcoustIdConfig) where
+  parseEnvValue _ = Nothing
+
+instance EnvParseable (Maybe Cfg.DiscogsConfig) where
+  parseEnvValue _ = Nothing
+
+instance EnvParseable (Maybe Cfg.SpotifyConfig) where
+  parseEnvValue _ = Nothing
+
+instance EnvParseable (Maybe Cfg.FanartTvConfig) where
+  parseEnvValue _ = Nothing
+
+instance EnvParseable (Maybe Cfg.TheAudioDbConfig) where
   parseEnvValue _ = Nothing
 
 -- =============================================================================
@@ -170,6 +206,7 @@ applyEnvOverrides cfg = do
   mb  <- loadEnvOverrides (Cfg.musicbrainz cfg)
   med <- loadEnvOverrides (Cfg.media cfg)
   notif <- loadEnvOverrides (Cfg.notifications cfg)
+  integ <- loadEnvOverrides (Cfg.integrations cfg)
   pure cfg
     { Cfg.library = lib
     , Cfg.system = sys
@@ -179,4 +216,5 @@ applyEnvOverrides cfg = do
     , Cfg.musicbrainz = mb
     , Cfg.media = med
     , Cfg.notifications = notif
+    , Cfg.integrations = integ
     }

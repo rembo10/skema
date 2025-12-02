@@ -97,6 +97,13 @@ module Skema.Database.Repository
     -- * Settings operations
   , getDefaultQualityProfileId
   , setDefaultQualityProfileId
+    -- * Search history operations
+  , insertSearchHistory
+  , insertSearchHistoryResult
+  , insertSearchHistoryResults
+  , getSearchHistoryByAlbum
+  , getSearchHistoryResults
+  , getLatestSearchForAlbum
   ) where
 
 -- Re-export track operations
@@ -211,4 +218,14 @@ import Skema.Database.Repository.Catalog
   , updateCatalogAlbumWanted
   , updateCatalogAlbum
   , deleteCatalogAlbum
+  )
+
+-- Re-export search history operations
+import Skema.Database.Repository.SearchHistory
+  ( insertSearchHistory
+  , insertSearchHistoryResult
+  , insertSearchHistoryResults
+  , getSearchHistoryByAlbum
+  , getSearchHistoryResults
+  , getLatestSearchForAlbum
   )

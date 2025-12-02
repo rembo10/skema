@@ -15,14 +15,23 @@ module Skema.Config.Types
   , DownloadConfig (..)
   , DownloadClient (..)
   , DownloadClientType (..)
+  , ImportMode (..)
+  , DownloadPreference (..)
   , IndexerConfig (..)
   , Indexer (..)
+  , ProwlarrConfig (..)
   , MusicBrainzConfig (..)
   , MusicBrainzServer (..)
   , MediaConfig (..)
   , NotificationConfig (..)
   , NotificationProvider (..)
   , PushoverConfig (..)
+  , IntegrationsConfig (..)
+  , AcoustIdConfig (..)
+  , DiscogsConfig (..)
+  , SpotifyConfig (..)
+  , FanartTvConfig (..)
+  , TheAudioDbConfig (..)
     -- * Defaults
   , currentConfigVersion
   , defaultConfig
@@ -34,6 +43,7 @@ module Skema.Config.Types
   , defaultMusicBrainzConfig
   , defaultMediaConfig
   , defaultNotificationConfig
+  , defaultIntegrationsConfig
     -- * Helpers
   , getMusicBrainzServerUrl
   , hashPassword
@@ -42,7 +52,7 @@ module Skema.Config.Types
   , downloadClientTypeName
   ) where
 
-import Data.Aeson (FromJSON (..), ToJSON (..), withObject, (.:), (.:?), (.!=), object, (.=), Value(..))
+import Data.Aeson (FromJSON (..), ToJSON (..), withObject, withText, (.:), (.:?), (.!=), object, (.=), Value(..))
 import Skema.Config.Schema (Default(..), Mergeable(..))
 import System.OsPath (OsPath)
 import qualified System.OsPath as OP
@@ -63,6 +73,7 @@ data Config = Config
   , musicbrainz :: MusicBrainzConfig
   , media :: MediaConfig
   , notifications :: NotificationConfig
+  , integrations :: IntegrationsConfig
   } deriving (Show, Eq, Generic)
 
 -- | Current config version
@@ -81,10 +92,11 @@ instance FromJSON Config where
     mb <- o .:? "musicbrainz" .!= defaultMusicBrainzConfig
     med <- o .:? "media" .!= defaultMediaConfig
     notif <- o .:? "notifications" .!= defaultNotificationConfig
-    pure $ Config version lib sys srv dl idx mb med notif
+    integ <- o .:? "integrations" .!= defaultIntegrationsConfig
+    pure $ Config version lib sys srv dl idx mb med notif integ
 
 instance ToJSON Config where
-  toJSON (Config version lib sys srv dl idx mb med notif) = object
+  toJSON (Config version lib sys srv dl idx mb med notif integ) = object
     [ "version" .= version
     , "library" .= lib
     , "system" .= sys
@@ -94,6 +106,7 @@ instance ToJSON Config where
     , "musicbrainz" .= mb
     , "media" .= med
     , "notifications" .= notif
+    , "integrations" .= integ
     ]
 
 -- | Library configuration.
@@ -236,6 +249,7 @@ data DownloadClientType
   | NZBGet
   | Transmission
   | QBittorrent
+  | Deluge
   deriving (Show, Eq, Generic)
 
 instance FromJSON DownloadClientType where
@@ -246,6 +260,7 @@ instance FromJSON DownloadClientType where
       "nzbget" -> pure NZBGet
       "transmission" -> pure Transmission
       "qbittorrent" -> pure QBittorrent
+      "deluge" -> pure Deluge
       _ -> fail $ "Unknown download client type: " <> t
 
 instance ToJSON DownloadClientType where
@@ -253,6 +268,7 @@ instance ToJSON DownloadClientType where
   toJSON NZBGet = object ["type" .= ("nzbget" :: Text)]
   toJSON Transmission = object ["type" .= ("transmission" :: Text)]
   toJSON QBittorrent = object ["type" .= ("qbittorrent" :: Text)]
+  toJSON Deluge = object ["type" .= ("deluge" :: Text)]
 
 -- | Get the display name for a download client type.
 downloadClientTypeName :: DownloadClientType -> Text
@@ -260,6 +276,7 @@ downloadClientTypeName SABnzbd = "SABnzbd"
 downloadClientTypeName NZBGet = "NZBGet"
 downloadClientTypeName Transmission = "Transmission"
 downloadClientTypeName QBittorrent = "qBittorrent"
+downloadClientTypeName Deluge = "Deluge"
 
 -- | Download client configuration.
 data DownloadClient = DownloadClient
@@ -289,6 +306,7 @@ instance FromJSON DownloadClient where
       "nzbget" -> pure NZBGet
       "transmission" -> pure Transmission
       "qbittorrent" -> pure QBittorrent
+      "deluge" -> pure Deluge
       _ -> fail $ "Unknown download client type: " <> typeStr
     url <- o .: "url"
     apiKey <- o .:? "api_key"
@@ -306,6 +324,7 @@ instance ToJSON DownloadClient where
         NZBGet -> "nzbget"
         Transmission -> "transmission"
         QBittorrent -> "qbittorrent"
+        Deluge -> "deluge"
     , "url" .= url
     , "api_key" .= apiKey
     , "username" .= username
@@ -315,18 +334,78 @@ instance ToJSON DownloadClient where
     , "category" .= category
     ]
 
+-- | Import mode for moving files from download directory to library.
+data ImportMode
+  = ImportMove
+    -- ^ Move files to library, delete originals after successful move
+  | ImportCopy
+    -- ^ Copy files to library, keep originals (manual cleanup required)
+  | ImportHardlink
+    -- ^ Create hardlinks in library (same filesystem required, saves space)
+  | ImportSymlink
+    -- ^ Create symlinks in library (files stay in download directory)
+  deriving (Show, Eq, Generic)
+
+instance FromJSON ImportMode where
+  parseJSON = withText "ImportMode" $ \t -> case T.toLower t of
+    "move" -> pure ImportMove
+    "copy" -> pure ImportCopy
+    "hardlink" -> pure ImportHardlink
+    "symlink" -> pure ImportSymlink
+    _ -> fail $ "Unknown import mode: " <> T.unpack t <> ". Valid options: move, copy, hardlink, symlink"
+
+instance ToJSON ImportMode where
+  toJSON ImportMove = "move"
+  toJSON ImportCopy = "copy"
+  toJSON ImportHardlink = "hardlink"
+  toJSON ImportSymlink = "symlink"
+
+-- | Preferred download type when both NZB and torrent are available.
+data DownloadPreference
+  = PreferNzb
+    -- ^ Prefer NZB downloads (Usenet) when available
+  | PreferTorrent
+    -- ^ Prefer torrent downloads when available
+  | PreferBest
+    -- ^ Automatically choose based on quality/availability
+  deriving (Show, Eq, Generic)
+
+instance FromJSON DownloadPreference where
+  parseJSON = withText "DownloadPreference" $ \t -> case T.toLower t of
+    "nzb" -> pure PreferNzb
+    "usenet" -> pure PreferNzb
+    "torrent" -> pure PreferTorrent
+    "best" -> pure PreferBest
+    "auto" -> pure PreferBest
+    _ -> fail $ "Unknown download preference: " <> T.unpack t <> ". Valid options: nzb, torrent, best"
+
+instance ToJSON DownloadPreference where
+  toJSON PreferNzb = "nzb"
+  toJSON PreferTorrent = "torrent"
+  toJSON PreferBest = "best"
+
 -- | Download configuration.
 data DownloadConfig = DownloadConfig
   { downloadNzbClient :: Maybe DownloadClient
     -- ^ NZB download client (SABnzbd or NZBGet)
   , downloadTorrentClient :: Maybe DownloadClient
     -- ^ Torrent download client (Transmission or qBittorrent)
+  , downloadPreference :: DownloadPreference
+    -- ^ Preferred download type when both are available
   , downloadDirectory :: Text
     -- ^ Directory for completed downloads (before import)
   , downloadCheckInterval :: Int
     -- ^ How often to check for completed downloads (in seconds)
   , downloadAutoImport :: Bool
     -- ^ Automatically import completed downloads
+  , downloadRefreshArtistOnImport :: Bool
+    -- ^ Refresh artist discography when a download is imported
+  , downloadImportMode :: ImportMode
+    -- ^ How to import files: move, copy, hardlink, or symlink
+  , downloadDeleteAfterImport :: Bool
+    -- ^ Delete source files after successful import (only for move/copy modes)
+  , downloadVerifyBeforeDelete :: Bool
+    -- ^ Verify all files copied successfully before deleting source
   , downloadMinSeeders :: Maybe Int
     -- ^ Minimum seeders for torrents (Nothing = no minimum)
   , downloadMaxSize :: Maybe Int
@@ -337,22 +416,32 @@ instance FromJSON DownloadConfig where
   parseJSON = withObject "DownloadConfig" $ \o -> do
     nzbClient <- o .:? "nzb_client"
     torrentClient <- o .:? "torrent_client"
+    preference <- o .:? "preference" .!= PreferBest
     dir <- o .:? "directory" .!= "~/Downloads/skema"
     checkInterval <- o .:? "check_interval" .!= 60
     autoImport <- o .:? "auto_import" .!= True
+    refreshArtistOnImport <- o .:? "refresh_artist_on_import" .!= False
+    importMode <- o .:? "import_mode" .!= ImportMove
+    deleteAfterImport <- o .:? "delete_after_import" .!= True
+    verifyBeforeDelete <- o .:? "verify_before_delete" .!= True
     minSeeders <- o .:? "min_seeders"
     maxSize <- o .:? "max_size_mb"
     -- Expand tilde and env vars in directory
     let expandedDir = unsafePerformIO $ PathExpansion.expandPathIO dir
-    pure $ DownloadConfig nzbClient torrentClient expandedDir checkInterval autoImport minSeeders maxSize
+    pure $ DownloadConfig nzbClient torrentClient preference expandedDir checkInterval autoImport refreshArtistOnImport importMode deleteAfterImport verifyBeforeDelete minSeeders maxSize
 
 instance ToJSON DownloadConfig where
-  toJSON (DownloadConfig nzbClient torrentClient dir checkInterval autoImport minSeeders maxSize) = object
+  toJSON (DownloadConfig nzbClient torrentClient preference dir checkInterval autoImport refreshArtistOnImport importMode deleteAfterImport verifyBeforeDelete minSeeders maxSize) = object
     [ "nzb_client" .= nzbClient
     , "torrent_client" .= torrentClient
+    , "preference" .= preference
     , "directory" .= dir
     , "check_interval" .= checkInterval
     , "auto_import" .= autoImport
+    , "refresh_artist_on_import" .= refreshArtistOnImport
+    , "import_mode" .= importMode
+    , "delete_after_import" .= deleteAfterImport
+    , "verify_before_delete" .= verifyBeforeDelete
     , "min_seeders" .= minSeeders
     , "max_size_mb" .= maxSize
     ]
@@ -459,24 +548,56 @@ instance ToJSON Indexer where
     , "categories" .= categories
     ]
 
+-- | Prowlarr configuration for indexer aggregation.
+data ProwlarrConfig = ProwlarrConfig
+  { prowlarrUrl :: Text
+    -- ^ Prowlarr base URL (e.g., "http://localhost:9696")
+  , prowlarrApiKey :: Text
+    -- ^ Prowlarr API key
+  , prowlarrEnabled :: Bool
+    -- ^ Whether Prowlarr integration is enabled
+  , prowlarrSyncIndexers :: Bool
+    -- ^ Automatically sync indexers from Prowlarr
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON ProwlarrConfig where
+  parseJSON = withObject "ProwlarrConfig" $ \o -> do
+    url <- o .: "url"
+    apiKey <- o .: "api_key"
+    enabled <- o .:? "enabled" .!= True
+    syncIndexers <- o .:? "sync_indexers" .!= True
+    pure $ ProwlarrConfig url apiKey enabled syncIndexers
+
+instance ToJSON ProwlarrConfig where
+  toJSON (ProwlarrConfig url apiKey enabled syncIndexers) = object
+    [ "url" .= url
+    , "api_key" .= apiKey
+    , "enabled" .= enabled
+    , "sync_indexers" .= syncIndexers
+    ]
+
 -- | Indexer configuration.
 data IndexerConfig = IndexerConfig
   { indexerList :: [Indexer]
-    -- ^ Configured indexers
+    -- ^ Configured indexers (manual or synced from Prowlarr)
   , indexerSearchTimeout :: Int
     -- ^ Search timeout per indexer in seconds
+  , indexerProwlarr :: Maybe ProwlarrConfig
+    -- ^ Optional Prowlarr integration for indexer aggregation
   } deriving (Show, Eq, Generic)
 
 instance FromJSON IndexerConfig where
   parseJSON = withObject "IndexerConfig" $ \o -> do
     idxList <- o .:? "list" .!= []
     timeout <- o .:? "search_timeout" .!= 30
-    pure $ IndexerConfig idxList timeout
+    prowlarr <- o .:? "prowlarr"
+    pure $ IndexerConfig idxList timeout prowlarr
 
 instance ToJSON IndexerConfig where
-  toJSON (IndexerConfig idxList timeout) = object
+  toJSON (IndexerConfig idxList timeout prowlarr) = object
     [ "list" .= idxList
     , "search_timeout" .= timeout
+    , "prowlarr" .= prowlarr
     ]
 
 
@@ -605,6 +726,149 @@ instance ToJSON NotificationConfig where
     , "on_album_imported" .= onAlbumImported
     ]
 
+-- | External integrations configuration.
+--
+-- These are optional third-party services that can enhance Skema's capabilities:
+-- - AcoustID: Audio fingerprinting for identifying unknown tracks
+-- - Discogs: Alternative metadata source, especially for rare releases
+-- - Spotify: Fuzzy search and popularity data
+-- - Fanart.tv: High-quality artwork
+-- - TheAudioDB: Artist images and biographies
+data IntegrationsConfig = IntegrationsConfig
+  { integrationsAcoustId :: Maybe AcoustIdConfig
+    -- ^ AcoustID audio fingerprinting (for identifying unknown tracks)
+  , integrationsDiscogs :: Maybe DiscogsConfig
+    -- ^ Discogs API (alternative metadata source)
+  , integrationsSpotify :: Maybe SpotifyConfig
+    -- ^ Spotify API (fuzzy search, popularity)
+  , integrationsFanartTv :: Maybe FanartTvConfig
+    -- ^ Fanart.tv API (high-quality artwork)
+  , integrationsTheAudioDb :: Maybe TheAudioDbConfig
+    -- ^ TheAudioDB API (artist images, biographies)
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON IntegrationsConfig where
+  parseJSON = withObject "IntegrationsConfig" $ \o -> do
+    acoustId <- o .:? "acoustid"
+    discogs <- o .:? "discogs"
+    spotify <- o .:? "spotify"
+    fanartTv <- o .:? "fanart_tv"
+    theAudioDb <- o .:? "theaudiodb"
+    pure $ IntegrationsConfig acoustId discogs spotify fanartTv theAudioDb
+
+instance ToJSON IntegrationsConfig where
+  toJSON (IntegrationsConfig acoustId discogs spotify fanartTv theAudioDb) = object
+    [ "acoustid" .= acoustId
+    , "discogs" .= discogs
+    , "spotify" .= spotify
+    , "fanart_tv" .= fanartTv
+    , "theaudiodb" .= theAudioDb
+    ]
+
+-- | AcoustID configuration for audio fingerprinting.
+data AcoustIdConfig = AcoustIdConfig
+  { acoustIdApiKey :: Text
+    -- ^ AcoustID API key (get one at https://acoustid.org/api-key)
+  , acoustIdEnabled :: Bool
+    -- ^ Enable AcoustID integration
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON AcoustIdConfig where
+  parseJSON = withObject "AcoustIdConfig" $ \o -> do
+    apiKey <- o .: "api_key"
+    enabled <- o .:? "enabled" .!= True
+    pure $ AcoustIdConfig apiKey enabled
+
+instance ToJSON AcoustIdConfig where
+  toJSON (AcoustIdConfig apiKey enabled) = object
+    [ "api_key" .= apiKey
+    , "enabled" .= enabled
+    ]
+
+-- | Discogs configuration for alternative metadata.
+data DiscogsConfig = DiscogsConfig
+  { discogsPersonalAccessToken :: Text
+    -- ^ Discogs personal access token (get one at https://www.discogs.com/settings/developers)
+  , discogsEnabled :: Bool
+    -- ^ Enable Discogs integration
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON DiscogsConfig where
+  parseJSON = withObject "DiscogsConfig" $ \o -> do
+    token <- o .: "personal_access_token"
+    enabled <- o .:? "enabled" .!= True
+    pure $ DiscogsConfig token enabled
+
+instance ToJSON DiscogsConfig where
+  toJSON (DiscogsConfig token enabled) = object
+    [ "personal_access_token" .= token
+    , "enabled" .= enabled
+    ]
+
+-- | Spotify configuration for fuzzy search and popularity data.
+data SpotifyConfig = SpotifyConfig
+  { spotifyClientId :: Text
+    -- ^ Spotify client ID (get one at https://developer.spotify.com/dashboard)
+  , spotifyClientSecret :: Text
+    -- ^ Spotify client secret
+  , spotifyEnabled :: Bool
+    -- ^ Enable Spotify integration
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON SpotifyConfig where
+  parseJSON = withObject "SpotifyConfig" $ \o -> do
+    clientId <- o .: "client_id"
+    clientSecret <- o .: "client_secret"
+    enabled <- o .:? "enabled" .!= True
+    pure $ SpotifyConfig clientId clientSecret enabled
+
+instance ToJSON SpotifyConfig where
+  toJSON (SpotifyConfig clientId clientSecret enabled) = object
+    [ "client_id" .= clientId
+    , "client_secret" .= clientSecret
+    , "enabled" .= enabled
+    ]
+
+-- | Fanart.tv configuration for high-quality artwork.
+data FanartTvConfig = FanartTvConfig
+  { fanartTvApiKey :: Text
+    -- ^ Fanart.tv API key (get one at https://fanart.tv/get-an-api-key/)
+  , fanartTvEnabled :: Bool
+    -- ^ Enable Fanart.tv integration
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON FanartTvConfig where
+  parseJSON = withObject "FanartTvConfig" $ \o -> do
+    apiKey <- o .: "api_key"
+    enabled <- o .:? "enabled" .!= True
+    pure $ FanartTvConfig apiKey enabled
+
+instance ToJSON FanartTvConfig where
+  toJSON (FanartTvConfig apiKey enabled) = object
+    [ "api_key" .= apiKey
+    , "enabled" .= enabled
+    ]
+
+-- | TheAudioDB configuration for artist images and biographies.
+data TheAudioDbConfig = TheAudioDbConfig
+  { theAudioDbApiKey :: Text
+    -- ^ TheAudioDB API key (get one at https://www.theaudiodb.com/api_guide.php)
+  , theAudioDbEnabled :: Bool
+    -- ^ Enable TheAudioDB integration
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON TheAudioDbConfig where
+  parseJSON = withObject "TheAudioDbConfig" $ \o -> do
+    apiKey <- o .: "api_key"
+    enabled <- o .:? "enabled" .!= True
+    pure $ TheAudioDbConfig apiKey enabled
+
+instance ToJSON TheAudioDbConfig where
+  toJSON (TheAudioDbConfig apiKey enabled) = object
+    [ "api_key" .= apiKey
+    , "enabled" .= enabled
+    ]
+
 -- ============================================================================
 -- Default Configurations
 -- ============================================================================
@@ -648,9 +912,14 @@ defaultDownloadConfig :: DownloadConfig
 defaultDownloadConfig = DownloadConfig
   { downloadNzbClient = Nothing
   , downloadTorrentClient = Nothing
+  , downloadPreference = PreferBest  -- Auto-select best available
   , downloadDirectory = "~/Downloads/skema"
   , downloadCheckInterval = 5  -- Check every 5 seconds
   , downloadAutoImport = True
+  , downloadRefreshArtistOnImport = False
+  , downloadImportMode = ImportMove  -- Move files by default
+  , downloadDeleteAfterImport = True  -- Delete source after successful import
+  , downloadVerifyBeforeDelete = True  -- Verify files before deleting source
   , downloadMinSeeders = Just 1
   , downloadMaxSize = Nothing
   }
@@ -671,6 +940,7 @@ defaultIndexerConfig = IndexerConfig
           }
       ]
   , indexerSearchTimeout = 30
+  , indexerProwlarr = Nothing  -- Optional Prowlarr integration
   }
 
 -- | Default MusicBrainz configuration (official server).
@@ -705,6 +975,19 @@ defaultNotificationConfig = NotificationConfig
   , notificationOnAlbumImported = True
   }
 
+-- | Default integrations configuration.
+--
+-- All integrations are disabled by default.
+-- Users can opt-in by providing API keys for the services they want to use.
+defaultIntegrationsConfig :: IntegrationsConfig
+defaultIntegrationsConfig = IntegrationsConfig
+  { integrationsAcoustId = Nothing
+  , integrationsDiscogs = Nothing
+  , integrationsSpotify = Nothing
+  , integrationsFanartTv = Nothing
+  , integrationsTheAudioDb = Nothing
+  }
+
 -- | Default configuration with all defaults.
 defaultConfig :: Config
 defaultConfig = Config
@@ -717,6 +1000,7 @@ defaultConfig = Config
   , musicbrainz = defaultMusicBrainzConfig
   , media = defaultMediaConfig
   , notifications = defaultNotificationConfig
+  , integrations = defaultIntegrationsConfig
   }
 
 -- ============================================================================
@@ -738,6 +1022,7 @@ instance Default IndexerConfig where def = defaultIndexerConfig
 instance Default MusicBrainzConfig where def = defaultMusicBrainzConfig
 instance Default MediaConfig where def = defaultMediaConfig
 instance Default NotificationConfig where def = defaultNotificationConfig
+instance Default IntegrationsConfig where def = defaultIntegrationsConfig
 instance Default Config where def = defaultConfig
 
 -- | Mergeable instances - use Generic derivation
@@ -749,4 +1034,5 @@ instance Mergeable IndexerConfig
 instance Mergeable MusicBrainzConfig
 instance Mergeable MediaConfig
 instance Mergeable NotificationConfig
+instance Mergeable IntegrationsConfig
 instance Mergeable Config

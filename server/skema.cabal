@@ -72,6 +72,7 @@ library
     Skema.Database.Repository.Quality
     Skema.Database.Repository.Stats
     Skema.Database.Repository.Settings
+    Skema.Database.Repository.SearchHistory
     Skema.API.Types
     Skema.API.Types.Common
     Skema.API.Types.Auth
@@ -132,10 +133,12 @@ library
     Skema.Indexer.Utils
     Skema.Indexer.Client
     Skema.Indexer.Search
+    Skema.Indexer.Prowlarr
     Skema.DownloadClient.Types
     Skema.DownloadClient.SABnzbd
     Skema.DownloadClient.Transmission
     Skema.DownloadClient.QBittorrent
+    Skema.DownloadClient.Deluge
     Skema.Events.Types
     Skema.Events.Utils
     Skema.Events.Bus
@@ -176,6 +179,7 @@ library
     , containers >= 0.6 && < 0.9
     , text >= 2.1 && < 2.2
     , bytestring >= 0.11 && < 0.13
+    , base64-bytestring >= 1.2 && < 1.3
     , time >= 1.12 && < 1.15
     , filepath >= 1.4 && < 1.6
     , directory >= 1.3 && < 1.4

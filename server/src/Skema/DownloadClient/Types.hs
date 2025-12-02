@@ -21,6 +21,7 @@ data DownloadStatus
 -- | Information about a download from the client
 data DownloadInfo = DownloadInfo
   { diClientId :: Text           -- Client-specific ID
+  , diName :: Maybe Text         -- Download name (for matching)
   , diStatus :: DownloadStatus
   , diProgress :: Double         -- 0.0 to 1.0
   , diDownloadPath :: Maybe Text

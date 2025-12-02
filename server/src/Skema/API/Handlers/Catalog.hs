@@ -5,7 +5,7 @@ module Skema.API.Handlers.Catalog
   ( catalogServer
   ) where
 
-import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..))
+import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), SearchHistoryResponse(..), SearchHistoryResultResponse(..))
 import Skema.API.Types.Events (EventResponse(..))
 import Skema.API.Handlers.Auth (throwJsonError)
 import Skema.API.Handlers.Utils (withAuthDB)
@@ -52,6 +52,8 @@ catalogServer le bus _serverCfg jwtSecret registry connPool _cacheDir configVar 
   :<|> createAlbumHandler maybeAuthHeader
   :<|> updateAlbumHandler maybeAuthHeader
   :<|> deleteAlbumHandler maybeAuthHeader
+  :<|> getSearchHistoryHandler maybeAuthHeader
+  :<|> getSearchHistoryResultsHandler maybeAuthHeader
   where
     -- Universal search handler - searches both artists and albums
     queryHandler :: Maybe Text -> CatalogQueryRequest -> Handler CatalogQueryResponse
@@ -395,3 +397,51 @@ catalogServer le bus _serverCfg jwtSecret registry connPool _cacheDir configVar 
       liftIO $ withConnection connPool $ \conn ->
         DB.deleteCatalogAlbum conn albumId
       pure NoContent
+
+    -- Get search history for an album
+    getSearchHistoryHandler :: Maybe Text -> Int64 -> Handler [SearchHistoryResponse]
+    getSearchHistoryHandler authHeader albumId = do
+      _ <- requireAuth configVar jwtSecret authHeader
+      history <- liftIO $ withConnection connPool $ \conn ->
+        DB.getSearchHistoryByAlbum conn albumId
+      pure $ map toSearchHistoryResponse history
+
+    -- Get search results for a specific search history entry
+    getSearchHistoryResultsHandler :: Maybe Text -> Int64 -> Int64 -> Handler [SearchHistoryResultResponse]
+    getSearchHistoryResultsHandler authHeader _albumId historyId = do
+      _ <- requireAuth configVar jwtSecret authHeader
+      results <- liftIO $ withConnection connPool $ \conn ->
+        DB.getSearchHistoryResults conn historyId
+      pure $ map toSearchHistoryResultResponse results
+
+-- | Convert database search history record to API response.
+toSearchHistoryResponse :: DBTypes.SearchHistoryRecord -> SearchHistoryResponse
+toSearchHistoryResponse rec = SearchHistoryResponse
+  { searchHistoryResponseId = fromMaybe 0 (DBTypes.searchHistoryId rec)
+  , searchHistoryResponseSearchedAt = DBTypes.searchHistorySearchedAt rec
+  , searchHistoryResponseTotalResults = DBTypes.searchHistoryTotalResults rec
+  , searchHistoryResponseDurationMs = DBTypes.searchHistoryDurationMs rec
+  , searchHistoryResponseSelectedTitle = DBTypes.searchHistorySelectedTitle rec
+  , searchHistoryResponseSelectedIndexer = DBTypes.searchHistorySelectedIndexer rec
+  , searchHistoryResponseSelectedScore = DBTypes.searchHistorySelectedScore rec
+  , searchHistoryResponseOutcome = DBTypes.searchOutcomeToText (DBTypes.searchHistoryOutcome rec)
+  }
+
+-- | Convert database search result record to API response.
+toSearchHistoryResultResponse :: DBTypes.SearchHistoryResultRecord -> SearchHistoryResultResponse
+toSearchHistoryResultResponse rec = SearchHistoryResultResponse
+  { searchHistoryResultResponseId = fromMaybe 0 (DBTypes.searchResultId rec)
+  , searchHistoryResultResponseIndexerName = DBTypes.searchResultIndexerName rec
+  , searchHistoryResultResponseTitle = DBTypes.searchResultTitle rec
+  , searchHistoryResultResponseDownloadUrl = DBTypes.searchResultDownloadUrl rec
+  , searchHistoryResultResponseInfoUrl = DBTypes.searchResultInfoUrl rec
+  , searchHistoryResultResponseSizeBytes = DBTypes.searchResultSizeBytes rec
+  , searchHistoryResultResponsePublishDate = DBTypes.searchResultPublishDate rec
+  , searchHistoryResultResponseSeeders = DBTypes.searchResultSeeders rec
+  , searchHistoryResultResponsePeers = DBTypes.searchResultPeers rec
+  , searchHistoryResultResponseGrabs = DBTypes.searchResultGrabs rec
+  , searchHistoryResultResponseDownloadType = DBTypes.searchResultDownloadType rec
+  , searchHistoryResultResponseQuality = DBTypes.searchResultQuality rec
+  , searchHistoryResultResponseScore = DBTypes.searchResultScore rec
+  , searchHistoryResultResponseRank = DBTypes.searchResultRank rec
+  }

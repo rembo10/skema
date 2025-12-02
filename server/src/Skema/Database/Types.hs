@@ -33,6 +33,12 @@ module Skema.Database.Types
   , textToDownloadStatus
     -- * Quality Profile Models
   , QualityProfileRecord (..)
+    -- * Search History Models
+  , SearchHistoryRecord (..)
+  , SearchHistoryResultRecord (..)
+  , SearchOutcome (..)
+  , searchOutcomeToText
+  , textToSearchOutcome
     -- * Constants
   , variousArtistsMBID
   , isVariousArtists
@@ -571,3 +577,93 @@ instance SQLite.FromRow QualityProfileRecord where
       toBool :: Int -> Bool
       toBool 0 = False
       toBool _ = True
+
+-- * Search History Types
+
+-- | Outcome of a search
+data SearchOutcome
+  = SearchNoResults       -- ^ No results found
+  | SearchDownloaded      -- ^ Best result was downloaded
+  | SearchFailed          -- ^ Download failed
+  | SearchNoClient        -- ^ No download client configured
+  | SearchTimeout         -- ^ Search timed out
+  deriving (Show, Eq, Generic, Data)
+
+searchOutcomeToText :: SearchOutcome -> Text
+searchOutcomeToText SearchNoResults = "no_results"
+searchOutcomeToText SearchDownloaded = "downloaded"
+searchOutcomeToText SearchFailed = "failed"
+searchOutcomeToText SearchNoClient = "no_client"
+searchOutcomeToText SearchTimeout = "timeout"
+
+textToSearchOutcome :: Text -> Maybe SearchOutcome
+textToSearchOutcome "no_results" = Just SearchNoResults
+textToSearchOutcome "downloaded" = Just SearchDownloaded
+textToSearchOutcome "failed" = Just SearchFailed
+textToSearchOutcome "no_client" = Just SearchNoClient
+textToSearchOutcome "timeout" = Just SearchTimeout
+textToSearchOutcome _ = Nothing
+
+-- | Search history record - one entry per search attempt
+data SearchHistoryRecord = SearchHistoryRecord
+  { searchHistoryId :: Maybe Int64
+  , searchHistoryCatalogAlbumId :: Int64
+  , searchHistorySearchedAt :: UTCTime
+  , searchHistoryTotalResults :: Int
+  , searchHistoryDurationMs :: Maybe Int
+  , searchHistorySelectedTitle :: Maybe Text
+  , searchHistorySelectedIndexer :: Maybe Text
+  , searchHistorySelectedScore :: Maybe Int
+  , searchHistoryOutcome :: SearchOutcome
+  } deriving (Show, Eq, Generic)
+
+instance SQLite.FromRow SearchHistoryRecord where
+  fromRow = do
+    shId <- SQLite.field
+    albumId <- SQLite.field
+    searchedAt <- SQLite.field
+    totalResults <- SQLite.field
+    durationMs <- SQLite.field
+    selectedTitle <- SQLite.field
+    selectedIndexer <- SQLite.field
+    selectedScore <- SQLite.field
+    outcomeText <- SQLite.field :: SQLite.RowParser Text
+    let outcome = fromMaybe SearchNoResults (textToSearchOutcome outcomeText)
+    pure $ SearchHistoryRecord shId albumId searchedAt totalResults durationMs selectedTitle selectedIndexer selectedScore outcome
+
+-- | Individual search result record
+data SearchHistoryResultRecord = SearchHistoryResultRecord
+  { searchResultId :: Maybe Int64
+  , searchResultHistoryId :: Int64
+  , searchResultIndexerName :: Text
+  , searchResultTitle :: Text
+  , searchResultDownloadUrl :: Text
+  , searchResultInfoUrl :: Maybe Text
+  , searchResultSizeBytes :: Maybe Integer
+  , searchResultPublishDate :: Maybe UTCTime
+  , searchResultSeeders :: Maybe Int
+  , searchResultPeers :: Maybe Int
+  , searchResultGrabs :: Maybe Int
+  , searchResultDownloadType :: Text
+  , searchResultQuality :: Maybe Text
+  , searchResultScore :: Int
+  , searchResultRank :: Int
+  } deriving (Show, Eq, Generic)
+
+instance SQLite.FromRow SearchHistoryResultRecord where
+  fromRow = SearchHistoryResultRecord
+    <$> SQLite.field
+    <*> SQLite.field
+    <*> SQLite.field
+    <*> SQLite.field
+    <*> SQLite.field
+    <*> SQLite.field
+    <*> SQLite.field
+    <*> SQLite.field
+    <*> SQLite.field
+    <*> SQLite.field
+    <*> SQLite.field
+    <*> SQLite.field
+    <*> SQLite.field
+    <*> SQLite.field
+    <*> SQLite.field
