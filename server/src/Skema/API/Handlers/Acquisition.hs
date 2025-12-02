@@ -5,7 +5,7 @@ module Skema.API.Handlers.Acquisition
   ( acquisitionServer
   ) where
 
-import Skema.API.Types.Acquisition (AcquisitionAPI, AcquisitionRuleResponse(..), CreateRuleRequest(..), UpdateRuleRequest(..))
+import Skema.API.Types.Acquisition (AcquisitionAPI, AcquisitionRuleResponse(..), CreateRuleRequest(..), UpdateRuleRequest(..), SyncResponse(..))
 import Skema.API.Handlers.Auth (throwJsonError)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
@@ -14,6 +14,9 @@ import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
 import qualified Skema.Database.Utils as DBUtils
 import qualified Skema.Config.Types as Cfg
+import Skema.Events.Bus (EventBus)
+import Skema.Services.Registry (ServiceRegistry(..))
+import Skema.Services.SourceEvaluator (evaluateSingleSource)
 import Servant
 import Data.Time (UTCTime, getCurrentTime)
 
@@ -22,14 +25,15 @@ throw400 :: Text -> Handler a
 throw400 = throwJsonError err400
 
 -- | Acquisition API handlers.
-acquisitionServer :: Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> TVar Cfg.Config -> Server AcquisitionAPI
-acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
+acquisitionServer :: EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> ConnectionPool -> TVar Cfg.Config -> Server AcquisitionAPI
+acquisitionServer bus _serverCfg jwtSecret registry connPool configVar = \maybeAuthHeader ->
   getRulesHandler maybeAuthHeader
   :<|> createRuleHandler maybeAuthHeader
   :<|> updateRuleHandler maybeAuthHeader
   :<|> deleteRuleHandler maybeAuthHeader
   :<|> enableRuleHandler maybeAuthHeader
   :<|> disableRuleHandler maybeAuthHeader
+  :<|> syncRuleHandler maybeAuthHeader
   where
     getRulesHandler :: Maybe Text -> Handler [AcquisitionRuleResponse]
     getRulesHandler authHeader = do
@@ -134,3 +138,12 @@ acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
           "UPDATE acquisition_rules SET enabled = ?, updated_at = ? WHERE id = ?"
           (False, now, sourceId)
       pure NoContent
+
+    syncRuleHandler :: Maybe Text -> Int64 -> Handler SyncResponse
+    syncRuleHandler authHeader sourceId = do
+      _ <- requireAuth configVar jwtSecret authHeader
+      let mbEnv = srMBClientEnv registry
+      result <- liftIO $ evaluateSingleSource connPool bus mbEnv sourceId
+      case result of
+        Left err -> pure $ SyncResponse False err 0
+        Right count -> pure $ SyncResponse True ("Sync completed successfully") count

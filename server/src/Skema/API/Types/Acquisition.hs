@@ -11,6 +11,7 @@ module Skema.API.Types.Acquisition
   , TrackedArtistResponse(..)
   , AcquisitionRuleResponse(..)
   , WantedAlbumResponse(..)
+  , SyncResponse(..)
   ) where
 
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
@@ -25,7 +26,21 @@ type AcquisitionAPI = "acquisition" :> Header "Authorization" Text :>
   :<|> "sources" :> Capture "sourceId" Int64 :> DeleteNoContent
   :<|> "sources" :> Capture "sourceId" Int64 :> "enable" :> Put '[JSON] NoContent
   :<|> "sources" :> Capture "sourceId" Int64 :> "disable" :> Put '[JSON] NoContent
+  :<|> "sources" :> Capture "sourceId" Int64 :> "sync" :> Post '[JSON] SyncResponse
   )
+
+-- | Sync response.
+data SyncResponse = SyncResponse
+  { syncResponseSuccess :: Bool
+  , syncResponseMessage :: Text
+  , syncResponseCount :: Int
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON SyncResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 12 }
+
+instance FromJSON SyncResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 12 }
 
 -- | Create acquisition rule request.
 data CreateRuleRequest = CreateRuleRequest

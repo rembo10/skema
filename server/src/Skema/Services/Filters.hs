@@ -8,6 +8,7 @@
 -- - LibraryArtistsFilters: Filter artists from your library by ID and album criteria
 -- - PitchforkFilters: Filter albums from Pitchfork by genre and score
 -- - MetacriticFilters: Filter albums from Metacritic by genre and scores
+-- - YouTubeMusicFilters: Track artists from a YouTube Music playlist
 module Skema.Services.Filters
   ( -- * Legacy types (for backward compatibility during migration)
     RuleFilters(..)
@@ -27,6 +28,7 @@ module Skema.Services.Filters
   , MetacriticGenre(..)
   , metacriticGenreToUrl
   , metacriticGenreToDisplay
+  , YouTubeMusicFilters(..)
   , SourceFilters(..)
   , parseSourceFilters
     -- * Evaluation functions
@@ -313,12 +315,34 @@ instance FromJSON MetacriticFilters where
 
 instance ToJSON MetacriticFilters
 
+-- | YouTube Music playlist filters.
+-- Tracks artists from a YouTube Music playlist and optionally auto-follows them.
+data YouTubeMusicFilters = YouTubeMusicFilters
+  { ytPlaylistId :: Text              -- ^ YouTube playlist ID (from URL)
+  , ytApiKey :: Text                  -- ^ YouTube Data API v3 key
+  , ytAutoFollowArtists :: Bool       -- ^ Automatically follow matched artists
+  , ytAutoWantAlbums :: Bool          -- ^ Automatically mark albums as wanted
+  , ytPollIntervalMinutes :: Maybe Int -- ^ How often to check (default: 60)
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON YouTubeMusicFilters where
+  parseJSON = withObject "YouTubeMusicFilters" $ \o ->
+    YouTubeMusicFilters
+      <$> o .: "playlist_id"
+      <*> o .: "api_key"
+      <*> o .:? "auto_follow_artists" .!= True
+      <*> o .:? "auto_want_albums" .!= False
+      <*> o .:? "poll_interval_minutes"
+
+instance ToJSON YouTubeMusicFilters
+
 -- | Sum type for provider-specific filters.
 -- Each source type has its own filter configuration.
 data SourceFilters
   = LibraryArtistsSourceFilters LibraryArtistsFilters
   | PitchforkSourceFilters PitchforkFilters
   | MetacriticSourceFilters MetacriticFilters
+  | YouTubeMusicSourceFilters YouTubeMusicFilters
   deriving (Show, Eq, Generic)
 
 -- | Parse provider-specific filters from JSON text based on source type.
@@ -338,6 +362,10 @@ parseSourceFilters sourceType (Just jsonText) =
       case eitherDecode (BSL.fromStrict $ TE.encodeUtf8 jsonText) of
         Left _ -> Nothing
         Right filters -> Just (MetacriticSourceFilters filters)
+    YouTubeMusic ->
+      case eitherDecode (BSL.fromStrict $ TE.encodeUtf8 jsonText) of
+        Left _ -> Nothing
+        Right filters -> Just (YouTubeMusicSourceFilters filters)
 
 -- | Check if we should process this artist based on the source and filters.
 shouldProcessArtist :: AcquisitionSourceRecord -> Text -> Bool
@@ -354,6 +382,10 @@ shouldProcessArtist source artistMBID = case sourceType source of
 
   Pitchfork ->
     -- Pitchfork sources don't use artist matching
+    False
+
+  YouTubeMusic ->
+    -- YouTube Music sources don't use artist matching (they discover artists)
     False
 
 -- | Check if an artist passes the artist filters (legacy MBID-based).

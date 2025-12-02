@@ -16,6 +16,7 @@ module Skema.API.Types.Catalog
   , UpdateCatalogAlbumRequest(..)
   , SearchHistoryResponse(..)
   , SearchHistoryResultResponse(..)
+  , WantAllAlbumsResponse(..)
   ) where
 
 import Skema.API.Types.Events (EventResponse)
@@ -32,6 +33,7 @@ type CatalogAPI = "catalog" :> Header "Authorization" Text :>
   :<|> "artists" :> Capture "artistId" Int64 :> ReqBody '[JSON] UpdateCatalogArtistRequest :> Patch '[JSON] CatalogArtistResponse
   :<|> "artists" :> Capture "artistId" Int64 :> DeleteNoContent
   :<|> "artists" :> Capture "artistId" Int64 :> "refresh" :> Post '[JSON] EventResponse
+  :<|> "artists" :> Capture "artistId" Int64 :> "want-all-albums" :> Post '[JSON] WantAllAlbumsResponse
   :<|> "refresh" :> Post '[JSON] EventResponse
   :<|> "albums" :> QueryParam "wanted" Bool :> QueryParam "artistId" Int64 :> Get '[JSON] [CatalogAlbumResponse]
   :<|> "albums" :> ReqBody '[JSON] CreateCatalogAlbumRequest :> PostCreated '[JSON] CatalogAlbumResponse
@@ -227,3 +229,20 @@ instance ToJSON SearchHistoryResultResponse where
 
 instance FromJSON SearchHistoryResultResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 27 }
+
+-- | Response for want all albums action.
+data WantAllAlbumsResponse = WantAllAlbumsResponse
+  { wantAllAlbumsResponseNewlyWanted :: Int
+    -- ^ Number of albums newly marked as wanted
+  , wantAllAlbumsResponseRetriggered :: Int
+    -- ^ Number of already-wanted albums that had search retriggered
+  , wantAllAlbumsResponseSkipped :: Int
+    -- ^ Number of albums skipped (already in library)
+  , wantAllAlbumsResponseMessage :: Text
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON WantAllAlbumsResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 21 }
+
+instance FromJSON WantAllAlbumsResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 21 }

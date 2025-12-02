@@ -398,6 +398,12 @@ export const api = {
     });
   },
 
+  async syncAcquisitionSource(sourceId: number): Promise<{ success: boolean; message: string; count: number }> {
+    return fetchApi<{ success: boolean; message: string; count: number }>(`/acquisition/sources/${sourceId}/sync`, {
+      method: 'POST',
+    });
+  },
+
   async getWantedAlbums(): Promise<WantedAlbum[]> {
     // Wanted albums are now part of catalog albums with wanted=true filter
     return fetchApi<WantedAlbum[]>('/catalog/albums?wanted=true');
@@ -448,6 +454,12 @@ export const api = {
 
   async refreshCatalogArtist(artistId: number): Promise<{ success: boolean; message: string }> {
     return fetchApi<{ success: boolean; message: string }>(`/catalog/artists/${artistId}/refresh`, {
+      method: 'POST',
+    });
+  },
+
+  async wantAllAlbums(artistId: number): Promise<{ newly_wanted: number; retriggered: number; skipped: number; message: string }> {
+    return fetchApi<{ newly_wanted: number; retriggered: number; skipped: number; message: string }>(`/catalog/artists/${artistId}/want-all-albums`, {
       method: 'POST',
     });
   },

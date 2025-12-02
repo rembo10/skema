@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import type { CatalogArtist, CatalogAlbum, QualityProfile } from '../types/api';
-import { Music, ExternalLink, Calendar, ArrowLeft, Disc, UserMinus, AlertCircle, RefreshCw, X, Award, History } from 'lucide-react';
+import { Music, ExternalLink, Calendar, ArrowLeft, Disc, UserMinus, AlertCircle, RefreshCw, X, Award, History, ListPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
 import SearchHistoryModal from '../components/SearchHistoryModal';
@@ -17,6 +17,7 @@ export default function ArtistDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [wantingAll, setWantingAll] = useState(false);
   const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
   const [defaultProfile, setDefaultProfile] = useState<QualityProfile | null>(null);
   const [historyAlbum, setHistoryAlbum] = useState<CatalogAlbum | null>(null);
@@ -168,6 +169,23 @@ export default function ArtistDetail() {
     }
   };
 
+  const handleWantAllAlbums = async () => {
+    if (!artist?.id) return;
+
+    try {
+      setWantingAll(true);
+      const result = await api.wantAllAlbums(artist.id);
+      toast.success(result.message);
+      // Reload albums to reflect changes
+      setTimeout(() => loadArtistData(), 1000);
+    } catch (error) {
+      toast.error('Failed to want all albums');
+      console.error('Error wanting all albums:', error);
+    } finally {
+      setWantingAll(false);
+    }
+  };
+
   const handleQualityProfileChange = async (profileId: string) => {
     if (!artist?.id) return;
 
@@ -302,6 +320,15 @@ export default function ArtistDetail() {
               <div className="flex gap-2">
                 {artist.followed && (
                   <>
+                    <button
+                      onClick={handleWantAllAlbums}
+                      disabled={wantingAll}
+                      className="flex items-center gap-2 px-4 py-2 bg-dark-success hover:bg-dark-success/80 text-dark-bg rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                      title="Want all albums (excluding those already in library)"
+                    >
+                      <ListPlus className={`h-4 w-4 ${wantingAll ? 'animate-pulse' : ''}`} />
+                      {wantingAll ? 'Processing...' : 'Want All'}
+                    </button>
                     <button
                       onClick={handleRefreshCatalog}
                       disabled={refreshing}

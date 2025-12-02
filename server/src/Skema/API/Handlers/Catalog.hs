@@ -5,7 +5,7 @@ module Skema.API.Handlers.Catalog
   ( catalogServer
   ) where
 
-import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), SearchHistoryResponse(..), SearchHistoryResultResponse(..))
+import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), SearchHistoryResponse(..), SearchHistoryResultResponse(..), WantAllAlbumsResponse(..))
 import Skema.API.Types.Events (EventResponse(..))
 import Skema.API.Handlers.Auth (throwJsonError)
 import Skema.API.Handlers.Utils (withAuthDB)
@@ -47,6 +47,7 @@ catalogServer le bus _serverCfg jwtSecret registry connPool _cacheDir configVar 
   :<|> updateArtistHandler maybeAuthHeader
   :<|> deleteArtistHandler maybeAuthHeader
   :<|> refreshArtistHandler maybeAuthHeader
+  :<|> wantAllAlbumsHandler maybeAuthHeader
   :<|> refreshAllHandler maybeAuthHeader
   :<|> getAlbumsHandler maybeAuthHeader
   :<|> createAlbumHandler maybeAuthHeader
@@ -220,6 +221,70 @@ catalogServer le bus _serverCfg jwtSecret registry connPool _cacheDir configVar 
             { eventResponseSuccess = True
             , eventResponseMessage = "Artist catalog refresh requested"
             }
+
+    -- Want all albums for an artist
+    wantAllAlbumsHandler :: Maybe Text -> Int64 -> Handler WantAllAlbumsResponse
+    wantAllAlbumsHandler authHeader artistId = do
+      _ <- requireAuth configVar jwtSecret authHeader
+      
+      -- Get all albums for this artist
+      albums <- liftIO $ withConnection connPool $ \conn ->
+        DB.getCatalogAlbumsByArtistId conn artistId Nothing
+      
+      -- Process each album
+      (newlyWanted, retriggered, skipped) <- liftIO $ foldlM processAlbum (0, 0, 0) albums
+      
+      let message = "Processed " <> show (length albums) <> " albums: " 
+                 <> show newlyWanted <> " newly wanted, "
+                 <> show retriggered <> " retriggered, "
+                 <> show skipped <> " skipped (in library)"
+      
+      pure $ WantAllAlbumsResponse
+        { wantAllAlbumsResponseNewlyWanted = newlyWanted
+        , wantAllAlbumsResponseRetriggered = retriggered
+        , wantAllAlbumsResponseSkipped = skipped
+        , wantAllAlbumsResponseMessage = message
+        }
+      where
+        processAlbum :: (Int, Int, Int) -> DBTypes.CatalogAlbumRecord -> IO (Int, Int, Int)
+        processAlbum (nw, rt, sk) album = do
+          let albumId = DBTypes.catalogAlbumId album
+              isInLibrary = isJust (DBTypes.catalogAlbumMatchedClusterId album)
+              isWanted = DBTypes.catalogAlbumWanted album
+          
+          case albumId of
+            Nothing -> pure (nw, rt, sk)  -- Skip albums without ID
+            Just aid -> do
+              if isInLibrary
+                then do
+                  -- Skip albums already in library
+                  pure (nw, rt, sk + 1)
+                else if isWanted
+                  then do
+                    -- Already wanted - toggle off then on to retrigger search
+                    withConnection connPool $ \conn -> do
+                      DB.updateCatalogAlbumWanted conn aid False
+                      DB.updateCatalogAlbumWanted conn aid True
+                    -- Emit event to trigger search
+                    EventBus.publishAndLog bus le "api.catalog" $ Events.WantedAlbumAdded
+                      { Events.wantedCatalogAlbumId = aid
+                      , Events.wantedReleaseGroupId = DBTypes.catalogAlbumReleaseGroupMBID album
+                      , Events.wantedAlbumTitle = DBTypes.catalogAlbumTitle album
+                      , Events.wantedArtistName = DBTypes.catalogAlbumArtistName album
+                      }
+                    pure (nw, rt + 1, sk)
+                  else do
+                    -- Not wanted - mark as wanted
+                    withConnection connPool $ \conn ->
+                      DB.updateCatalogAlbumWanted conn aid True
+                    -- Emit event to trigger search
+                    EventBus.publishAndLog bus le "api.catalog" $ Events.WantedAlbumAdded
+                      { Events.wantedCatalogAlbumId = aid
+                      , Events.wantedReleaseGroupId = DBTypes.catalogAlbumReleaseGroupMBID album
+                      , Events.wantedAlbumTitle = DBTypes.catalogAlbumTitle album
+                      , Events.wantedArtistName = DBTypes.catalogAlbumArtistName album
+                      }
+                    pure (nw + 1, rt, sk)
 
     -- Refresh all followed artists' catalogs
     refreshAllHandler :: Maybe Text -> Handler EventResponse

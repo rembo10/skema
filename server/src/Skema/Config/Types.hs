@@ -12,6 +12,7 @@ module Skema.Config.Types
   , LibraryConfig (..)
   , SystemConfig (..)
   , ServerConfig (..)
+  , PerformanceConfig (..)
   , DownloadConfig (..)
   , DownloadClient (..)
   , DownloadClientType (..)
@@ -38,6 +39,7 @@ module Skema.Config.Types
   , defaultLibraryConfig
   , defaultSystemConfig
   , defaultServerConfig
+  , defaultPerformanceConfig
   , defaultDownloadConfig
   , defaultIndexerConfig
   , defaultMusicBrainzConfig

@@ -10,13 +10,22 @@ interface SourceModalProps {
   source?: AcquisitionSource;  // If provided, we're editing; otherwise creating
 }
 
+export interface YouTubeMusicFilters {
+  playlist_id: string;
+  api_key: string;
+  auto_follow_artists: boolean;
+  auto_want_albums: boolean;
+  poll_interval_minutes?: number;
+}
+
 export interface SourceFormData {
   name: string;
   description: string;
-  source_type: 'library_artists' | 'metacritic' | 'pitchfork';
+  source_type: 'library_artists' | 'metacritic' | 'pitchfork' | 'youtube_music';
   artist_mbid?: string;
   enabled: boolean;
   filters?: Filters;
+  youtube_music_filters?: YouTubeMusicFilters;
 }
 
 export function SourceModal({ isOpen, onClose, onSave, source }: SourceModalProps) {
@@ -34,22 +43,32 @@ export function SourceModal({ isOpen, onClose, onSave, source }: SourceModalProp
       if (source) {
         // Editing existing source - parse JSON filters if present
         let parsedFilters: Filters | undefined;
+        let ytFilters: YouTubeMusicFilters | undefined;
+        
         if (source.filters) {
           try {
-            parsedFilters = JSON.parse(source.filters);
+            const parsed = JSON.parse(source.filters);
+            // Handle both 'youtube_music' and 'you_tube_music' formats
+            if (source.source_type === 'youtube_music' || source.source_type === 'you_tube_music') {
+              ytFilters = parsed as YouTubeMusicFilters;
+            } else {
+              parsedFilters = parsed as Filters;
+            }
           } catch (e) {
             console.error('Failed to parse filters:', e);
-            parsedFilters = undefined;
           }
         }
 
+        // Normalize source_type (backend uses you_tube_music, frontend uses youtube_music)
+        const normalizedSourceType = source.source_type === 'you_tube_music' ? 'youtube_music' : source.source_type;
+        
         setFormData({
           name: source.name,
           description: source.description || '',
-          source_type: source.source_type as 'library_artists' | 'metacritic' | 'pitchfork',
-          artist_mbid: source.artist_mbid || undefined,
+          source_type: normalizedSourceType as 'library_artists' | 'metacritic' | 'pitchfork' | 'youtube_music',
           enabled: source.enabled,
           filters: parsedFilters,
+          youtube_music_filters: ytFilters,
         });
       } else {
         // Creating new source
@@ -137,18 +156,20 @@ export function SourceModal({ isOpen, onClose, onSave, source }: SourceModalProp
               value={formData.source_type}
               onChange={(e) => setFormData({
                 ...formData,
-                source_type: e.target.value as 'library_artists' | 'metacritic' | 'pitchfork'
+                source_type: e.target.value as 'library_artists' | 'metacritic' | 'pitchfork' | 'youtube_music'
               })}
               className="w-full px-3 py-2 bg-dark-bg border border-dark-border rounded-md text-dark-text focus:outline-none focus:ring-2 focus:ring-dark-accent focus:border-transparent transition-all"
             >
               <option value="library_artists">Library Artists</option>
               <option value="metacritic">Metacritic</option>
               <option value="pitchfork">Pitchfork</option>
+              <option value="youtube_music">YouTube Music Playlist</option>
             </select>
             <p className="mt-1 text-sm text-dark-text-secondary">
               {formData.source_type === 'library_artists' && 'Automatically track all artists found in your library'}
               {formData.source_type === 'metacritic' && 'Track albums from Metacritic based on scores and genres'}
               {formData.source_type === 'pitchfork' && 'Track albums from Pitchfork based on scores and genres'}
+              {formData.source_type === 'youtube_music' && 'Track artists from a YouTube Music playlist'}
             </p>
           </div>
 
@@ -400,6 +421,105 @@ export function SourceModal({ isOpen, onClose, onSave, source }: SourceModalProp
                   <span>0.0</span>
                   <span>10.0</span>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* YouTube Music Filters */}
+          {formData.source_type === 'youtube_music' && (
+            <div className="space-y-4 p-4 bg-dark-bg rounded-lg border border-dark-border">
+              <div>
+                <label htmlFor="playlist_id" className="block text-sm font-medium text-dark-text mb-2">
+                  Playlist ID <span className="text-dark-error">*</span>
+                </label>
+                <input
+                  type="text"
+                  id="playlist_id"
+                  required
+                  value={formData.youtube_music_filters?.playlist_id || ''}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    youtube_music_filters: {
+                      ...formData.youtube_music_filters,
+                      playlist_id: e.target.value,
+                      api_key: formData.youtube_music_filters?.api_key || '',
+                      auto_follow_artists: formData.youtube_music_filters?.auto_follow_artists ?? true,
+                      auto_want_albums: formData.youtube_music_filters?.auto_want_albums ?? false,
+                    }
+                  })}
+                  className="w-full px-3 py-2 bg-dark-bg border border-dark-border rounded-md text-dark-text placeholder-dark-text-tertiary focus:outline-none focus:ring-2 focus:ring-dark-accent focus:border-transparent transition-all"
+                  placeholder="PLxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                />
+                <p className="mt-1 text-xs text-dark-text-secondary">
+                  The playlist ID from the YouTube Music URL (e.g., PLxxxxxxx from music.youtube.com/playlist?list=PLxxxxxxx)
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="api_key" className="block text-sm font-medium text-dark-text mb-2">
+                  YouTube API Key <span className="text-dark-error">*</span>
+                </label>
+                <input
+                  type="password"
+                  id="api_key"
+                  required
+                  value={formData.youtube_music_filters?.api_key || ''}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    youtube_music_filters: {
+                      ...formData.youtube_music_filters,
+                      playlist_id: formData.youtube_music_filters?.playlist_id || '',
+                      api_key: e.target.value,
+                      auto_follow_artists: formData.youtube_music_filters?.auto_follow_artists ?? true,
+                      auto_want_albums: formData.youtube_music_filters?.auto_want_albums ?? false,
+                    }
+                  })}
+                  className="w-full px-3 py-2 bg-dark-bg border border-dark-border rounded-md text-dark-text placeholder-dark-text-tertiary focus:outline-none focus:ring-2 focus:ring-dark-accent focus:border-transparent transition-all"
+                  placeholder="AIzaSy..."
+                />
+                <p className="mt-1 text-xs text-dark-text-secondary">
+                  Get an API key from the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="text-dark-accent hover:underline">Google Cloud Console</a>
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-center hover:bg-dark-bg-hover p-2 rounded transition-colors cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.youtube_music_filters?.auto_follow_artists ?? true}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      youtube_music_filters: {
+                        ...formData.youtube_music_filters,
+                        playlist_id: formData.youtube_music_filters?.playlist_id || '',
+                        api_key: formData.youtube_music_filters?.api_key || '',
+                        auto_follow_artists: e.target.checked,
+                        auto_want_albums: formData.youtube_music_filters?.auto_want_albums ?? false,
+                      }
+                    })}
+                    className="h-4 w-4 text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg border-dark-border rounded"
+                  />
+                  <span className="ml-3 text-sm text-dark-text">Auto-follow discovered artists</span>
+                </label>
+
+                <label className="flex items-center hover:bg-dark-bg-hover p-2 rounded transition-colors cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.youtube_music_filters?.auto_want_albums ?? false}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      youtube_music_filters: {
+                        ...formData.youtube_music_filters,
+                        playlist_id: formData.youtube_music_filters?.playlist_id || '',
+                        api_key: formData.youtube_music_filters?.api_key || '',
+                        auto_follow_artists: formData.youtube_music_filters?.auto_follow_artists ?? true,
+                        auto_want_albums: e.target.checked,
+                      }
+                    })}
+                    className="h-4 w-4 text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg border-dark-border rounded"
+                  />
+                  <span className="ml-3 text-sm text-dark-text">Auto-want all albums from discovered artists</span>
+                </label>
               </div>
             </div>
           )}

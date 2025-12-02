@@ -139,6 +139,7 @@ library
     Skema.DownloadClient.Transmission
     Skema.DownloadClient.QBittorrent
     Skema.DownloadClient.Deluge
+    Skema.YouTube.Client
     Skema.Events.Types
     Skema.Events.Utils
     Skema.Events.Bus
@@ -201,6 +202,7 @@ library
     , http-types >= 0.12 && < 0.13
     , http-client >= 0.7 && < 0.8
     , http-client-tls >= 0.3 && < 0.4
+    , http-conduit >= 2.3 && < 2.4
     , http-media >= 0.8 && < 0.9
     , katip >= 0.8 && < 0.9
     , exceptions >= 0.10 && < 0.11

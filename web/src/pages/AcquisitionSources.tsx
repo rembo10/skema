@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import type { AcquisitionSource, CatalogArtist, WantedAlbum } from '../types/api';
-import { Settings, CheckCircle, XCircle, Users, Music, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Settings, CheckCircle, XCircle, Users, Music, Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SourceModal, type SourceFormData } from '../components/SourceModal';
 
@@ -12,6 +12,7 @@ export default function AcquisitionSources() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingSource, setEditingSource] = useState<AcquisitionSource | undefined>(undefined);
+  const [syncingSourceId, setSyncingSourceId] = useState<number | null>(null);
 
   useEffect(() => {
     loadData();
@@ -77,14 +78,20 @@ export default function AcquisitionSources() {
 
   const handleSaveSource = async (formData: SourceFormData) => {
     try {
+      // Determine which filters to serialize based on source type
+      let filtersJson: string | undefined;
+      if (formData.source_type === 'youtube_music' && formData.youtube_music_filters) {
+        filtersJson = JSON.stringify(formData.youtube_music_filters);
+      } else if (formData.filters) {
+        filtersJson = JSON.stringify(formData.filters);
+      }
+
       const sourceData = {
         name: formData.name,
         description: formData.description || undefined,
         source_type: formData.source_type,
-        artist_mbid: formData.artist_mbid,
         enabled: formData.enabled,
-        priority: formData.priority,
-        filters: formData.filters ? JSON.stringify(formData.filters) : undefined,
+        filters: filtersJson,
       };
 
       if (editingSource) {
@@ -122,6 +129,25 @@ export default function AcquisitionSources() {
     }
   };
 
+  const handleSyncSource = async (sourceId: number) => {
+    setSyncingSourceId(sourceId);
+    try {
+      const result = await api.syncAcquisitionSource(sourceId);
+      if (result.success) {
+        toast.success(`Sync completed: ${result.count} item(s) added`);
+        // Reload data to reflect changes
+        await loadData();
+      } else {
+        toast.error(`Sync failed: ${result.message}`);
+      }
+    } catch (error) {
+      console.error('Failed to sync source:', error);
+      toast.error('Failed to sync source');
+    } finally {
+      setSyncingSourceId(null);
+    }
+  };
+
   const formatSourceType = (type: string) => {
     switch (type) {
       case 'library_artists':
@@ -130,6 +156,9 @@ export default function AcquisitionSources() {
         return 'Metacritic';
       case 'pitchfork':
         return 'Pitchfork';
+      case 'youtube_music':
+      case 'you_tube_music':
+        return 'YouTube Music';
       default:
         return type;
     }
@@ -143,6 +172,9 @@ export default function AcquisitionSources() {
         return 'bg-purple-100 text-purple-800 border-purple-200';
       case 'pitchfork':
         return 'bg-orange-100 text-orange-800 border-orange-200';
+      case 'youtube_music':
+      case 'you_tube_music':
+        return 'bg-red-100 text-red-800 border-red-200';
       default:
         return 'bg-gray-100 text-gray-800 border-gray-200';
     }
@@ -253,6 +285,17 @@ export default function AcquisitionSources() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2">
+                    {/* Only show sync for non-library_artists sources */}
+                    {source.source_type !== 'library_artists' && (
+                      <button
+                        onClick={() => handleSyncSource(source.id)}
+                        disabled={syncingSourceId === source.id}
+                        className="p-2 text-dark-text-tertiary hover:text-dark-accent hover:bg-dark-bg-hover rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Sync now"
+                      >
+                        <RefreshCw className={`h-4 w-4 ${syncingSourceId === source.id ? 'animate-spin' : ''}`} />
+                      </button>
+                    )}
                     <button
                       onClick={() => handleEditSource(source)}
                       className="p-2 text-dark-text-tertiary hover:text-dark-accent hover:bg-dark-bg-hover rounded-lg transition-all duration-200"

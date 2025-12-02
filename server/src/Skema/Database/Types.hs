@@ -184,6 +184,7 @@ data SourceType
   = LibraryArtists
   | Metacritic
   | Pitchfork
+  | YouTubeMusic
   deriving (Show, Eq, Generic, Data)
 
 -- | Album status for wanted albums.
@@ -349,6 +350,8 @@ textToSourceType :: Text -> Maybe SourceType
 textToSourceType "library_artists" = Just LibraryArtists
 textToSourceType "metacritic" = Just Metacritic
 textToSourceType "pitchfork" = Just Pitchfork
+textToSourceType "you_tube_music" = Just YouTubeMusic
+textToSourceType "youtube_music" = Just YouTubeMusic  -- Alternative format
 -- Backward compatibility
 textToSourceType "specific_artist" = Just LibraryArtists
 textToSourceType "custom" = Just LibraryArtists
