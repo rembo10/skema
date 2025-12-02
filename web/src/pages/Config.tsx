@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { Save, Library, Settings, Server, Download, Search, Database, Plus, Edit2, Trash2, X, Bell, Plug, ExternalLink } from 'lucide-react';
+import { Save, Library, Settings, Server, Download, Search, Database, Plus, Edit2, Trash2, X, Bell, Plug, ExternalLink, AlertTriangle } from 'lucide-react';
 import { api } from '../lib/api';
 import { PathInput } from '../components/PathInput';
 import { UrlInput } from '../components/UrlInput';
@@ -12,7 +12,7 @@ import {
 } from '../components/ConfigFields.generated';
 import type { Config, DownloadClient, Indexer, DownloadClientType, NotificationProvider } from '../types/api';
 
-type TabId = 'library' | 'system' | 'server' | 'download' | 'indexers' | 'musicbrainz' | 'notifications' | 'integrations';
+type TabId = 'library' | 'system' | 'server' | 'download' | 'indexers' | 'musicbrainz' | 'notifications' | 'integrations' | 'performance';
 
 interface Tab {
   id: TabId;
@@ -29,6 +29,7 @@ const tabs: Tab[] = [
   { id: 'musicbrainz', label: 'MusicBrainz', icon: Database },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'integrations', label: 'Integrations', icon: Plug },
+  { id: 'performance', label: 'Danger Zone', icon: AlertTriangle },
 ];
 
 export default function Config() {
@@ -1522,6 +1523,115 @@ export default function Config() {
                         </label>
                       </div>
                     )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Performance / Danger Zone Settings */}
+        {activeTab === 'performance' && (
+          <div className="space-y-6">
+            <div className="card border-dark-error/30">
+              <div className="px-6 py-5 border-b border-dark-error/30 bg-dark-error-muted/20">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="w-5 h-5 text-dark-error" />
+                  <div>
+                    <h3 className="text-lg font-medium text-dark-text">Danger Zone</h3>
+                    <p className="text-sm text-dark-text-secondary mt-1">
+                      These settings control concurrency and can impact system stability. Increase with caution.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="px-6 py-6 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-dark-text mb-2">
+                      Catalog Fetch Threads
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={formData.performance?.catalog_fetch_threads ?? 2}
+                      onChange={(e) => handleChange('performance', 'catalog_fetch_threads', parseInt(e.target.value) || 2)}
+                      className="input w-full"
+                    />
+                    <p className="text-xs text-dark-text-tertiary mt-1">
+                      Concurrent threads for fetching artist/album info from MusicBrainz (default: 2)
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-dark-text mb-2">
+                      Metadata Fetch Threads
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={formData.performance?.metadata_fetch_threads ?? 3}
+                      onChange={(e) => handleChange('performance', 'metadata_fetch_threads', parseInt(e.target.value) || 3)}
+                      className="input w-full"
+                    />
+                    <p className="text-xs text-dark-text-tertiary mt-1">
+                      Concurrent threads for fetching cover art and other metadata (default: 3)
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-dark-text mb-2">
+                      Download Search Threads
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={formData.performance?.download_search_threads ?? 2}
+                      onChange={(e) => handleChange('performance', 'download_search_threads', parseInt(e.target.value) || 2)}
+                      className="input w-full"
+                    />
+                    <p className="text-xs text-dark-text-tertiary mt-1">
+                      Concurrent threads for searching indexers (default: 2)
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-dark-text mb-2">
+                      Max Concurrent Downloads
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={formData.performance?.max_concurrent_downloads ?? 3}
+                      onChange={(e) => handleChange('performance', 'max_concurrent_downloads', parseInt(e.target.value) || 3)}
+                      className="input w-full"
+                    />
+                    <p className="text-xs text-dark-text-tertiary mt-1">
+                      Maximum parallel downloads to process (default: 3)
+                    </p>
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-dark-text mb-2">
+                      MusicBrainz Rate Limit (ms)
+                    </label>
+                    <input
+                      type="number"
+                      min="500"
+                      max="5000"
+                      step="100"
+                      value={formData.performance?.musicbrainz_rate_limit_ms ?? 1000}
+                      onChange={(e) => handleChange('performance', 'musicbrainz_rate_limit_ms', parseInt(e.target.value) || 1000)}
+                      className="input w-full max-w-xs"
+                    />
+                    <p className="text-xs text-dark-text-tertiary mt-1">
+                      Minimum delay between MusicBrainz API calls in milliseconds (default: 1000ms). 
+                      Lower values may cause rate limiting.
+                    </p>
                   </div>
                 </div>
               </div>

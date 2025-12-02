@@ -200,6 +200,14 @@ export interface ServerConfig {
   auth_enabled?: boolean; // computed field from backend
 }
 
+export interface PerformanceConfig {
+  catalog_fetch_threads: number;
+  metadata_fetch_threads: number;
+  download_search_threads: number;
+  max_concurrent_downloads: number;
+  musicbrainz_rate_limit_ms: number;
+}
+
 export type ImportMode = 'move' | 'copy' | 'hardlink' | 'symlink';
 export type DownloadPreference = 'nzb' | 'torrent' | 'best';
 
@@ -248,6 +256,7 @@ export interface Config {
   library: LibraryConfig;
   system: SystemConfig;
   server: ServerConfig;
+  performance: PerformanceConfig;
   download: DownloadConfig;
   indexers: IndexersConfig;
   musicbrainz: MusicbrainzConfig;

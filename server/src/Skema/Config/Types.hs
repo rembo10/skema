@@ -70,6 +70,7 @@ data Config = Config
   , library :: LibraryConfig
   , system :: SystemConfig
   , server :: ServerConfig
+  , performance :: PerformanceConfig
   , download :: DownloadConfig
   , indexers :: IndexerConfig
   , musicbrainz :: MusicBrainzConfig
@@ -89,20 +90,22 @@ instance FromJSON Config where
     lib <- o .:? "library" .!= defaultLibraryConfig
     sys <- o .:? "system" .!= defaultSystemConfig
     srv <- o .:? "server" .!= defaultServerConfig
+    perf <- o .:? "performance" .!= defaultPerformanceConfig
     dl <- o .:? "download" .!= defaultDownloadConfig
     idx <- o .:? "indexers" .!= defaultIndexerConfig
     mb <- o .:? "musicbrainz" .!= defaultMusicBrainzConfig
     med <- o .:? "media" .!= defaultMediaConfig
     notif <- o .:? "notifications" .!= defaultNotificationConfig
     integ <- o .:? "integrations" .!= defaultIntegrationsConfig
-    pure $ Config version lib sys srv dl idx mb med notif integ
+    pure $ Config version lib sys srv perf dl idx mb med notif integ
 
 instance ToJSON Config where
-  toJSON (Config version lib sys srv dl idx mb med notif integ) = object
+  toJSON (Config version lib sys srv perf dl idx mb med notif integ) = object
     [ "version" .= version
     , "library" .= lib
     , "system" .= sys
     , "server" .= srv
+    , "performance" .= perf
     , "download" .= dl
     , "indexers" .= idx
     , "musicbrainz" .= mb
@@ -243,6 +246,39 @@ instance ToJSON ServerConfig where
     -- Note: password is now included since it's bcrypt hashed
     , "jwt_secret" .= jwtSecret
     , "jwt_expiration_hours" .= jwtExpHours
+    ]
+
+-- | Performance configuration (Danger Zone).
+-- These settings control concurrency and can impact system stability.
+data PerformanceConfig = PerformanceConfig
+  { perfCatalogFetchThreads :: Int
+    -- ^ Number of concurrent threads for fetching artist/album catalog info from MusicBrainz
+  , perfMetadataFetchThreads :: Int
+    -- ^ Number of concurrent threads for fetching metadata (covers, etc.)
+  , perfDownloadSearchThreads :: Int
+    -- ^ Number of concurrent threads for searching indexers
+  , perfMaxConcurrentDownloads :: Int
+    -- ^ Maximum number of concurrent downloads to process
+  , perfMusicBrainzRateLimitMs :: Int
+    -- ^ Minimum delay between MusicBrainz API calls in milliseconds
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON PerformanceConfig where
+  parseJSON = withObject "PerformanceConfig" $ \o -> do
+    catalogThreads <- o .:? "catalog_fetch_threads" .!= 2
+    metadataThreads <- o .:? "metadata_fetch_threads" .!= 3
+    searchThreads <- o .:? "download_search_threads" .!= 2
+    maxDownloads <- o .:? "max_concurrent_downloads" .!= 3
+    mbRateLimit <- o .:? "musicbrainz_rate_limit_ms" .!= 1000
+    pure $ PerformanceConfig catalogThreads metadataThreads searchThreads maxDownloads mbRateLimit
+
+instance ToJSON PerformanceConfig where
+  toJSON (PerformanceConfig catalogThreads metadataThreads searchThreads maxDownloads mbRateLimit) = object
+    [ "catalog_fetch_threads" .= catalogThreads
+    , "metadata_fetch_threads" .= metadataThreads
+    , "download_search_threads" .= searchThreads
+    , "max_concurrent_downloads" .= maxDownloads
+    , "musicbrainz_rate_limit_ms" .= mbRateLimit
     ]
 
 -- | Download client type.
@@ -909,6 +945,16 @@ defaultServerConfig = ServerConfig
   , serverJwtExpirationHours = 24  -- 24 hours default
   }
 
+-- | Default performance configuration (conservative defaults).
+defaultPerformanceConfig :: PerformanceConfig
+defaultPerformanceConfig = PerformanceConfig
+  { perfCatalogFetchThreads = 2       -- Conservative to respect MusicBrainz rate limits
+  , perfMetadataFetchThreads = 3      -- Cover art, etc.
+  , perfDownloadSearchThreads = 2     -- Indexer searches
+  , perfMaxConcurrentDownloads = 3    -- Parallel downloads
+  , perfMusicBrainzRateLimitMs = 1000 -- 1 second between MB API calls
+  }
+
 -- | Default download configuration.
 defaultDownloadConfig :: DownloadConfig
 defaultDownloadConfig = DownloadConfig
@@ -997,6 +1043,7 @@ defaultConfig = Config
   , library = defaultLibraryConfig
   , system = defaultSystemConfig
   , server = defaultServerConfig
+  , performance = defaultPerformanceConfig
   , download = defaultDownloadConfig
   , indexers = defaultIndexerConfig
   , musicbrainz = defaultMusicBrainzConfig
