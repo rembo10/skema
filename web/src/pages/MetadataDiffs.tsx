@@ -31,10 +31,8 @@ export default function MetadataDiffs() {
   async function loadDiffs() {
     setLoadingDiffs(true);
     try {
-      console.log('[MetadataDiffs] Loading diffs...');
       const diffs = await api.getGroupedDiffs();
       setGroupedDiffs(diffs);
-      console.log('[MetadataDiffs] Loaded', diffs.length, 'diff groups');
     } catch (error: any) {
       // Don't log or toast 401 errors - they're expected when auth is required
       if (!error.isAuthError) {

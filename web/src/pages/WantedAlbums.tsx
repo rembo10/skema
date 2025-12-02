@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo } from 'react';
 import { api } from '../lib/api';
 import type { CatalogAlbum, QualityProfile, CatalogArtist } from '../types/api';
-import { Disc, ExternalLink, Filter, X, Award } from 'lucide-react';
+import { Disc, ExternalLink, Filter, X, History } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
+import SearchHistoryModal from '../components/SearchHistoryModal';
 
 export default function WantedAlbums() {
   const catalogAlbums = useAppStore((state) => state.catalogAlbums);
@@ -15,6 +16,7 @@ export default function WantedAlbums() {
   const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
   const [defaultProfile, setDefaultProfile] = useState<QualityProfile | null>(null);
   const [artists, setArtists] = useState<CatalogArtist[]>([]);
+  const [historyAlbum, setHistoryAlbum] = useState<CatalogAlbum | null>(null);
 
   // Filter wanted albums from the catalog
   const albums = useMemo(() => {
@@ -254,6 +256,14 @@ export default function WantedAlbums() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <div className="flex items-center gap-2">
                         <button
+                          onClick={() => setHistoryAlbum(album)}
+                          className="px-3 py-1.5 bg-dark-bg-hover hover:bg-dark-accent-muted text-dark-text-secondary hover:text-dark-accent rounded transition-colors flex items-center gap-1.5"
+                          title="View search history"
+                        >
+                          <History className="h-4 w-4" />
+                          <span>History</span>
+                        </button>
+                        <button
                           onClick={() => handleUnwantAlbum(album)}
                           className="px-3 py-1.5 bg-dark-bg-hover hover:bg-dark-error-muted text-dark-text-secondary hover:text-dark-error rounded transition-colors flex items-center gap-1.5"
                           title="Remove from wanted list"
@@ -278,6 +288,14 @@ export default function WantedAlbums() {
             </table>
           </div>
         </div>
+      )}
+
+      {/* Search History Modal */}
+      {historyAlbum && (
+        <SearchHistoryModal
+          album={historyAlbum}
+          onClose={() => setHistoryAlbum(null)}
+        />
       )}
     </div>
   );

@@ -128,7 +128,7 @@ export interface WantedAlbum {
 }
 
 // Download client types
-export type DownloadClientType = 'sabnzbd' | 'nzbget' | 'transmission' | 'qbittorrent';
+export type DownloadClientType = 'sabnzbd' | 'nzbget' | 'transmission' | 'qbittorrent' | 'deluge';
 
 export interface DownloadClient {
   type: DownloadClientType;
@@ -150,6 +150,13 @@ export interface Indexer {
   enabled: boolean;
   priority: number;
   categories: number[];
+}
+
+export interface ProwlarrConfig {
+  url: string;
+  api_key: string;
+  enabled: boolean;
+  sync_indexers: boolean;
 }
 
 export type MusicBrainzServer = 'official' | 'headphones_vip';
@@ -193,12 +200,20 @@ export interface ServerConfig {
   auth_enabled?: boolean; // computed field from backend
 }
 
+export type ImportMode = 'move' | 'copy' | 'hardlink' | 'symlink';
+export type DownloadPreference = 'nzb' | 'torrent' | 'best';
+
 export interface DownloadConfig {
   nzb_client: DownloadClient | null;
   torrent_client: DownloadClient | null;
+  preference: DownloadPreference;
   directory: string | null;
   check_interval: number;
   auto_import: boolean;
+  refresh_artist_on_import: boolean;
+  import_mode: ImportMode;
+  delete_after_import: boolean;
+  verify_before_delete: boolean;
   min_seeders: number | null;
   max_size: number | null;
 }
@@ -206,6 +221,7 @@ export interface DownloadConfig {
 export interface IndexersConfig {
   list: Indexer[];
   search_timeout: number;
+  prowlarr: ProwlarrConfig | null;
 }
 
 export interface MusicbrainzConfig {
@@ -237,6 +253,42 @@ export interface Config {
   musicbrainz: MusicbrainzConfig;
   media: MediaConfig;
   notifications: NotificationsConfig;
+  integrations: IntegrationsConfig;
+}
+
+// Integration configurations
+export interface AcoustIdConfig {
+  api_key: string;
+  enabled: boolean;
+}
+
+export interface DiscogsConfig {
+  personal_access_token: string;
+  enabled: boolean;
+}
+
+export interface SpotifyConfig {
+  client_id: string;
+  client_secret: string;
+  enabled: boolean;
+}
+
+export interface FanartTvConfig {
+  api_key: string;
+  enabled: boolean;
+}
+
+export interface TheAudioDbConfig {
+  api_key: string;
+  enabled: boolean;
+}
+
+export interface IntegrationsConfig {
+  acoustid: AcoustIdConfig | null;
+  discogs: DiscogsConfig | null;
+  spotify: SpotifyConfig | null;
+  fanart_tv: FanartTvConfig | null;
+  theaudiodb: TheAudioDbConfig | null;
 }
 
 // Catalog types
@@ -358,4 +410,35 @@ export interface UpdateQualityProfileRequest {
   quality_preferences: QualityPreference[];
   cutoff_quality: Quality;
   upgrade_automatically: boolean;
+}
+
+// Search history types
+export type SearchOutcome = 'no_results' | 'downloaded' | 'failed' | 'no_client' | 'timeout';
+
+export interface SearchHistory {
+  id: number;
+  searched_at: string;
+  total_results: number;
+  duration_ms: number | null;
+  selected_title: string | null;
+  selected_indexer: string | null;
+  selected_score: number | null;
+  outcome: SearchOutcome;
+}
+
+export interface SearchHistoryResult {
+  id: number;
+  indexer_name: string;
+  title: string;
+  download_url: string;
+  info_url: string | null;
+  size_bytes: number | null;
+  publish_date: string | null;
+  seeders: number | null;
+  peers: number | null;
+  grabs: number | null;
+  download_type: string;
+  quality: string | null;
+  score: number;
+  rank: number;
 }

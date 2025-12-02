@@ -1,4 +1,4 @@
-import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, CatalogAlbum, Download, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest } from '../types/api';
+import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, CatalogAlbum, Download, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, SearchHistory, SearchHistoryResult } from '../types/api';
 
 // Auto-detect base path from where the app is loaded
 // This allows the app to work at any subpath (e.g., /skema, /music, etc.)
@@ -574,5 +574,14 @@ export const api = {
     return fetchApi<void>(`/quality-profiles/default/${profileId}`, {
       method: 'PUT',
     });
+  },
+
+  // Search history
+  async getSearchHistory(albumId: number): Promise<SearchHistory[]> {
+    return fetchApi<SearchHistory[]>(`/catalog/albums/${albumId}/search-history`);
+  },
+
+  async getSearchHistoryResults(albumId: number, historyId: number): Promise<SearchHistoryResult[]> {
+    return fetchApi<SearchHistoryResult[]>(`/catalog/albums/${albumId}/search-history/${historyId}/results`);
   },
 };

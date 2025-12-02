@@ -21,7 +21,6 @@ export default function Downloads() {
   // Reload downloads when SSE reconnects after disconnection
   useEffect(() => {
     if (prevConnectionStatus.current !== 'connected' && connectionStatus === 'connected') {
-      console.log('[Downloads] SSE reconnected, reloading downloads');
       loadDownloads();
     }
     prevConnectionStatus.current = connectionStatus;

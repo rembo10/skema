@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { Save, Library, Settings, Server, Download, Search, Database, Plus, Edit2, Trash2, X, Bell } from 'lucide-react';
+import { Save, Library, Settings, Server, Download, Search, Database, Plus, Edit2, Trash2, X, Bell, Plug, ExternalLink } from 'lucide-react';
 import { api } from '../lib/api';
 import { PathInput } from '../components/PathInput';
 import { UrlInput } from '../components/UrlInput';
@@ -9,11 +9,10 @@ import {
   SystemConfigSection,
   ServerConfigSection,
   MusicbrainzConfigSection,
-  MediaConfigSection,
 } from '../components/ConfigFields.generated';
 import type { Config, DownloadClient, Indexer, DownloadClientType, NotificationProvider } from '../types/api';
 
-type TabId = 'library' | 'system' | 'server' | 'download' | 'indexers' | 'musicbrainz' | 'media' | 'notifications';
+type TabId = 'library' | 'system' | 'server' | 'download' | 'indexers' | 'musicbrainz' | 'notifications' | 'integrations';
 
 interface Tab {
   id: TabId;
@@ -29,6 +28,7 @@ const tabs: Tab[] = [
   { id: 'indexers', label: 'Indexers', icon: Search },
   { id: 'musicbrainz', label: 'MusicBrainz', icon: Database },
   { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'integrations', label: 'Integrations', icon: Plug },
 ];
 
 export default function Config() {
@@ -90,9 +90,7 @@ export default function Config() {
   useEffect(() => {
     async function loadConfig() {
       try {
-        console.log('[Config] Loading config...');
         const data = await api.getConfig();
-        console.log('[Config] Loaded config:', data);
         setConfig(data);
         setFormData(data);
         setServerPassword('');
@@ -110,7 +108,6 @@ export default function Config() {
 
     const handleConfigUpdate = ((event: CustomEvent) => {
       const data = event.detail;
-      console.log('[Config] Received config update:', data);
       setConfig(data);
       toast.success('Configuration saved');
     }) as EventListener;
@@ -189,6 +186,7 @@ export default function Config() {
       case 'nzbget': return 'NZBGet';
       case 'transmission': return 'Transmission';
       case 'qbittorrent': return 'qBittorrent';
+      case 'deluge': return 'Deluge';
       default: return type;
     }
   }
@@ -539,6 +537,43 @@ export default function Config() {
                   </div>
                 </div>
 
+                <div className="flex items-start gap-3">
+                  <input
+                    id="download_refresh_artist_on_import"
+                    type="checkbox"
+                    checked={formData.download.refresh_artist_on_import ?? false}
+                    onChange={(e) => handleChange('download', 'refresh_artist_on_import', e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
+                  />
+                  <div>
+                    <label htmlFor="download_refresh_artist_on_import" className="text-sm font-medium text-dark-text">
+                      Refresh Artist on Import
+                    </label>
+                    <p className="text-sm text-dark-text-secondary mt-0.5">
+                      Automatically refresh the artist's discography when a download is imported
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="download_preference" className="block text-sm font-medium text-dark-text mb-2">
+                    Download Preference
+                  </label>
+                  <select
+                    id="download_preference"
+                    value={formData.download.preference ?? 'best'}
+                    onChange={(e) => handleChange('download', 'preference', e.target.value)}
+                    className="input w-64"
+                  >
+                    <option value="best">Best Available (auto-select)</option>
+                    <option value="nzb">Prefer NZB (Usenet)</option>
+                    <option value="torrent">Prefer Torrent</option>
+                  </select>
+                  <p className="mt-2 text-sm text-dark-text-secondary">
+                    When both NZB and torrent sources are available, which to prefer
+                  </p>
+                </div>
+
                 <div>
                   <label htmlFor="download_min_seeders" className="block text-sm font-medium text-dark-text mb-2">
                     Minimum Seeders (Optional)
@@ -573,6 +608,52 @@ export default function Config() {
                   <p className="mt-2 text-sm text-dark-text-secondary">
                     Maximum download size to accept
                   </p>
+                </div>
+
+                <div>
+                  <label htmlFor="download_import_mode" className="block text-sm font-medium text-dark-text mb-2">
+                    Import Mode
+                  </label>
+                  <select
+                    id="download_import_mode"
+                    value={formData.download.import_mode}
+                    onChange={(e) => handleChange('download', 'import_mode', e.target.value)}
+                    className="input w-64"
+                  >
+                    <option value="move">Move (move files, delete originals)</option>
+                    <option value="copy">Copy (copy files, keep originals)</option>
+                    <option value="hardlink">Hardlink (same filesystem, saves space)</option>
+                    <option value="symlink">Symlink (files stay in download dir)</option>
+                  </select>
+                  <p className="mt-2 text-sm text-dark-text-secondary">
+                    How to transfer files from download directory to library
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="download_delete_after_import"
+                    checked={formData.download.delete_after_import}
+                    onChange={(e) => handleChange('download', 'delete_after_import', e.target.checked)}
+                    className="h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent"
+                  />
+                  <label htmlFor="download_delete_after_import" className="text-sm text-dark-text">
+                    Delete source files after successful import
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="download_verify_before_delete"
+                    checked={formData.download.verify_before_delete}
+                    onChange={(e) => handleChange('download', 'verify_before_delete', e.target.checked)}
+                    className="h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent"
+                  />
+                  <label htmlFor="download_verify_before_delete" className="text-sm text-dark-text">
+                    Verify all files copied successfully before deleting source
+                  </label>
                 </div>
               </div>
             </div>
@@ -671,7 +752,7 @@ export default function Config() {
                 <div>
                   <h2 className="text-lg font-medium text-dark-text">Torrent Client</h2>
                   <p className="mt-1 text-sm text-dark-text-secondary">
-                    Configure your torrent download client (Transmission or qBittorrent)
+                    Configure your torrent download client (Transmission, qBittorrent, or Deluge)
                   </p>
                 </div>
                 <button
@@ -782,6 +863,105 @@ export default function Config() {
                     Maximum time to wait for indexer search responses
                   </p>
                 </div>
+              </div>
+            </div>
+
+            {/* Prowlarr Integration */}
+            <div className="card">
+              <div className="px-6 py-5 border-b border-dark-border">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-lg font-medium text-dark-text">Prowlarr Integration</h2>
+                    <p className="mt-1 text-sm text-dark-text-secondary">
+                      Connect to Prowlarr to manage and sync indexers automatically
+                    </p>
+                  </div>
+                  <a
+                    href="https://prowlarr.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-dark-accent hover:text-dark-accent-bright text-sm flex items-center gap-1"
+                  >
+                    Learn More <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              </div>
+              <div className="px-6 py-5 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-dark-text mb-2">Prowlarr URL</label>
+                  <input
+                    type="text"
+                    value={formData.indexers.prowlarr?.url || ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const currentApiKey = formData.indexers.prowlarr?.api_key || '';
+                      handleChange('indexers', 'prowlarr', (value || currentApiKey) ? {
+                        url: value,
+                        api_key: currentApiKey,
+                        enabled: formData.indexers.prowlarr?.enabled ?? true,
+                        sync_indexers: formData.indexers.prowlarr?.sync_indexers ?? true
+                      } : null);
+                    }}
+                    className="input w-full"
+                    placeholder="http://localhost:9696"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-dark-text mb-2">API Key</label>
+                  <input
+                    type="text"
+                    value={formData.indexers.prowlarr?.api_key || ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const currentUrl = formData.indexers.prowlarr?.url || '';
+                      handleChange('indexers', 'prowlarr', (value || currentUrl) ? {
+                        url: currentUrl,
+                        api_key: value,
+                        enabled: formData.indexers.prowlarr?.enabled ?? true,
+                        sync_indexers: formData.indexers.prowlarr?.sync_indexers ?? true
+                      } : null);
+                    }}
+                    className="input w-full"
+                    placeholder="Enter your Prowlarr API key"
+                  />
+                  <p className="mt-2 text-sm text-dark-text-secondary">
+                    Find your API key in Prowlarr under Settings → General
+                  </p>
+                </div>
+                {formData.indexers.prowlarr && (
+                  <>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        id="prowlarr_enabled"
+                        checked={formData.indexers.prowlarr.enabled}
+                        onChange={(e) => handleChange('indexers', 'prowlarr', {
+                          ...formData.indexers.prowlarr!,
+                          enabled: e.target.checked
+                        })}
+                        className="h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent"
+                      />
+                      <label htmlFor="prowlarr_enabled" className="text-sm text-dark-text">
+                        Enable Prowlarr integration
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        id="prowlarr_sync"
+                        checked={formData.indexers.prowlarr.sync_indexers}
+                        onChange={(e) => handleChange('indexers', 'prowlarr', {
+                          ...formData.indexers.prowlarr!,
+                          sync_indexers: e.target.checked
+                        })}
+                        className="h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent"
+                      />
+                      <label htmlFor="prowlarr_sync" className="text-sm text-dark-text">
+                        Automatically sync indexers from Prowlarr
+                      </label>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -1039,6 +1219,316 @@ export default function Config() {
           </div>
         )}
 
+        {/* Integrations Settings */}
+        {activeTab === 'integrations' && (
+          <div className="space-y-6">
+            <div className="card">
+              <div className="px-6 py-5 border-b border-dark-border">
+                <h2 className="text-lg font-medium text-dark-text">External Integrations</h2>
+                <p className="mt-1 text-sm text-dark-text-secondary">
+                  Connect to third-party services to enhance music identification and metadata
+                </p>
+              </div>
+              <div className="px-6 py-5 space-y-8">
+                {/* AcoustID */}
+                <div className="border border-dark-border rounded-lg p-5">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-base font-medium text-dark-text">AcoustID</h3>
+                      <p className="text-sm text-dark-text-secondary mt-1">
+                        Audio fingerprinting for identifying unknown tracks
+                      </p>
+                    </div>
+                    <a
+                      href="https://acoustid.org/api-key"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-dark-accent hover:text-dark-accent-bright text-sm flex items-center gap-1"
+                    >
+                      Get API Key <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-dark-text mb-2">API Key</label>
+                      <input
+                        type="text"
+                        value={formData.integrations?.acoustid?.api_key || ''}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          handleChange('integrations', 'acoustid', value ? {
+                            api_key: value,
+                            enabled: formData.integrations?.acoustid?.enabled ?? true
+                          } : null);
+                        }}
+                        className="input w-full"
+                        placeholder="Enter your AcoustID API key"
+                      />
+                    </div>
+                    {formData.integrations?.acoustid && (
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id="acoustid_enabled"
+                          checked={formData.integrations.acoustid.enabled}
+                          onChange={(e) => handleChange('integrations', 'acoustid', {
+                            ...formData.integrations!.acoustid!,
+                            enabled: e.target.checked
+                          })}
+                          className="h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent"
+                        />
+                        <label htmlFor="acoustid_enabled" className="text-sm text-dark-text">
+                          Enable AcoustID integration
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Discogs */}
+                <div className="border border-dark-border rounded-lg p-5">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-base font-medium text-dark-text">Discogs</h3>
+                      <p className="text-sm text-dark-text-secondary mt-1">
+                        Alternative metadata source, especially for rare releases
+                      </p>
+                    </div>
+                    <a
+                      href="https://www.discogs.com/settings/developers"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-dark-accent hover:text-dark-accent-bright text-sm flex items-center gap-1"
+                    >
+                      Get Token <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-dark-text mb-2">Personal Access Token</label>
+                      <input
+                        type="text"
+                        value={formData.integrations?.discogs?.personal_access_token || ''}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          handleChange('integrations', 'discogs', value ? {
+                            personal_access_token: value,
+                            enabled: formData.integrations?.discogs?.enabled ?? true
+                          } : null);
+                        }}
+                        className="input w-full"
+                        placeholder="Enter your Discogs personal access token"
+                      />
+                    </div>
+                    {formData.integrations?.discogs && (
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id="discogs_enabled"
+                          checked={formData.integrations.discogs.enabled}
+                          onChange={(e) => handleChange('integrations', 'discogs', {
+                            ...formData.integrations!.discogs!,
+                            enabled: e.target.checked
+                          })}
+                          className="h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent"
+                        />
+                        <label htmlFor="discogs_enabled" className="text-sm text-dark-text">
+                          Enable Discogs integration
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Spotify */}
+                <div className="border border-dark-border rounded-lg p-5">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-base font-medium text-dark-text">Spotify</h3>
+                      <p className="text-sm text-dark-text-secondary mt-1">
+                        Fuzzy search and popularity data
+                      </p>
+                    </div>
+                    <a
+                      href="https://developer.spotify.com/dashboard"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-dark-accent hover:text-dark-accent-bright text-sm flex items-center gap-1"
+                    >
+                      Create App <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-dark-text mb-2">Client ID</label>
+                      <input
+                        type="text"
+                        value={formData.integrations?.spotify?.client_id || ''}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          const currentSecret = formData.integrations?.spotify?.client_secret || '';
+                          handleChange('integrations', 'spotify', (value || currentSecret) ? {
+                            client_id: value,
+                            client_secret: currentSecret,
+                            enabled: formData.integrations?.spotify?.enabled ?? true
+                          } : null);
+                        }}
+                        className="input w-full"
+                        placeholder="Enter your Spotify client ID"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-dark-text mb-2">Client Secret</label>
+                      <input
+                        type="password"
+                        value={formData.integrations?.spotify?.client_secret || ''}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          const currentId = formData.integrations?.spotify?.client_id || '';
+                          handleChange('integrations', 'spotify', (value || currentId) ? {
+                            client_id: currentId,
+                            client_secret: value,
+                            enabled: formData.integrations?.spotify?.enabled ?? true
+                          } : null);
+                        }}
+                        className="input w-full"
+                        placeholder="Enter your Spotify client secret"
+                      />
+                    </div>
+                    {formData.integrations?.spotify && (
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id="spotify_enabled"
+                          checked={formData.integrations.spotify.enabled}
+                          onChange={(e) => handleChange('integrations', 'spotify', {
+                            ...formData.integrations!.spotify!,
+                            enabled: e.target.checked
+                          })}
+                          className="h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent"
+                        />
+                        <label htmlFor="spotify_enabled" className="text-sm text-dark-text">
+                          Enable Spotify integration
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Fanart.tv */}
+                <div className="border border-dark-border rounded-lg p-5">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-base font-medium text-dark-text">Fanart.tv</h3>
+                      <p className="text-sm text-dark-text-secondary mt-1">
+                        High-quality artwork (logos, backgrounds, CD art)
+                      </p>
+                    </div>
+                    <a
+                      href="https://fanart.tv/get-an-api-key/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-dark-accent hover:text-dark-accent-bright text-sm flex items-center gap-1"
+                    >
+                      Get API Key <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-dark-text mb-2">API Key</label>
+                      <input
+                        type="text"
+                        value={formData.integrations?.fanart_tv?.api_key || ''}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          handleChange('integrations', 'fanart_tv', value ? {
+                            api_key: value,
+                            enabled: formData.integrations?.fanart_tv?.enabled ?? true
+                          } : null);
+                        }}
+                        className="input w-full"
+                        placeholder="Enter your Fanart.tv API key"
+                      />
+                    </div>
+                    {formData.integrations?.fanart_tv && (
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id="fanarttv_enabled"
+                          checked={formData.integrations.fanart_tv.enabled}
+                          onChange={(e) => handleChange('integrations', 'fanart_tv', {
+                            ...formData.integrations!.fanart_tv!,
+                            enabled: e.target.checked
+                          })}
+                          className="h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent"
+                        />
+                        <label htmlFor="fanarttv_enabled" className="text-sm text-dark-text">
+                          Enable Fanart.tv integration
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* TheAudioDB */}
+                <div className="border border-dark-border rounded-lg p-5">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-base font-medium text-dark-text">TheAudioDB</h3>
+                      <p className="text-sm text-dark-text-secondary mt-1">
+                        Artist images and biographies
+                      </p>
+                    </div>
+                    <a
+                      href="https://www.theaudiodb.com/api_guide.php"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-dark-accent hover:text-dark-accent-bright text-sm flex items-center gap-1"
+                    >
+                      Get API Key <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-dark-text mb-2">API Key</label>
+                      <input
+                        type="text"
+                        value={formData.integrations?.theaudiodb?.api_key || ''}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          handleChange('integrations', 'theaudiodb', value ? {
+                            api_key: value,
+                            enabled: formData.integrations?.theaudiodb?.enabled ?? true
+                          } : null);
+                        }}
+                        className="input w-full"
+                        placeholder="Enter your TheAudioDB API key"
+                      />
+                    </div>
+                    {formData.integrations?.theaudiodb && (
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id="theaudiodb_enabled"
+                          checked={formData.integrations.theaudiodb.enabled}
+                          onChange={(e) => handleChange('integrations', 'theaudiodb', {
+                            ...formData.integrations!.theaudiodb!,
+                            enabled: e.target.checked
+                          })}
+                          className="h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent"
+                        />
+                        <label htmlFor="theaudiodb_enabled" className="text-sm text-dark-text">
+                          Enable TheAudioDB integration
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Form actions */}
         <div className="flex justify-end pt-4">
           <button
@@ -1089,6 +1579,7 @@ export default function Config() {
                     <>
                       <option value="transmission">Transmission</option>
                       <option value="qbittorrent">qBittorrent</option>
+                      <option value="deluge">Deluge</option>
                     </>
                   )}
                 </select>
@@ -1115,7 +1606,7 @@ export default function Config() {
                 </div>
               )}
 
-              {(editingClient.type === 'transmission' || editingClient.type === 'qbittorrent') && (
+              {(editingClient.type === 'transmission' || editingClient.type === 'qbittorrent' || editingClient.type === 'deluge') && (
                 <>
                   <div>
                     <label className="block text-sm font-medium text-dark-text mb-2">Username</label>

@@ -1,17 +1,23 @@
 import { useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
-import { getJWT, setAuthRequired, getApiBase } from '../lib/api';
+import { getJWT, setAuthRequired, getApiBase, api } from '../lib/api';
 import { useAppStore } from '../store';
 
 /**
  * Hook to connect to SSE endpoint and keep state updated.
  * Should be used at the App level to maintain a single connection.
  */
+const MAX_RETRIES = 5;
+const INITIAL_RETRY_DELAY = 1000; // 1 second
+const MAX_RETRY_DELAY = 30000; // 30 seconds
+
 export function useSSE(enabled: boolean = true) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
   const shouldReconnectRef = useRef(true);
   const statusTimeoutRef = useRef<NodeJS.Timeout>();
+  const retryCountRef = useRef(0);
+  const retryDelayRef = useRef(INITIAL_RETRY_DELAY);
   const {
     setCurrentStatus,
     setConnectionStatus,
@@ -24,6 +30,7 @@ export function useSSE(enabled: boolean = true) {
     updateAlbumCover,
     addDownload,
     updateDownload,
+    setDownloads,
     setAuthEnabled
   } = useAppStore();
 
@@ -36,6 +43,8 @@ export function useSSE(enabled: boolean = true) {
 
     // Re-enable reconnection when component becomes enabled (e.g., after login)
     shouldReconnectRef.current = true;
+    retryCountRef.current = 0;
+    retryDelayRef.current = INITIAL_RETRY_DELAY;
 
     let mounted = true;
 
@@ -76,8 +85,29 @@ export function useSSE(enabled: boolean = true) {
       const eventSource = new EventSource(url);
       eventSourceRef.current = eventSource;
 
-      eventSource.onopen = () => {
+      eventSource.onopen = async () => {
         setConnectionStatus('connected');
+        // Reset retry count and delay on successful connection
+        retryCountRef.current = 0;
+        retryDelayRef.current = INITIAL_RETRY_DELAY;
+
+        // Load current downloads to restore progress display after page refresh
+        try {
+          const downloads = await api.getAllDownloads();
+          setDownloads(downloads);
+          
+          // If there are active downloads, show status
+          const activeDownload = downloads.find(d => d.status === 'downloading');
+          if (activeDownload) {
+            setCurrentStatus({
+              type: 'in_progress',
+              message: `Downloading: ${activeDownload.title}`,
+              progress: { current: Math.round(activeDownload.progress), total: 100 },
+            });
+          }
+        } catch (err) {
+          console.error('Failed to load downloads on SSE connect:', err);
+        }
       };
 
       eventSource.onerror = (error) => {
@@ -86,13 +116,29 @@ export function useSSE(enabled: boolean = true) {
         eventSource.close();
         eventSourceRef.current = null;
 
-        // Only reconnect if we haven't been told to stop
+        // Only reconnect if we haven't been told to stop and haven't exceeded max retries
         if (mounted && shouldReconnectRef.current) {
+          retryCountRef.current += 1;
+          
+          if (retryCountRef.current > MAX_RETRIES) {
+            console.error(`SSE connection failed after ${MAX_RETRIES} attempts. Giving up.`);
+            toast.error('Connection lost. Please refresh the page to reconnect.');
+            setConnectionStatus('disconnected');
+            return;
+          }
+
+          // Calculate next delay with exponential backoff (capped at MAX_RETRY_DELAY)
+          const nextDelay = Math.min(retryDelayRef.current, MAX_RETRY_DELAY);
+          console.log(`SSE reconnecting in ${nextDelay}ms (attempt ${retryCountRef.current}/${MAX_RETRIES})`);
+          
           reconnectTimeoutRef.current = setTimeout(() => {
             // Mark all data as stale so components reload on next mount/visit
             setGroupedDiffsStale(true);
             connect();
-          }, 5000);
+          }, nextDelay);
+
+          // Increase delay for next attempt (exponential backoff)
+          retryDelayRef.current = Math.min(retryDelayRef.current * 2, MAX_RETRY_DELAY);
         }
       };
 
@@ -429,13 +475,40 @@ export function useSSE(enabled: boolean = true) {
         });
       });
 
-      eventSource.addEventListener('DownloadImported', (e: MessageEvent) => {
+      eventSource.addEventListener('DownloadImported', async (e: MessageEvent) => {
         const data = JSON.parse(e.data);
         // Update status to imported
         updateDownload(data.download_id, {
           status: 'imported',
           imported_at: new Date().toISOString(),
         });
+
+        // Check if we should refresh the artist
+        try {
+          const config = await api.getConfig();
+          if (config.download.refresh_artist_on_import) {
+            // Find the download to get the catalog_album_id
+            const downloads = useAppStore.getState().downloads;
+            const download = downloads.find(d => d.id === data.download_id);
+            if (download?.catalog_album_id) {
+              // Find the album to get the artist_mbid
+              const albums = useAppStore.getState().catalogAlbums;
+              const album = albums.find(a => a.id === download.catalog_album_id);
+              if (album?.artist_mbid) {
+                // Find the artist to get the artist_id
+                const artists = useAppStore.getState().followedArtists;
+                const artist = artists.find(a => a.mbid === album.artist_mbid);
+                if (artist?.id) {
+                  // Refresh the artist
+                  await api.refreshCatalogArtist(artist.id);
+                  toast.success(`Refreshing ${artist.name}...`);
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Failed to refresh artist after import:', error);
+        }
       });
 
       // Additional events that don't have specific UI handling

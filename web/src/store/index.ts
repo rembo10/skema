@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { GroupedDiff, MetadataChange, LibraryStats, CatalogArtist, Download } from '../types/api';
+import type { GroupedDiff, MetadataChange, LibraryStats, CatalogArtist, CatalogAlbum, Download } from '../types/api';
 
 export interface CurrentStatus {
   type: 'in_progress' | 'success' | 'error';
@@ -69,7 +69,7 @@ interface AppStore {
   removeDownload: (downloadId: number) => void;
 }
 
-export const useAppStore = create<AppStore>((set, get) => ({
+export const useAppStore = create<AppStore>((set, _) => ({
   // Authentication state
   authEnabled: null,
   setAuthEnabled: (enabled) => set({ authEnabled: enabled }),

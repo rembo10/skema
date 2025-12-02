@@ -2,9 +2,10 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import type { CatalogArtist, CatalogAlbum, QualityProfile } from '../types/api';
-import { Music, ExternalLink, Calendar, ArrowLeft, Disc, UserMinus, AlertCircle, RefreshCw, X, Award } from 'lucide-react';
+import { Music, ExternalLink, Calendar, ArrowLeft, Disc, UserMinus, AlertCircle, RefreshCw, X, Award, History } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
+import SearchHistoryModal from '../components/SearchHistoryModal';
 
 export default function ArtistDetail() {
   const { id } = useParams<{ id: string }>();
@@ -18,6 +19,7 @@ export default function ArtistDetail() {
   const [refreshing, setRefreshing] = useState(false);
   const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
   const [defaultProfile, setDefaultProfile] = useState<QualityProfile | null>(null);
+  const [historyAlbum, setHistoryAlbum] = useState<CatalogAlbum | null>(null);
 
   // Filter albums for the current artist
   const albums = useMemo(() => {
@@ -485,6 +487,15 @@ export default function ArtistDetail() {
                               {album.wanted ? 'Unwant' : 'Want'}
                             </button>
                           )}
+                          {album.wanted && (
+                            <button
+                              onClick={() => setHistoryAlbum(album)}
+                              className="px-3 py-2 bg-dark-bg-hover hover:bg-dark-accent-muted rounded-lg transition-colors flex items-center justify-center"
+                              title="View search history"
+                            >
+                              <History className="h-4 w-4 text-dark-text-secondary hover:text-dark-accent" />
+                            </button>
+                          )}
                           <a
                             href={`https://musicbrainz.org/release-group/${album.release_group_mbid}`}
                             target="_blank"
@@ -526,6 +537,14 @@ export default function ArtistDetail() {
           ))
         )}
       </div>
+
+      {/* Search History Modal */}
+      {historyAlbum && (
+        <SearchHistoryModal
+          album={historyAlbum}
+          onClose={() => setHistoryAlbum(null)}
+        />
+      )}
     </div>
   );
 }

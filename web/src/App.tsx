@@ -1,24 +1,30 @@
 import { BrowserRouter, Routes, Route, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { useEffect, useState } from 'react';
-import { Settings, LogOut, LayoutDashboard, Database, Music, Disc, Sliders, Search, Menu, X, Download, Award, WifiOff } from 'lucide-react';
-import Dashboard from './pages/Dashboard';
-import MetadataDiffs from './pages/MetadataDiffs';
-import Identification from './pages/Identification';
-import FollowedArtists from './pages/FollowedArtists';
-import ArtistDetail from './pages/ArtistDetail';
-import WantedAlbums from './pages/WantedAlbums';
-import AcquisitionSources from './pages/AcquisitionSources';
-import Downloads from './pages/Downloads';
-import QualityProfiles from './pages/QualityProfiles';
-import Config from './pages/Config';
-import { Login } from './pages/Login';
+import { useEffect, useState, Suspense, lazy } from 'react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { Settings, LogOut, LayoutDashboard, Database, Music, Disc, Sliders, Menu, X, Download, Award, WifiOff } from 'lucide-react';
 import { isAuthenticated, api, getBasePath } from './lib/api';
+import { queryClient } from './lib/queryClient';
 import { useSSE } from './hooks/useSSE';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { StatusLine } from './components/StatusLine';
 import UniversalSearch from './components/UniversalSearch';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { useAppStore } from './store';
+import { PageLoadingSkeleton } from './components/LoadingSkeleton';
+
+// Lazy load pages for code splitting
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const MetadataDiffs = lazy(() => import('./pages/MetadataDiffs'));
+const Identification = lazy(() => import('./pages/Identification'));
+const FollowedArtists = lazy(() => import('./pages/FollowedArtists'));
+const ArtistDetail = lazy(() => import('./pages/ArtistDetail'));
+const WantedAlbums = lazy(() => import('./pages/WantedAlbums'));
+const AcquisitionSources = lazy(() => import('./pages/AcquisitionSources'));
+const Downloads = lazy(() => import('./pages/Downloads'));
+const QualityProfiles = lazy(() => import('./pages/QualityProfiles'));
+const Config = lazy(() => import('./pages/Config'));
+const Login = lazy(() => import('./pages/Login').then(m => ({ default: m.Login })));
 
 // Protected route wrapper - redirects to login if auth is enabled and no token
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -278,19 +284,23 @@ function AppContent() {
         {/* Main content - scrollable */}
         <main className="flex-1 overflow-y-auto pb-20 sm:pb-0">
           <div className={isLoginPage ? '' : 'max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8'}>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-              <Route path="/diffs" element={<ProtectedRoute><MetadataDiffs /></ProtectedRoute>} />
-              <Route path="/identification" element={<ProtectedRoute><Identification /></ProtectedRoute>} />
-              <Route path="/artists" element={<ProtectedRoute><FollowedArtists /></ProtectedRoute>} />
-              <Route path="/artists/:id" element={<ProtectedRoute><ArtistDetail /></ProtectedRoute>} />
-              <Route path="/albums" element={<ProtectedRoute><WantedAlbums /></ProtectedRoute>} />
-              <Route path="/sources" element={<ProtectedRoute><AcquisitionSources /></ProtectedRoute>} />
-              <Route path="/downloads" element={<ProtectedRoute><Downloads /></ProtectedRoute>} />
-              <Route path="/quality" element={<ProtectedRoute><QualityProfiles /></ProtectedRoute>} />
-              <Route path="/config" element={<ProtectedRoute><Config /></ProtectedRoute>} />
-            </Routes>
+            <ErrorBoundary>
+              <Suspense fallback={<PageLoadingSkeleton />}>
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                  <Route path="/diffs" element={<ProtectedRoute><MetadataDiffs /></ProtectedRoute>} />
+                  <Route path="/identification" element={<ProtectedRoute><Identification /></ProtectedRoute>} />
+                  <Route path="/artists" element={<ProtectedRoute><FollowedArtists /></ProtectedRoute>} />
+                  <Route path="/artists/:id" element={<ProtectedRoute><ArtistDetail /></ProtectedRoute>} />
+                  <Route path="/albums" element={<ProtectedRoute><WantedAlbums /></ProtectedRoute>} />
+                  <Route path="/sources" element={<ProtectedRoute><AcquisitionSources /></ProtectedRoute>} />
+                  <Route path="/downloads" element={<ProtectedRoute><Downloads /></ProtectedRoute>} />
+                  <Route path="/quality" element={<ProtectedRoute><QualityProfiles /></ProtectedRoute>} />
+                  <Route path="/config" element={<ProtectedRoute><Config /></ProtectedRoute>} />
+                </Routes>
+              </Suspense>
+            </ErrorBoundary>
           </div>
         </main>
 
@@ -337,9 +347,11 @@ function App() {
   const basename = getBasePath();
 
   return (
-    <BrowserRouter basename={basename}>
-      <AppContent />
-    </BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter basename={basename}>
+        <AppContent />
+      </BrowserRouter>
+    </QueryClientProvider>
   );
 }
 

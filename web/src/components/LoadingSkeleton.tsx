@@ -37,6 +37,17 @@ export function StatCardSkeleton() {
   );
 }
 
+export function PageLoadingSkeleton() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-8 h-8 border-2 border-dark-accent border-t-transparent rounded-full animate-spin" />
+        <span className="text-dark-text-secondary text-sm">Loading...</span>
+      </div>
+    </div>
+  );
+}
+
 export function DashboardSkeleton() {
   return (
     <div className="space-y-6">
