@@ -161,6 +161,10 @@ library
     Skema.Services.MetadataWriter
     Skema.Services.Registry
     Skema.Services.Download
+    Skema.Services.Download.Client
+    Skema.Services.Download.Scoring
+    Skema.Services.Download.Search
+    Skema.Services.Download.Monitor
     Skema.Services.Importer
     Skema.Services.Notifications
     Skema.Scraper.Metacritic
