@@ -258,6 +258,7 @@ test-suite skema-test
     Integration.ScanGroupIdentifySpec
     Integration.EndToEndSpec
     Unit.ConfigSpec
+    Unit.IndexerSpec
     Helpers.TestEnv
     Helpers.Builders
     Helpers.EventAssertions

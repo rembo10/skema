@@ -6,11 +6,17 @@
 module Skema.Indexer.Client
   ( searchIndexer
   , testIndexerConnection
+  -- Exported for testing
+  , NewznabResponse(..)
+  , NewznabChannel(..)
+  , NewznabItem(..)
+  , NewznabEnclosure(..)
   ) where
 
 import Control.Exception (try)
-import Data.Aeson (FromJSON(..), (.:), (.:?), withObject, Value(..))
+import Data.Aeson (FromJSON(..), (.:), (.:?), withObject, Value(..), Object)
 import Data.Aeson.Types (Parser)
+import Data.Aeson.Key (fromText)
 import qualified Data.Text as T
 import Data.Time (UTCTime)
 import Data.Time.Format (parseTimeM, defaultTimeLocale)
@@ -53,6 +59,18 @@ data NewznabAttr = NewznabAttr
   , naValue :: Text
   } deriving (Show, Generic)
 
+-- | Parse a field that might be an integer or a string containing an integer
+-- Some indexers return numeric fields as strings, so we handle both cases
+parseIntegerField :: Object -> Text -> Parser (Maybe Integer)
+parseIntegerField obj field = do
+  maybeVal <- obj .:? fromText field
+  case maybeVal of
+    Nothing -> pure Nothing
+    Just val -> case val of
+      Number n -> pure $ Just (round n)
+      String s -> pure $ readMaybe (T.unpack s)
+      _ -> fail $ "Expected number or string for " <> T.unpack field
+
 instance FromJSON NewznabResponse where
   parseJSON = withObject "NewznabResponse" $ \v ->
     NewznabResponse <$> v .: "channel"
@@ -78,7 +96,7 @@ instance FromJSON NewznabItem where
     niLink <- v .: "link"
     niComments <- v .:? "comments"
     niPubDate <- v .:? "pubDate"
-    niSize <- v .:? "size"
+    niSize <- parseIntegerField v "size"
     niEnclosure <- v .:? "enclosure"
     niAttr <- v .:? "attr"
     pure NewznabItem{..}
@@ -88,7 +106,7 @@ instance FromJSON NewznabEnclosure where
     -- Enclosure attributes are nested in @attributes wrapper
     attrs <- v .: "@attributes"
     neUrl <- attrs .: "url"
-    neLength <- attrs .:? "length"
+    neLength <- parseIntegerField attrs "length"
     neType <- attrs .:? "type"
     pure NewznabEnclosure{..}
 
