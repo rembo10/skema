@@ -202,6 +202,7 @@ library
     , http-client >= 0.7 && < 0.8
     , http-client-tls >= 0.3 && < 0.4
     , http-media >= 0.8 && < 0.9
+    , network-uri >= 2.6 && < 2.7
     , katip >= 0.8 && < 0.9
     , exceptions >= 0.10 && < 0.11
     , assignment

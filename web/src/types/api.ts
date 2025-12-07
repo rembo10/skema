@@ -150,6 +150,7 @@ export interface Indexer {
   enabled: boolean;
   priority: number;
   categories: number[];
+  normalize_query: boolean;
 }
 
 export type MusicBrainzServer = 'official' | 'headphones_vip';

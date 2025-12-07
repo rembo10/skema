@@ -11,6 +11,8 @@ module Skema.Indexer.Client
   , NewznabChannel(..)
   , NewznabItem(..)
   , NewznabEnclosure(..)
+  , encodeQueryParam
+  , normalizeQuery
   ) where
 
 import Control.Exception (try)
@@ -18,9 +20,11 @@ import Data.Aeson (FromJSON(..), (.:), (.:?), withObject, Value(..), Object)
 import Data.Aeson.Types (Parser)
 import Data.Aeson.Key (fromText)
 import qualified Data.Text as T
+import Data.Char (isAlphaNum)
 import Data.Time (UTCTime)
 import Data.Time.Format (parseTimeM, defaultTimeLocale)
 import Data.Time.Clock (getCurrentTime, diffUTCTime)
+import Network.URI (escapeURIString, isUnescapedInURIComponent)
 
 import Skema.Config.Types (Indexer(..))
 import Skema.Indexer.Types
@@ -136,27 +140,108 @@ searchIndexer client indexer query = do
         , irSearchTime = searchTime
         }
 
+-- | Normalize a search query by removing special characters
+-- This helps with older indexers that don't handle special characters well
+-- Examples: "AC/DC" -> "ACDC", "Sigur Rós" -> "Sigur Ros"
+normalizeQuery :: Text -> Text
+normalizeQuery = T.filter isAlphaNumOrSpace . removeAccents
+  where
+    -- Keep only alphanumeric characters and spaces
+    isAlphaNumOrSpace c = isAlphaNum c || c == ' '
+
+    -- Remove common accents by replacing with base characters
+    -- This is a simplified version - for full Unicode normalization, use unicode-transforms
+    removeAccents = T.replace "á" "a"
+                  . T.replace "à" "a"
+                  . T.replace "â" "a"
+                  . T.replace "ä" "a"
+                  . T.replace "å" "a"
+                  . T.replace "ã" "a"
+                  . T.replace "æ" "ae"
+                  . T.replace "ç" "c"
+                  . T.replace "é" "e"
+                  . T.replace "è" "e"
+                  . T.replace "ê" "e"
+                  . T.replace "ë" "e"
+                  . T.replace "í" "i"
+                  . T.replace "ì" "i"
+                  . T.replace "î" "i"
+                  . T.replace "ï" "i"
+                  . T.replace "ñ" "n"
+                  . T.replace "ó" "o"
+                  . T.replace "ò" "o"
+                  . T.replace "ô" "o"
+                  . T.replace "ö" "o"
+                  . T.replace "õ" "o"
+                  . T.replace "ø" "o"
+                  . T.replace "ú" "u"
+                  . T.replace "ù" "u"
+                  . T.replace "û" "u"
+                  . T.replace "ü" "u"
+                  . T.replace "ý" "y"
+                  . T.replace "ÿ" "y"
+                  -- Uppercase versions
+                  . T.replace "Á" "A"
+                  . T.replace "À" "A"
+                  . T.replace "Â" "A"
+                  . T.replace "Ä" "A"
+                  . T.replace "Å" "A"
+                  . T.replace "Ã" "A"
+                  . T.replace "Æ" "AE"
+                  . T.replace "Ç" "C"
+                  . T.replace "É" "E"
+                  . T.replace "È" "E"
+                  . T.replace "Ê" "E"
+                  . T.replace "Ë" "E"
+                  . T.replace "Í" "I"
+                  . T.replace "Ì" "I"
+                  . T.replace "Î" "I"
+                  . T.replace "Ï" "I"
+                  . T.replace "Ñ" "N"
+                  . T.replace "Ó" "O"
+                  . T.replace "Ò" "O"
+                  . T.replace "Ô" "O"
+                  . T.replace "Ö" "O"
+                  . T.replace "Õ" "O"
+                  . T.replace "Ø" "O"
+                  . T.replace "Ú" "U"
+                  . T.replace "Ù" "U"
+                  . T.replace "Û" "U"
+                  . T.replace "Ü" "U"
+                  . T.replace "Ý" "Y"
+                  . T.replace "Ÿ" "Y"
+
+-- | URL encode a query parameter value
+-- Uses UTF-8 encoding and percent-encodes all characters except unreserved ones
+encodeQueryParam :: Text -> Text
+encodeQueryParam = T.pack . escapeURIString isUnescapedInURIComponent . T.unpack
+
 -- | Internal implementation of indexer search
 searchIndexerImpl :: HttpClient -> Indexer -> SearchQuery -> IO [ReleaseInfo]
 searchIndexerImpl client Indexer{..} SearchQuery{..} = do
   -- Build search URL with JSON output
   let apiKeyParam = case indexerApiKey of
-        Just key -> "&apikey=" <> key
+        Just key -> "&apikey=" <> encodeQueryParam key
         Nothing -> ""
 
       -- Build query string
-      queryStr = case (sqArtist, sqAlbum) of
+      rawQueryStr = case (sqArtist, sqAlbum) of
         (Just artist, Just album) -> artist <> " " <> album
         (Just artist, Nothing) -> artist
         (Nothing, Just album) -> album
         (Nothing, Nothing) -> maybe "" id sqQuery
+
+      -- Optionally normalize query based on indexer settings
+      queryStr = if indexerNormalizeQuery
+                 then normalizeQuery rawQueryStr
+                 else rawQueryStr
 
       -- Build category string
       catStr = if null sqCategories
         then ""
         else "&cat=" <> T.intercalate "," (map (T.pack . show) sqCategories)
 
-      searchUrl = indexerUrl <> "/api?t=search&o=json&q=" <> queryStr
+      searchUrl = indexerUrl <> "/api?t=search&o=json&q=" <> encodeQueryParam queryStr
                   <> apiKeyParam
                   <> catStr
                   <> "&limit=" <> T.pack (show sqLimit)
@@ -233,7 +318,7 @@ testIndexerConnection client indexer = do
 testIndexerImpl :: HttpClient -> Indexer -> IO ()
 testIndexerImpl client Indexer{..} = do
   let apiKeyParam = case indexerApiKey of
-        Just key -> "?apikey=" <> key
+        Just key -> "?apikey=" <> encodeQueryParam key
         Nothing -> ""
       capsUrl = indexerUrl <> "/api?t=caps" <> apiKeyParam
 

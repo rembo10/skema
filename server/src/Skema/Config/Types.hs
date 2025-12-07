@@ -433,6 +433,10 @@ data Indexer = Indexer
     -- ^ Search priority (higher = searched first)
   , indexerCategories :: [Int]
     -- ^ Newznab category IDs (e.g., [3000] for Audio, [3010] for MP3)
+  , indexerNormalizeQuery :: Bool
+    -- ^ Whether to normalize search queries (remove special characters). Default: False
+    -- ^ Some older indexers don't handle special characters well (e.g., "AC/DC" -> "ACDC")
+    -- ^ Modern indexers like Bullet handle special characters fine, so this is opt-in per indexer
   } deriving (Show, Eq, Generic)
 
 instance FromJSON Indexer where
@@ -445,10 +449,11 @@ instance FromJSON Indexer where
     enabled <- o .:? "enabled" .!= True
     priority <- o .:? "priority" .!= 0
     categories <- o .:? "categories" .!= [3000, 3010] -- Audio, MP3
-    pure $ Indexer name url apiKey username password enabled priority categories
+    normalizeQuery <- o .:? "normalize_query" .!= False
+    pure $ Indexer name url apiKey username password enabled priority categories normalizeQuery
 
 instance ToJSON Indexer where
-  toJSON (Indexer name url apiKey username password enabled priority categories) = object
+  toJSON (Indexer name url apiKey username password enabled priority categories normalizeQuery) = object
     [ "name" .= name
     , "url" .= url
     , "api_key" .= apiKey
@@ -457,6 +462,7 @@ instance ToJSON Indexer where
     , "enabled" .= enabled
     , "priority" .= priority
     , "categories" .= categories
+    , "normalize_query" .= normalizeQuery
     ]
 
 -- | Indexer configuration.
@@ -668,6 +674,7 @@ defaultIndexerConfig = IndexerConfig
           , indexerEnabled = False     -- Disabled until credentials provided
           , indexerPriority = 10
           , indexerCategories = [3000, 3010] -- Audio, MP3
+          , indexerNormalizeQuery = False  -- Bullet handles special characters well
           }
       ]
   , indexerSearchTimeout = 30

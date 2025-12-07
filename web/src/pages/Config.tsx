@@ -250,6 +250,7 @@ export default function Config() {
       enabled: true,
       priority: 0,
       categories: [3000, 3010],
+      normalize_query: false,
     };
     setEditingIndexer({ index: -1, indexer: newIndexer });
     setShowIndexerForm(true);
@@ -1317,6 +1318,21 @@ export default function Config() {
                 <div className="ml-3">
                   <label className="text-sm font-medium text-dark-text">Enabled</label>
                   <p className="text-sm text-dark-text-secondary">Enable this indexer</p>
+                </div>
+              </div>
+
+              <div className="flex items-start">
+                <div className="flex items-center h-5">
+                  <input
+                    type="checkbox"
+                    checked={editingIndexer.indexer.normalize_query || false}
+                    onChange={(e) => updateEditingIndexer('normalize_query', e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
+                  />
+                </div>
+                <div className="ml-3">
+                  <label className="text-sm font-medium text-dark-text">Normalize Queries</label>
+                  <p className="text-sm text-dark-text-secondary">Remove special characters from searches (e.g., "AC/DC" → "ACDC"). Enable for older indexers that don't handle special characters well. Modern indexers like Bullet should keep this disabled.</p>
                 </div>
               </div>
             </div>
