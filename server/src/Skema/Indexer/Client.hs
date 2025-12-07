@@ -16,15 +16,22 @@ module Skema.Indexer.Client
   ) where
 
 import Control.Exception (try)
-import Data.Aeson (FromJSON(..), (.:), (.:?), withObject, Value(..), Object)
+import Data.Aeson (FromJSON(..), (.:), (.:?), withObject, Value(..), Object, eitherDecode)
 import Data.Aeson.Types (Parser)
 import Data.Aeson.Key (fromText)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TLE
+import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Read as TR
+import qualified Data.ByteString.Lazy as LBS
 import Data.Char (isAlphaNum)
 import Data.Time (UTCTime)
 import Data.Time.Format (parseTimeM, defaultTimeLocale)
 import Data.Time.Clock (getCurrentTime, diffUTCTime)
 import Network.URI (escapeURIString, isUnescapedInURIComponent)
+import Text.XML (parseText, def)
+import Text.XML.Cursor (Cursor, fromDocument, element, content, attribute, child, ($//), (&/), ($|), ($/), (&|))
 
 import Skema.Config.Types (Indexer(..))
 import Skema.Indexer.Types
@@ -121,6 +128,110 @@ instance FromJSON NewznabAttr where
     naName <- attrs .: "name"
     naValue <- attrs .: "value"
     pure NewznabAttr{..}
+
+-- | Parse XML Newznab/Torznab response to our data types
+parseXmlResponse :: LBS.ByteString -> Either Text [ReleaseInfo]
+parseXmlResponse xmlBytes = do
+  -- Parse XML document
+  doc <- first (T.pack . show) $ parseText def (TLE.decodeUtf8 xmlBytes)
+  let cursor = fromDocument doc
+
+  -- Get all <item> elements from the RSS feed
+  let items = cursor $// element "item"
+
+  -- Parse each item
+  pure $ mapMaybe parseXmlItem items
+
+-- | Parse a single <item> element from XML
+parseXmlItem :: Cursor -> Maybe ReleaseInfo
+parseXmlItem cursor = do
+  -- Required fields
+  title <- listToMaybe $ cursor $/ element "title" &/ content
+  link <- listToMaybe $ cursor $/ element "link" &/ content
+
+  -- Optional fields
+  let comments = listToMaybe $ cursor $/ element "comments" &/ content
+      pubDate = listToMaybe $ cursor $/ element "pubDate" &/ content
+      sizeText = listToMaybe $ cursor $/ element "size" &/ content
+      size = sizeText >>= parseIntegerText
+
+  -- Parse enclosure
+  let enclosures = cursor $/ element "enclosure"
+      enclosure = listToMaybe enclosures
+      enclosureUrl = enclosure >>= (\e -> listToMaybe $ e $| attribute "url")
+      enclosureLength = enclosure >>= (\e -> listToMaybe $ e $| attribute "length") >>= parseIntegerText
+      enclosureType = enclosure >>= (\e -> listToMaybe $ e $| attribute "type")
+
+  -- Parse newznab/torznab attributes
+  let attrElements = cursor $/ element "attr"
+      attrs = mapMaybe parseAttr attrElements
+      getAttr name = listToMaybe [value | (n, value) <- attrs, n == name]
+
+      category = getAttr "category" >>= parseInteger
+      seeders = getAttr "seeders" >>= parseInteger
+      peers = getAttr "peers" >>= parseInteger
+      grabs = getAttr "grabs" >>= parseInteger
+
+  -- Determine download type
+  let downloadType = case enclosureType of
+        Just t -> maybe NZB id (downloadTypeFromMimeType t)
+        Nothing -> NZB
+
+  -- Get download URL (prefer enclosure URL over link)
+  let downloadUrl = fromMaybe link enclosureUrl
+
+  -- Parse publish date
+  let publishDate = pubDate >>= parseRFC822 . T.unpack
+
+  -- Get size (prefer enclosure length over direct size field)
+  let finalSize = enclosureLength <|> size
+
+  -- Parse quality from title
+  let quality = Quality.parseQualityFromTitle title
+
+  pure ReleaseInfo
+    { riTitle = title
+    , riDownloadUrl = downloadUrl
+    , riInfoUrl = comments
+    , riSize = finalSize
+    , riPublishDate = publishDate
+    , riCategory = category
+    , riSeeders = seeders
+    , riPeers = peers
+    , riGrabs = grabs
+    , riDownloadType = downloadType
+    , riQuality = quality
+    }
+
+-- | Parse newznab:attr or torznab:attr element
+parseAttr :: Cursor -> Maybe (Text, Text)
+parseAttr cursor = do
+  name <- listToMaybe $ cursor $| attribute "name"
+  value <- listToMaybe $ cursor $| attribute "value"
+  pure (name, value)
+
+-- | Parse Integer from Text
+parseIntegerText :: Text -> Maybe Integer
+parseIntegerText t = case TR.decimal t of
+  Right (n, "") -> Just n
+  _ -> Nothing
+
+-- | Parse Int from Text
+parseInteger :: Text -> Maybe Int
+parseInteger t = fmap fromInteger (parseIntegerText t)
+
+-- | Detect if response is JSON or XML based on content
+-- JSON starts with '{' or '[', XML starts with '<'
+isJsonResponse :: LBS.ByteString -> Bool
+isJsonResponse body =
+  case LBS.uncons body of
+    Nothing -> False
+    Just (firstByte, _) ->
+      -- Skip whitespace and check first real character
+      let trimmed = LBS.dropWhile (\b -> b == 32 || b == 9 || b == 10 || b == 13) body
+      in case LBS.uncons trimmed of
+           Nothing -> False
+           Just (c, _) -> c == 123 || c == 91  -- '{' or '['
 
 -- | Search a single indexer using Newznab/Torznab API
 searchIndexer :: HttpClient -> Indexer -> SearchQuery -> IO (Either IndexerError IndexerResult)
@@ -241,21 +352,49 @@ searchIndexerImpl client Indexer{..} SearchQuery{..} = do
         then ""
         else "&cat=" <> T.intercalate "," (map (T.pack . show) sqCategories)
 
-      searchUrl = indexerUrl <> "/api?t=search&o=json&q=" <> encodeQueryParam queryStr
+      -- Build output format parameter based on configuration
+      -- "auto" mode omits the parameter to get the indexer's default (usually XML)
+      outputParam = case T.toLower indexerResponseFormat of
+        "xml" -> "&o=xml"
+        "json" -> "&o=json"
+        _ -> ""  -- "auto" mode: no parameter, accept whatever the indexer sends
+
+      searchUrl = indexerUrl <> "/api?t=search&q=" <> encodeQueryParam queryStr
                   <> apiKeyParam
                   <> catStr
+                  <> outputParam
                   <> "&limit=" <> T.pack (show sqLimit)
                   <> "&offset=" <> T.pack (show sqOffset)
 
   -- Make request with indexer-specific auth (username/password)
-  result <- case (indexerUsername, indexerPassword) of
-    (Just user, Just pass) -> HTTP.getJSONWithBasicAuth client searchUrl user pass
-    _ -> HTTP.getJSON client searchUrl
+  -- Get raw response bytes instead of parsed JSON
+  responseBytes <- case (indexerUsername, indexerPassword) of
+    (Just user, Just pass) -> HTTP.getWithBasicAuth client searchUrl user pass
+    _ -> HTTP.get client searchUrl
 
-  case result of
+  case responseBytes of
     Left err -> fail $ "HTTP error: " <> T.unpack (prettyHttpError err)
-    Right (NewznabResponse channel) ->
-      pure $ mapMaybe parseItem (ncItem channel)
+    Right body ->
+      -- Parse based on configured format or auto-detect from content
+      case T.toLower indexerResponseFormat of
+        "json" ->
+          -- User explicitly requested JSON
+          case eitherDecode body of
+            Left parseErr -> fail $ "JSON parse error: " <> parseErr
+            Right (NewznabResponse channel) -> pure $ mapMaybe parseItem (ncItem channel)
+        "xml" ->
+          -- User explicitly requested XML
+          case parseXmlResponse body of
+            Left parseErr -> fail $ "XML parse error: " <> T.unpack parseErr
+            Right releases -> pure releases
+        _ -> -- Auto-detect based on response content
+          if isJsonResponse body
+            then case eitherDecode body of
+              Left parseErr -> fail $ "JSON parse error: " <> parseErr
+              Right (NewznabResponse channel) -> pure $ mapMaybe parseItem (ncItem channel)
+            else case parseXmlResponse body of
+              Left parseErr -> fail $ "XML parse error: " <> T.unpack parseErr
+              Right releases -> pure releases
 
 -- | Parse a single item from JSON response
 parseItem :: NewznabItem -> Maybe ReleaseInfo

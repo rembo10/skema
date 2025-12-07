@@ -437,6 +437,10 @@ data Indexer = Indexer
     -- ^ Whether to normalize search queries (remove special characters). Default: False
     -- ^ Some older indexers don't handle special characters well (e.g., "AC/DC" -> "ACDC")
     -- ^ Modern indexers like Bullet handle special characters fine, so this is opt-in per indexer
+  , indexerResponseFormat :: Text
+    -- ^ Response format: "xml", "json", or "auto". Default: "auto"
+    -- ^ "auto" accepts whatever the indexer sends and auto-detects the format
+    -- ^ Most indexers (including Jackett) only support XML. Modern indexers like Bullet support JSON.
   } deriving (Show, Eq, Generic)
 
 instance FromJSON Indexer where
@@ -450,10 +454,11 @@ instance FromJSON Indexer where
     priority <- o .:? "priority" .!= 0
     categories <- o .:? "categories" .!= [3000, 3010] -- Audio, MP3
     normalizeQuery <- o .:? "normalize_query" .!= False
-    pure $ Indexer name url apiKey username password enabled priority categories normalizeQuery
+    responseFormat <- o .:? "response_format" .!= "auto"
+    pure $ Indexer name url apiKey username password enabled priority categories normalizeQuery responseFormat
 
 instance ToJSON Indexer where
-  toJSON (Indexer name url apiKey username password enabled priority categories normalizeQuery) = object
+  toJSON (Indexer name url apiKey username password enabled priority categories normalizeQuery responseFormat) = object
     [ "name" .= name
     , "url" .= url
     , "api_key" .= apiKey
@@ -463,6 +468,7 @@ instance ToJSON Indexer where
     , "priority" .= priority
     , "categories" .= categories
     , "normalize_query" .= normalizeQuery
+    , "response_format" .= responseFormat
     ]
 
 -- | Indexer configuration.
@@ -675,6 +681,7 @@ defaultIndexerConfig = IndexerConfig
           , indexerPriority = 10
           , indexerCategories = [3000, 3010] -- Audio, MP3
           , indexerNormalizeQuery = False  -- Bullet handles special characters well
+          , indexerResponseFormat = "auto"  -- Auto-detect format (Bullet supports JSON)
           }
       ]
   , indexerSearchTimeout = 30
