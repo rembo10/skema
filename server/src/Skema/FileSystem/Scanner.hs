@@ -91,7 +91,7 @@ isAudioFile path = do
   pathStr <- OP.decodeUtf path
   pure $ any (`isSuffixOf` pathStr) audioExtensions
   where
-    audioExtensions = [".mp3", ".flac", ".m4a", ".ogg", ".opus"]
+    audioExtensions = [".mp3", ".flac", ".m4a", ".aac", ".alac", ".ogg", ".opus"]
 
 -- | Get basic file information for change detection.
 getFileInfo :: OsPath -> IO FileInfo

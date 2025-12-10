@@ -21,7 +21,7 @@
           # Use nodejs 24 instead of default nodejs (22)
           nodejs = pkgs.nodejs_24;
 
-          npmDepsHash = "sha256-QUWytH512P0MEGR9B3XNwqMulPAHuY6SJ7bN5gnQo6Q=";
+          npmDepsHash = "sha256-l0NgdCZ8epPs1kPUaHty3tOxAapablMPsljh1hf6Ap0=";
 
           # Use npm ci for reproducible builds
           npmBuildScript = "build";
@@ -44,8 +44,8 @@
             # Pull monatone from Hackage since it may not be in nixpkgs yet
             monatone = hself.callHackageDirect {
               pkg = "monatone";
-              ver = "0.1.0.0";
-              sha256 = "sha256-uJVN+if2mw3R84+srf8b+M5MP55j9ddA3HZqE1K8Ass=";
+              ver = "0.2.1.1";
+              sha256 = "sha256-SRTYJy1t1IvAmkKzjoCmWnIwbfH/+aJBzt4RztBwoqo=";
             } { };
 
             # Override skema to include all its dependencies

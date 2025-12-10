@@ -203,7 +203,7 @@ library
     , http-client-tls >= 0.3 && < 0.4
     , http-media >= 0.8 && < 0.9
     , network-uri >= 2.6 && < 2.7
-    , xml-conduit >= 1.9 && < 1.10
+    , xml-conduit >= 1.9 && < 1.11
     , xml-types >= 0.3 && < 0.4
     , katip >= 0.8 && < 0.9
     , exceptions >= 0.10 && < 0.11
