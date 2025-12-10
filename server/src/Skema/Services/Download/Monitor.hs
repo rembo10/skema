@@ -16,8 +16,7 @@ import Skema.Services.Download.Client (DownloadClientInstance, createClientInsta
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository
-import Skema.Config.Types (Config(..), DownloadConfig(..))
+import Skema.Config.Types (Config(..))
 import Skema.DownloadClient.Types (DownloadClientAPI(..))
 import qualified Skema.DownloadClient.Types as DC
 import Control.Concurrent.Async (async)

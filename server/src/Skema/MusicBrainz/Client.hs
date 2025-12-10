@@ -71,8 +71,8 @@ buildMBUrl baseUrl endpoint params =
 mbGetJSON :: FromJSON a => MBClientEnv -> Text -> IO (Either HttpError a)
 mbGetJSON MBClientEnv{..} url =
   case (mbServer mbConfig, mbUsername mbConfig, mbPassword mbConfig) of
-    (HeadphonesVIP, Just user, Just pass) ->
-      getJSONWithBasicAuth mbHttpClient url user pass
+    (HeadphonesVIP, Just user, Just password) ->
+      getJSONWithBasicAuth mbHttpClient url user password
     _ ->
       getJSON mbHttpClient url
 

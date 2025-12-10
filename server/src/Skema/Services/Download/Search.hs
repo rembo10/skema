@@ -13,7 +13,7 @@ module Skema.Services.Download.Search
   ) where
 
 import Skema.Services.Dependencies (DownloadDeps(..))
-import Skema.Services.Download.Client (DownloadClientInstance, createClientInstance)
+import Skema.Services.Download.Client (createClientInstance)
 import Skema.Services.Download.Scoring (scoreRelease)
 import Skema.Events.Bus
 import Skema.Events.Types
@@ -25,7 +25,7 @@ import Skema.Indexer.Client (searchIndexer)
 import Skema.Indexer.Types
 import Skema.Config.Types (Config(..), Indexer(..), IndexerConfig(..), DownloadClient(..), DownloadConfig(..), downloadClientTypeName)
 import Skema.DownloadClient.Types (DownloadClientAPI(..), AddDownloadRequest(..), AddDownloadResult(..))
-import Control.Concurrent.Async (Async, async, race, mapConcurrently)
+import Control.Concurrent.Async (async, race, mapConcurrently)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Concurrent (threadDelay)

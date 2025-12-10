@@ -17,7 +17,6 @@ import Skema.DownloadClient.Types (DownloadClientAPI(..))
 import Skema.DownloadClient.SABnzbd (createSABnzbdClient, SABnzbdClient)
 import Skema.DownloadClient.Transmission (createTransmissionClient, TransmissionClient)
 import Skema.DownloadClient.QBittorrent (createQBittorrentClient, QBittorrentClient)
-import Data.Text (Text)
 
 -- ============================================================================
 -- TYPES

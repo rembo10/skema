@@ -20,9 +20,7 @@ import Data.Aeson (FromJSON(..), (.:), (.:?), withObject, Value(..), Object, eit
 import Data.Aeson.Types (Parser)
 import Data.Aeson.Key (fromText)
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLE
-import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Read as TR
 import qualified Data.ByteString.Lazy as LBS
 import Data.Char (isAlphaNum)
@@ -31,12 +29,12 @@ import Data.Time.Format (parseTimeM, defaultTimeLocale)
 import Data.Time.Clock (getCurrentTime, diffUTCTime)
 import Network.URI (escapeURIString, isUnescapedInURIComponent)
 import Text.XML (parseText, def)
-import Text.XML.Cursor (Cursor, fromDocument, element, content, attribute, child, ($//), (&/), ($|), ($/), (&|))
+import Text.XML.Cursor (Cursor, fromDocument, element, content, attribute, ($//), (&/), ($|), ($/))
 
 import Skema.Config.Types (Indexer(..))
 import Skema.Indexer.Types
 import Skema.Indexer.Utils (downloadTypeFromMimeType)
-import Skema.HTTP.Client (HttpClient, getJSON, prettyHttpError)
+import Skema.HTTP.Client (HttpClient, prettyHttpError)
 import qualified Skema.HTTP.Client as HTTP
 import qualified Skema.Domain.Quality as Quality
 
@@ -226,7 +224,7 @@ isJsonResponse :: LBS.ByteString -> Bool
 isJsonResponse body =
   case LBS.uncons body of
     Nothing -> False
-    Just (firstByte, _) ->
+    Just _ ->
       -- Skip whitespace and check first real character
       let trimmed = LBS.dropWhile (\b -> b == 32 || b == 9 || b == 10 || b == 13) body
       in case LBS.uncons trimmed of
@@ -369,7 +367,7 @@ searchIndexerImpl client Indexer{..} SearchQuery{..} = do
   -- Make request with indexer-specific auth (username/password)
   -- Get raw response bytes instead of parsed JSON
   responseBytes <- case (indexerUsername, indexerPassword) of
-    (Just user, Just pass) -> HTTP.getWithBasicAuth client searchUrl user pass
+    (Just user, Just password) -> HTTP.getWithBasicAuth client searchUrl user password
     _ -> HTTP.get client searchUrl
 
   case responseBytes of
@@ -463,7 +461,7 @@ testIndexerImpl client Indexer{..} = do
 
   -- Make request with indexer-specific auth (username/password)
   result <- case (indexerUsername, indexerPassword) of
-    (Just user, Just pass) -> HTTP.getWithBasicAuth client capsUrl user pass
+    (Just user, Just password) -> HTTP.getWithBasicAuth client capsUrl user password
     _ -> HTTP.get client capsUrl
 
   case result of
