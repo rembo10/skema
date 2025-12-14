@@ -90,6 +90,13 @@ mkTestMBRelease
   -> MBRelease
 mkTestMBRelease releaseMBID title artist artistMBID trackCount =
   let tracks = [ mkTestMBTrack i ("Track " <> show i) (i * 180000) | i <- [1..trackCount] ]
+      -- Create a single medium with all tracks (for single-disc test releases)
+      medium = MBMedium
+        { mbMediumPosition = 1
+        , mbMediumFormat = Just "Digital Media"
+        , mbMediumTracks = tracks
+        , mbMediumTrackCount = trackCount
+        }
   in MBRelease
     { mbReleaseId = MBID releaseMBID
     , mbReleaseTitle = title
@@ -103,7 +110,7 @@ mkTestMBRelease releaseMBID title artist artistMBID trackCount =
     , mbReleaseCatalogNumber = Just "TEST-001"
     , mbReleaseBarcode = Nothing
     , mbReleaseGenres = ["Hip Hop", "Rap"]
-    , mbReleaseTracks = tracks
+    , mbReleaseMedia = [medium]
     , mbReleaseGroupId = Just (MBID $ releaseMBID <> "-rg")
     }
 

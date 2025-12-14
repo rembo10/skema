@@ -8,6 +8,7 @@ import qualified Integration.ScanGroupIdentifySpec
 import qualified Integration.EndToEndSpec
 import qualified Unit.ConfigSpec
 import qualified Unit.IndexerSpec
+import qualified Unit.MatchingSpec
 
 main :: IO ()
 main = defaultMain tests
@@ -16,6 +17,7 @@ tests :: TestTree
 tests = testGroup "Skema Tests"
   [ Unit.ConfigSpec.tests
   , Unit.IndexerSpec.tests
+  , Unit.MatchingSpec.tests
   , Integration.GrouperSpec.tests
   , Integration.ScanGroupIdentifySpec.tests
   , Integration.EndToEndSpec.tests

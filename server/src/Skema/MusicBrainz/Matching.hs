@@ -137,43 +137,78 @@ releaseCost fg mbr =
   in
     weightedSum / totalWeight
 
--- | Calculate cost between a file and a MusicBrainz track.
+-- | Calculate cost between a file and a MusicBrainz track with disc/position info.
 -- Lower cost = better match. Returns value between 0.0 and 1.0.
-trackCost :: (OsPath, Metadata) -> MBTrack -> Double
-trackCost (_, meta) mbTrack =
+--
+-- Takes enriched track information:
+-- - Int: Disc number (1-based)
+-- - Int: Absolute position in release (1-based, counting across all discs)
+-- - MBTrack: The track data
+trackCost :: (OsPath, Metadata) -> (Int, Int, MBTrack) -> Double
+trackCost (_, meta) (discNum, absolutePos, mbTrack) =
   let
-    -- Title similarity (most important)
+    -- Title similarity (still important)
     titleCost = case title meta of
       Just t -> textSimilarityCost t (mbTrackTitle mbTrack)
       Nothing -> 0.8  -- No title = high cost
 
-    -- Duration difference (if available)
+    -- Duration difference (STRONGER signal now)
     -- Duration in Metadata is in seconds (Int), need to convert to milliseconds
     durationCost = case (duration (audioProperties meta), mbTrackLength mbTrack) of
       (Just fileDur, Just mbDur) ->
         let fileDurMs = fileDur * 1000  -- Convert seconds to milliseconds
             diff = abs (fileDurMs - mbDur)
-            -- Allow ±2 seconds tolerance
-            tolerance = 2000
+            -- Tightened tolerance: ±1 second for perfect match
+            tolerance = 1000
         in if diff <= tolerance
-          then 0.0
-          else min 1.0 (fromIntegral diff / fromIntegral (mbDur + tolerance))
+          then 0.0  -- Perfect match within 1 second
+          else if diff <= 2000
+            then 0.2  -- Close match within 2 seconds
+            else min 1.0 (fromIntegral diff / fromIntegral (mbDur + tolerance))
       (Nothing, Nothing) -> 0.0  -- Both unknown
       _ -> 0.3  -- One unknown = medium cost
 
-    -- Track number hint
-    trackNumCost = case trackNumber meta of
-      Just trackNum ->
-        if trackNum == mbTrackPosition mbTrack
-          then 0.0
-          else 0.5  -- Wrong position = medium penalty
-      Nothing -> 0.1  -- Unknown = small penalty
+    -- Position matching: prefer disc+position, fall back to absolute
+    -- This handles both disc-aware files (Bon Iver) and disc-unaware (Beach House)
+    positionCost = case (discNumber meta, trackNumber meta) of
+      (Just fileDisc, Just fileTrack) ->
+        -- File has disc metadata - match BOTH disc AND per-disc position
+        if fileDisc == discNum && fileTrack == mbTrackPosition mbTrack
+          then 0.0  -- Perfect match: correct disc and position
+          else if fileDisc == discNum
+            then 0.5  -- Right disc, wrong track
+            else 1.0  -- Wrong disc
+      (Nothing, Just fileTrack) ->
+        -- File only has track number (no disc) - try absolute position
+        if fileTrack == absolutePos
+          then 0.0  -- Matches absolute position
+          else if fileTrack == mbTrackPosition mbTrack
+            then 0.3  -- Matches per-disc position (might be disc-unaware metadata)
+            else 0.6  -- Neither matches well
+      _ -> 0.2  -- No track info - small penalty
+
+    -- Check if duration matches well (within 2 seconds)
+    durationMatches = case (duration (audioProperties meta), mbTrackLength mbTrack) of
+      (Just fileDur, Just mbDur) -> abs (fileDur * 1000 - mbDur) <= 2000
+      _ -> False
+
+    -- Check if position matches perfectly
+    positionMatches = case (discNumber meta, trackNumber meta) of
+      (Just fileDisc, Just fileTrack) -> fileDisc == discNum && fileTrack == mbTrackPosition mbTrack
+      (Nothing, Just fileTrack) -> fileTrack == absolutePos
+      _ -> False
+
+    -- Combo bonus: reward perfect duration + position matches
+    comboBonus = if durationMatches && positionMatches
+                 then -0.3  -- Negative cost = bonus (reduces total cost)
+                 else 0.0
 
     -- Weighted combination
     weights =
-      [ (5.0, titleCost)
-      , (3.0, durationCost)
-      , (1.0, trackNumCost)
+      [ (5.0, titleCost)      -- Title still important
+      , (5.0, durationCost)   -- INCREASED from 3.0 - duration is now equal to title
+      , (4.0, positionCost)   -- INCREASED from 1.0 - position is critical
+      , (2.0, comboBonus)     -- NEW: bonus for perfect matches
       ]
 
     totalWeight = sum (map fst weights)
@@ -194,30 +229,43 @@ matchReleases fg candidates =
 
 -- | Match tracks in a file group to tracks in a MusicBrainz release
 -- using the Hungarian algorithm for optimal assignment.
+--
+-- This function now properly handles multi-disc releases by tracking both
+-- disc number and absolute position for each track.
 matchTracksToRelease :: FileGroup -> MBRelease -> [TrackMatch]
 matchTracksToRelease fg mbr =
   let
     files = fgFiles fg
-    mbTracks = mbReleaseTracks mbr
+
+    -- Create enriched track list with disc number and absolute position
+    -- For each track, we need (discNum, absolutePos, track)
+    enrichedTracks =
+      [ (mbMediumPosition medium, absPos, track)
+      | medium <- mbReleaseMedia mbr
+      , let tracksBeforeThisDisc = sum $ map mbMediumTrackCount $
+              filter (\m -> mbMediumPosition m < mbMediumPosition medium) (mbReleaseMedia mbr)
+      , (localIdx, track) <- zip [1..] (mbMediumTracks medium)
+      , let absPos = tracksBeforeThisDisc + localIdx
+      ]
 
     -- Cost function for assignment algorithm
     -- Returns cost scaled to Int (0-1000 range)
-    costFn :: (OsPath, Metadata) -> MBTrack -> Int
-    costFn file track = round (trackCost file track * 1000.0)
+    costFn :: (OsPath, Metadata) -> (Int, Int, MBTrack) -> Int
+    costFn file enrichedTrack = round (trackCost file enrichedTrack * 1000.0)
 
-    -- Run Hungarian algorithm
-    -- Returns list of (file, track) pairs
-    assignment = assign costFn files mbTracks
+    -- Run Hungarian algorithm with enriched track data
+    -- Returns list of (file, enrichedTrack) pairs
+    assignment = assign costFn files enrichedTracks
 
     -- Build matches from assignment
     matches =
       [ TrackMatch
           { tmFilePath = fst file
-          , tmTrack = track
-          , tmCost = trackCost file track
-          , tmConfidence = 1.0 - trackCost file track
+          , tmTrack = track  -- Just the track, not the enriched data
+          , tmCost = trackCost file enrichedTrack
+          , tmConfidence = 1.0 - trackCost file enrichedTrack
           }
-      | (file, track) <- assignment
+      | (file, enrichedTrack@(_, _, track)) <- assignment
       ]
   in
     matches

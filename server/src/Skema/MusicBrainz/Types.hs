@@ -13,6 +13,8 @@ module Skema.MusicBrainz.Types
   , ArtistMBID
     -- * MusicBrainz Entities
   , MBRelease (..)
+  , mbReleaseTracks
+  , MBMedium (..)
   , MBTrack (..)
   , MBRecording (..)
   , MBReleaseSearch (..)
@@ -65,9 +67,15 @@ data MBRelease = MBRelease
   , mbReleaseCatalogNumber :: Maybe Text
   , mbReleaseBarcode :: Maybe Text
   , mbReleaseGenres :: [Text]  -- List of genre names
-  , mbReleaseTracks :: [MBTrack]
+  , mbReleaseMedia :: [MBMedium]
+    -- ^ Media (discs, vinyl sides, etc.) each containing tracks
   , mbReleaseGroupId :: Maybe ReleaseGroupMBID
   } deriving (Show, Eq, Generic)
+
+-- | Helper function to get all tracks from all media (flattened)
+-- Provided for backwards compatibility with existing code
+mbReleaseTracks :: MBRelease -> [MBTrack]
+mbReleaseTracks = concatMap mbMediumTracks . mbReleaseMedia
 
 instance FromJSON MBRelease where
   parseJSON = withObject "MBRelease" $ \o -> do
@@ -121,15 +129,8 @@ instance FromJSON MBRelease where
         Object g -> g .:? "name"
         _ -> pure Nothing)
       _ -> pure []
-    -- Tracks from media (collect from all discs in multi-disc releases)
-    mbReleaseTracks <- o .:? "media" >>= \case
-      Just (Array v) -> do
-        -- Get tracks from all media (discs)
-        allTracks <- forM (toList v) $ \case
-          Object media -> media .:? "tracks" .!= []
-          _ -> pure []
-        pure $ concat allTracks
-      _ -> pure []
+    -- Parse media (discs, vinyl sides, etc.)
+    mbReleaseMedia <- o .:? "media" .!= []
     mbReleaseGroupId <- o .:? "release-group" >>= \case
       Just (Object rg) -> rg .:? "id"
       _ -> pure Nothing
@@ -145,8 +146,7 @@ instance ToJSON MBRelease where
           , "joinphrase" .= ("" :: Text)
           , "artist" .= maybe Null (\aid -> object ["id" .= aid]) (mbReleaseArtistId release)
           ]]
-        tracksList = toJSON (mbReleaseTracks release)
-        mediaArray = toJSON [object ["tracks" .= tracksList]]
+        mediaArray = toJSON (mbReleaseMedia release)
         labelInfo = case (mbReleaseLabel release, mbReleaseCatalogNumber release) of
           (Nothing, Nothing) -> Null
           (label, catNum) -> toJSON [object
@@ -169,6 +169,34 @@ instance ToJSON MBRelease where
       , "media" .= mediaArray
       , "release-group" .= releaseGroupObj
       ]
+
+-- | MusicBrainz Medium (disc, vinyl side, cassette side, etc.)
+data MBMedium = MBMedium
+  { mbMediumPosition :: Int
+    -- ^ Position of this medium in the release (1-based)
+  , mbMediumFormat :: Maybe Text
+    -- ^ Format type: "CD", "Digital Media", "Vinyl", "Cassette", etc.
+  , mbMediumTracks :: [MBTrack]
+    -- ^ Tracks on this medium
+  , mbMediumTrackCount :: Int
+    -- ^ Number of tracks on this medium
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON MBMedium where
+  parseJSON = withObject "MBMedium" $ \o -> do
+    mbMediumPosition <- o .:? "position" .!= 1
+    mbMediumFormat <- o .:? "format"
+    mbMediumTracks <- o .:? "tracks" .!= []
+    let mbMediumTrackCount = length mbMediumTracks
+    pure MBMedium{..}
+
+instance ToJSON MBMedium where
+  toJSON medium = object
+    [ "position" .= mbMediumPosition medium
+    , "format" .= mbMediumFormat medium
+    , "tracks" .= mbMediumTracks medium
+    , "track-count" .= mbMediumTrackCount medium
+    ]
 
 -- | MusicBrainz Track (track on a release).
 data MBTrack = MBTrack

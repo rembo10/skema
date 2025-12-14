@@ -8,7 +8,7 @@ module Skema.MusicBrainz.Utils
   ) where
 
 import qualified Data.Text as T
-import Skema.MusicBrainz.Types (MBRelease (..), MBTrack (..))
+import Skema.MusicBrainz.Types (MBRelease (..), MBMedium (..), MBTrack (..))
 
 -- | Normalize join phrases in artist credits.
 --
@@ -39,12 +39,14 @@ normalizeJoinPhrase normalizeTo text =
       normalize t var = T.replace var (" " <> normalizeTo <> " ") t
   in foldl' normalize text variations
 
--- | Normalize join phrases in a release's artist field.
+-- | Normalize join phrases in a release's artist field and all tracks.
 normalizeReleaseJoinPhrases :: Text -> MBRelease -> MBRelease
 normalizeReleaseJoinPhrases normalizeTo release =
   release { mbReleaseArtist = normalizeJoinPhrase normalizeTo (mbReleaseArtist release)
-          , mbReleaseTracks = map (normalizeTrackJoinPhrases normalizeTo) (mbReleaseTracks release)
+          , mbReleaseMedia = map normalizeMedium (mbReleaseMedia release)
           }
+  where
+    normalizeMedium medium = medium { mbMediumTracks = map (normalizeTrackJoinPhrases normalizeTo) (mbMediumTracks medium) }
 
 -- | Normalize join phrases in a track's artist field.
 normalizeTrackJoinPhrases :: Text -> MBTrack -> MBTrack
