@@ -2,6 +2,10 @@
 
 skema is a music library management/acquisition system.
 
+<p align="center">
+  <img src="assets/skema-screenshot.png" alt="Skema Overview">
+</p>
+
 > ⚠️ **Note**: This is a proof-of-concept project. It's functional but has lots of rough edges.
 
 ## Quick Start
