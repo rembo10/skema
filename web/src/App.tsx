@@ -5,6 +5,8 @@ import { Settings, LogOut, LayoutDashboard, Database, Music, Disc, Sliders, Sear
 import Dashboard from './pages/Dashboard';
 import MetadataDiffs from './pages/MetadataDiffs';
 import Identification from './pages/Identification';
+import Tracks from './pages/Tracks';
+import Clusters from './pages/Clusters';
 import FollowedArtists from './pages/FollowedArtists';
 import ArtistDetail from './pages/ArtistDetail';
 import WantedAlbums from './pages/WantedAlbums';
@@ -57,6 +59,7 @@ function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: { isMobileMenuOpen: 
   const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Overview' },
     { to: '/diffs', icon: Database, label: 'Library' },
+    { to: '/identification/clusters', icon: Search, label: 'Identification' },
     { to: '/artists', icon: Music, label: 'Artists' },
     { to: '/albums', icon: Disc, label: 'Albums' },
     { to: '/downloads', icon: Download, label: 'Downloads' },
@@ -98,7 +101,7 @@ function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: { isMobileMenuOpen: 
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.to ||
-              (item.to === '/diffs' && location.pathname === '/identification');
+              (item.to === '/identification/clusters' && location.pathname.startsWith('/identification'));
 
             return (
               <NavLink
@@ -155,7 +158,10 @@ function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: { isMobileMenuOpen: 
 const routeTitles: Record<string, string> = {
   '/': 'Overview',
   '/diffs': 'Library',
-  '/identification': 'Album Identification',
+  '/identification': 'Cluster Identification',
+  '/identification/clusters': 'Clusters',
+  '/identification/tracks': 'Tracks',
+  '/library/tracks': 'Library Tracks',
   '/artists': 'Artists',
   '/albums': 'Albums',
   '/downloads': 'Downloads',
@@ -283,6 +289,9 @@ function AppContent() {
               <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
               <Route path="/diffs" element={<ProtectedRoute><MetadataDiffs /></ProtectedRoute>} />
               <Route path="/identification" element={<ProtectedRoute><Identification /></ProtectedRoute>} />
+              <Route path="/identification/clusters" element={<ProtectedRoute><Clusters /></ProtectedRoute>} />
+              <Route path="/identification/tracks" element={<ProtectedRoute><Tracks /></ProtectedRoute>} />
+              <Route path="/library/tracks" element={<ProtectedRoute><Tracks /></ProtectedRoute>} />
               <Route path="/artists" element={<ProtectedRoute><FollowedArtists /></ProtectedRoute>} />
               <Route path="/artists/:id" element={<ProtectedRoute><ArtistDetail /></ProtectedRoute>} />
               <Route path="/albums" element={<ProtectedRoute><WantedAlbums /></ProtectedRoute>} />

@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Database migrations.
 --
@@ -13,6 +14,7 @@ import Skema.Database.Types (sourceTypeToText, SourceType(..))
 import Katip
 import Database.SQLite.Simple (Only(..))
 import qualified Database.SQLite.Simple as SQLite
+import Control.Exception (catch)
 
 -- | Run all pending migrations.
 runMigrations :: LogEnv -> ConnectionPool -> IO ()
@@ -22,8 +24,14 @@ runMigrations le connPool = do
 
   runKatipContextT le initialContext initialNamespace $ do
     liftIO $ withConnection connPool $ \conn -> do
+      -- Create schema version tracking table
+      createMigrationsTable conn
+
       -- Create schema
       createSchema conn
+
+      -- Run incremental migrations
+      runIncrementalMigrations le conn
 
       -- Create default data
       createDefaultAcquisitionSource conn
@@ -32,6 +40,101 @@ runMigrations le connPool = do
       initializeSettings conn
 
     $(logTM) InfoS $ logStr ("Database migrations completed successfully" :: Text)
+
+-- | Create migrations tracking table
+createMigrationsTable :: SQLite.Connection -> IO ()
+createMigrationsTable conn =
+  executeQuery_ conn
+    "CREATE TABLE IF NOT EXISTS schema_migrations ( \
+    \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
+    \  migration_name TEXT NOT NULL UNIQUE, \
+    \  applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
+    \)"
+
+-- | Check if a migration has been applied
+migrationApplied :: SQLite.Connection -> Text -> IO Bool
+migrationApplied conn name = do
+  results <- queryRows conn
+    "SELECT COUNT(*) FROM schema_migrations WHERE migration_name = ?"
+    (Only name) :: IO [Only Int]
+  pure $ case viaNonEmpty head results of
+    Just (Only count) -> count > 0
+    Nothing -> False
+
+-- | Record that a migration has been applied
+recordMigration :: SQLite.Connection -> Text -> IO ()
+recordMigration conn name =
+  executeQuery conn
+    "INSERT INTO schema_migrations (migration_name) VALUES (?)"
+    (Only name)
+
+-- | Run incremental migrations
+runIncrementalMigrations :: LogEnv -> SQLite.Connection -> IO ()
+runIncrementalMigrations le conn = do
+  let initialContext = ()
+  let initialNamespace = "database.migrations"
+
+  runKatipContextT le initialContext initialNamespace $ do
+    -- Migration 001: Track recording matching and match provenance (squashed from 001-004)
+    applied <- liftIO $ migrationApplied conn "001_track_recording_and_provenance"
+    unless applied $ do
+      $(logTM) InfoS "Running migration: 001_track_recording_and_provenance"
+      liftIO $ do
+        -- Add match provenance columns to clusters
+        executeQuery_ conn
+          "ALTER TABLE clusters ADD COLUMN match_source TEXT" `catch` (\(_ :: SQLite.SQLError) -> pure ())
+        executeQuery_ conn
+          "ALTER TABLE clusters ADD COLUMN match_locked INTEGER NOT NULL DEFAULT 0" `catch` (\(_ :: SQLite.SQLError) -> pure ())
+        executeQuery_ conn
+          "CREATE INDEX IF NOT EXISTS idx_clusters_match_locked ON clusters(match_locked)"
+
+        -- Add track recording title column (mb_recording_id already exists)
+        executeQuery_ conn
+          "ALTER TABLE library_tracks ADD COLUMN mb_recording_title TEXT" `catch` (\(_ :: SQLite.SQLError) -> pure ())
+
+        -- Create cluster match candidates table
+        executeQuery_ conn
+          "CREATE TABLE IF NOT EXISTS cluster_match_candidates ( \
+          \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
+          \  cluster_id INTEGER NOT NULL, \
+          \  mb_release_id TEXT NOT NULL, \
+          \  confidence REAL NOT NULL, \
+          \  match_data TEXT, \
+          \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
+          \  FOREIGN KEY (cluster_id) REFERENCES clusters(id) ON DELETE CASCADE \
+          \)"
+        executeQuery_ conn
+          "CREATE INDEX IF NOT EXISTS idx_candidates_cluster ON cluster_match_candidates(cluster_id)"
+        executeQuery_ conn
+          "CREATE INDEX IF NOT EXISTS idx_candidates_confidence ON cluster_match_candidates(cluster_id, confidence DESC)"
+
+        -- Populate track recording IDs from release data
+        executeQuery_ conn
+          "UPDATE library_tracks SET \
+          \  mb_recording_id = (\
+          \    SELECT json_extract(track.value, '$.recording.id') \
+          \    FROM clusters c, json_each(json_extract(c.mb_release_data, '$.media')) AS media, \
+          \         json_each(json_extract(media.value, '$.tracks')) AS track \
+          \    WHERE c.id = library_tracks.cluster_id \
+          \      AND json_extract(track.value, '$.position') = (\
+          \        SELECT track_number FROM library_track_metadata WHERE track_id = library_tracks.id\
+          \      )\
+          \  ), \
+          \  mb_recording_title = (\
+          \    SELECT json_extract(track.value, '$.title') \
+          \    FROM clusters c, json_each(json_extract(c.mb_release_data, '$.media')) AS media, \
+          \         json_each(json_extract(media.value, '$.tracks')) AS track \
+          \    WHERE c.id = library_tracks.cluster_id \
+          \      AND json_extract(track.value, '$.position') = (\
+          \        SELECT track_number FROM library_track_metadata WHERE track_id = library_tracks.id\
+          \      )\
+          \  ) \
+          \WHERE cluster_id IS NOT NULL \
+          \  AND mb_recording_id IS NULL \
+          \  AND EXISTS (SELECT 1 FROM clusters WHERE id = library_tracks.cluster_id AND mb_release_data IS NOT NULL)"
+
+        recordMigration conn "001_track_recording_and_provenance"
+      $(logTM) InfoS "Completed migration: 001_track_recording_and_provenance"
 
 -- | Create the complete database schema.
 createSchema :: SQLite.Connection -> IO ()
@@ -146,6 +249,8 @@ createSchema conn = do
     \  mb_confidence REAL, \
     \  mb_release_data TEXT, \
     \  mb_candidates TEXT, \
+    \  match_source TEXT, \
+    \  match_locked INTEGER NOT NULL DEFAULT 0, \
     \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
     \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
     \  last_identified_at TIMESTAMP \
@@ -153,6 +258,7 @@ createSchema conn = do
 
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_clusters_metadata_hash ON clusters(metadata_hash)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_clusters_mb_release_id ON clusters(mb_release_id)"
+  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_clusters_match_locked ON clusters(match_locked)"
 
   -- Create metadata_change_history table
   executeQuery_ conn

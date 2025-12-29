@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { GroupedDiff, MetadataChange, LibraryStats, CatalogArtist, Download } from '../types/api';
+import type { GroupedDiff, MetadataChange, LibraryStats, CatalogArtist, CatalogAlbum, Download, Cluster, CandidateRelease, ClusterTrack } from '../types/api';
 
 export interface CurrentStatus {
   type: 'in_progress' | 'success' | 'error';
@@ -67,6 +67,21 @@ interface AppStore {
   addDownload: (download: Download) => void;
   updateDownload: (downloadId: number, updates: Partial<Download>) => void;
   removeDownload: (downloadId: number) => void;
+
+  // Clusters (all)
+  clusters: Cluster[];
+  setClusters: (clusters: Cluster[]) => void;
+  addCluster: (cluster: Cluster) => void;
+  updateCluster: (clusterId: number, updates: Partial<Cluster>) => void;
+  removeCluster: (clusterId: number) => void;
+
+  // Cluster candidates cache (per cluster)
+  clusterCandidates: Record<number, CandidateRelease[]>;
+  setClusterCandidates: (clusterId: number, candidates: CandidateRelease[]) => void;
+
+  // Cluster tracks cache (per cluster)
+  clusterTracks: Record<number, ClusterTrack[]>;
+  setClusterTracks: (clusterId: number, tracks: ClusterTrack[]) => void;
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -319,5 +334,56 @@ export const useAppStore = create<AppStore>((set, get) => ({
   removeDownload: (downloadId) =>
     set((state) => ({
       downloads: state.downloads.filter((d) => d.id !== downloadId),
+    })),
+
+  // Clusters
+  clusters: [],
+
+  setClusters: (clusters) => set({ clusters }),
+
+  addCluster: (cluster) =>
+    set((state) => {
+      // Check if cluster already exists
+      const exists = state.clusters.some((c) => c.id === cluster.id);
+      if (exists) return state;
+
+      // Add to the list
+      return {
+        clusters: [...state.clusters, cluster],
+      };
+    }),
+
+  updateCluster: (clusterId, updates) =>
+    set((state) => ({
+      clusters: state.clusters.map((c) =>
+        c.id === clusterId ? { ...c, ...updates } : c
+      ),
+    })),
+
+  removeCluster: (clusterId) =>
+    set((state) => ({
+      clusters: state.clusters.filter((c) => c.id !== clusterId),
+    })),
+
+  // Cluster candidates cache
+  clusterCandidates: {},
+
+  setClusterCandidates: (clusterId, candidates) =>
+    set((state) => ({
+      clusterCandidates: {
+        ...state.clusterCandidates,
+        [clusterId]: candidates,
+      },
+    })),
+
+  // Cluster tracks cache
+  clusterTracks: {},
+
+  setClusterTracks: (clusterId, tracks) =>
+    set((state) => ({
+      clusterTracks: {
+        ...state.clusterTracks,
+        [clusterId]: tracks,
+      },
     })),
 }));

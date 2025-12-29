@@ -1,0 +1,457 @@
+import { useState, useEffect, useMemo } from 'react';
+import { Cluster } from '../types/api';
+import { api } from '../lib/api';
+import toast from 'react-hot-toast';
+import { IdentificationNav } from '../components/IdentificationNav';
+import { RematchModal } from '../components/identification/RematchModal';
+import { useAppStore } from '../store';
+import {
+  Loader2,
+  Search,
+  ArrowUpDown,
+  CheckCircle2,
+  AlertCircle,
+  Lock,
+  Zap,
+  RefreshCw,
+  Filter,
+  Edit2,
+} from 'lucide-react';
+
+type SortField = 'album' | 'artist' | 'confidence' | 'status' | 'track_count';
+type SortDirection = 'asc' | 'desc';
+type FilterStatus = 'all' | 'matched' | 'unmatched' | 'locked';
+
+export default function Clusters() {
+  const clusters = useAppStore((state) => state.clusters);
+  const setClusters = useAppStore((state) => state.setClusters);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortField, setSortField] = useState<SortField>('album');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
+  const [rematchingCluster, setRematchingCluster] = useState<Cluster | null>(null);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const data = await api.getClusters();
+      setClusters(data);
+    } catch (error) {
+      console.error('Failed to load clusters:', error);
+      toast.error('Failed to load clusters');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Filter and sort
+  const filteredAndSortedClusters = useMemo(() => {
+    let filtered = clusters;
+
+    // Apply status filter
+    if (filterStatus === 'matched') {
+      filtered = filtered.filter(c => c.mb_release_id !== null);
+    } else if (filterStatus === 'unmatched') {
+      filtered = filtered.filter(c => c.mb_release_id === null);
+    } else if (filterStatus === 'locked') {
+      filtered = filtered.filter(c => c.match_locked);
+    }
+
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(cluster =>
+        cluster.album?.toLowerCase().includes(query) ||
+        cluster.album_artist?.toLowerCase().includes(query) ||
+        cluster.mb_release_title?.toLowerCase().includes(query) ||
+        cluster.mb_release_artist?.toLowerCase().includes(query)
+      );
+    }
+
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let aVal: any;
+      let bVal: any;
+
+      switch (sortField) {
+        case 'album':
+          aVal = a.album || a.mb_release_title || '';
+          bVal = b.album || b.mb_release_title || '';
+          break;
+        case 'artist':
+          aVal = a.album_artist || a.mb_release_artist || '';
+          bVal = b.album_artist || b.mb_release_artist || '';
+          break;
+        case 'confidence':
+          aVal = a.mb_confidence ?? -1;
+          bVal = b.mb_confidence ?? -1;
+          break;
+        case 'status':
+          aVal = a.mb_release_id ? 1 : 0;
+          bVal = b.mb_release_id ? 1 : 0;
+          break;
+        case 'track_count':
+          aVal = a.track_count;
+          bVal = b.track_count;
+          break;
+      }
+
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return filtered;
+  }, [clusters, searchQuery, sortField, sortDirection, filterStatus]);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const getStatusIcon = (cluster: Cluster) => {
+    if (!cluster.mb_release_id) {
+      return <AlertCircle className="h-4 w-4 text-red-400" />;
+    }
+    if (cluster.match_locked) {
+      return <Lock className="h-4 w-4 text-purple-400" />;
+    }
+    if (cluster.match_source === 'auto_fingerprint') {
+      return <Zap className="h-4 w-4 text-blue-400" />;
+    }
+    return <CheckCircle2 className="h-4 w-4 text-green-400" />;
+  };
+
+  const stats = useMemo(() => {
+    const total = clusters.length;
+    const matched = clusters.filter(c => c.mb_release_id).length;
+    const unmatched = total - matched;
+    const locked = clusters.filter(c => c.match_locked).length;
+    return { total, matched, unmatched, locked };
+  }, [clusters]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-12 h-12 text-dark-accent animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col animate-fade-in">
+      <IdentificationNav />
+
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold text-dark-text">Clusters</h1>
+        <p className="text-dark-text-secondary mt-2">
+          Manage album clusters and their MusicBrainz matches
+        </p>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="card p-4">
+          <div className="text-2xl font-bold text-dark-text">{stats.total}</div>
+          <div className="text-sm text-dark-text-secondary">Total Clusters</div>
+        </div>
+        <div className="card p-4">
+          <div className="text-2xl font-bold text-green-400">{stats.matched}</div>
+          <div className="text-sm text-dark-text-secondary">Matched</div>
+        </div>
+        <div className="card p-4">
+          <div className="text-2xl font-bold text-red-400">{stats.unmatched}</div>
+          <div className="text-sm text-dark-text-secondary">Unmatched</div>
+        </div>
+        <div className="card p-4">
+          <div className="text-2xl font-bold text-purple-400">{stats.locked}</div>
+          <div className="text-sm text-dark-text-secondary">Locked</div>
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="flex gap-3 mb-4">
+        {/* Search */}
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-dark-text-tertiary" />
+          <input
+            type="text"
+            placeholder="Search clusters..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 bg-dark-bg-elevated border border-dark-border rounded-lg text-sm text-dark-text placeholder-dark-text-tertiary focus:outline-none focus:border-dark-accent"
+          />
+        </div>
+
+        {/* Filter */}
+        <div className="flex gap-2 bg-dark-bg-elevated rounded-lg p-1 border border-dark-border">
+          <button
+            onClick={() => setFilterStatus('all')}
+            className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              filterStatus === 'all'
+                ? 'bg-dark-accent text-dark-bg'
+                : 'text-dark-text-secondary hover:text-dark-text'
+            }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setFilterStatus('matched')}
+            className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              filterStatus === 'matched'
+                ? 'bg-dark-accent text-dark-bg'
+                : 'text-dark-text-secondary hover:text-dark-text'
+            }`}
+          >
+            Matched
+          </button>
+          <button
+            onClick={() => setFilterStatus('unmatched')}
+            className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              filterStatus === 'unmatched'
+                ? 'bg-dark-accent text-dark-bg'
+                : 'text-dark-text-secondary hover:text-dark-text'
+            }`}
+          >
+            Unmatched
+          </button>
+          <button
+            onClick={() => setFilterStatus('locked')}
+            className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              filterStatus === 'locked'
+                ? 'bg-dark-accent text-dark-bg'
+                : 'text-dark-text-secondary hover:text-dark-text'
+            }`}
+          >
+            Locked
+          </button>
+        </div>
+
+        <button
+          onClick={loadData}
+          className="btn-secondary flex items-center gap-2"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Refresh
+        </button>
+      </div>
+
+      {/* Table */}
+      <div className="flex-1 overflow-auto card">
+        <table className="w-full">
+          <thead className="sticky top-0 bg-dark-bg-elevated border-b border-dark-border">
+            <tr>
+              <th className="px-4 py-3 text-left">
+                <button
+                  onClick={() => handleSort('status')}
+                  className="flex items-center gap-2 text-xs font-medium text-dark-text-secondary hover:text-dark-text uppercase"
+                >
+                  Status
+                  <ArrowUpDown className="h-3 w-3" />
+                </button>
+              </th>
+              <th className="px-4 py-3 text-left">
+                <button
+                  onClick={() => handleSort('album')}
+                  className="flex items-center gap-2 text-xs font-medium text-dark-text-secondary hover:text-dark-text uppercase"
+                >
+                  Album
+                  <ArrowUpDown className="h-3 w-3" />
+                </button>
+              </th>
+              <th className="px-4 py-3 text-left">
+                <button
+                  onClick={() => handleSort('artist')}
+                  className="flex items-center gap-2 text-xs font-medium text-dark-text-secondary hover:text-dark-text uppercase"
+                >
+                  Artist
+                  <ArrowUpDown className="h-3 w-3" />
+                </button>
+              </th>
+              <th className="px-4 py-3 text-left">
+                <button
+                  onClick={() => handleSort('track_count')}
+                  className="flex items-center gap-2 text-xs font-medium text-dark-text-secondary hover:text-dark-text uppercase"
+                >
+                  Tracks
+                  <ArrowUpDown className="h-3 w-3" />
+                </button>
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-dark-text-secondary uppercase">
+                Local Metadata
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-dark-text-secondary uppercase">
+                MusicBrainz Match
+              </th>
+              <th className="px-4 py-3 text-left">
+                <button
+                  onClick={() => handleSort('confidence')}
+                  className="flex items-center gap-2 text-xs font-medium text-dark-text-secondary hover:text-dark-text uppercase"
+                >
+                  Confidence
+                  <ArrowUpDown className="h-3 w-3" />
+                </button>
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-dark-text-secondary uppercase">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredAndSortedClusters.map((cluster, index) => (
+              <tr
+                key={cluster.id}
+                className={`hover:bg-dark-bg-elevated transition-colors border-b border-dark-border ${
+                  index % 2 === 0 ? 'bg-dark-bg' : 'bg-dark-bg/50'
+                }`}
+              >
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    {getStatusIcon(cluster)}
+                  </div>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="text-sm font-medium text-dark-text">
+                    {cluster.album || cluster.mb_release_title || <span className="italic text-dark-text-tertiary">Unknown</span>}
+                  </div>
+                  {cluster.mb_release_title && cluster.album !== cluster.mb_release_title && (
+                    <div className="text-xs text-dark-text-tertiary">
+                      MB: {cluster.mb_release_title}
+                    </div>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-sm text-dark-text-secondary">
+                  {cluster.album_artist || cluster.mb_release_artist || <span className="italic text-dark-text-tertiary">Unknown</span>}
+                </td>
+                <td className="px-4 py-3 text-sm font-mono text-dark-text">
+                  {cluster.track_count}
+                </td>
+                {/* Local Metadata Column */}
+                <td className="px-4 py-3">
+                  <div className="text-xs space-y-0.5">
+                    {cluster.date && (
+                      <div className="text-dark-text-secondary">
+                        <span className="text-dark-text-tertiary">Date:</span> {cluster.date}
+                      </div>
+                    )}
+                    {cluster.country && (
+                      <div className="text-dark-text-secondary">
+                        <span className="text-dark-text-tertiary">Country:</span> {cluster.country}
+                      </div>
+                    )}
+                    {cluster.label && (
+                      <div className="text-dark-text-secondary">
+                        <span className="text-dark-text-tertiary">Label:</span> {cluster.label}
+                      </div>
+                    )}
+                    {cluster.catalog_number && (
+                      <div className="text-dark-text-secondary">
+                        <span className="text-dark-text-tertiary">Cat#:</span> {cluster.catalog_number}
+                      </div>
+                    )}
+                    {cluster.barcode && (
+                      <div className="text-dark-text-secondary">
+                        <span className="text-dark-text-tertiary">Barcode:</span> {cluster.barcode}
+                      </div>
+                    )}
+                    {!cluster.date && !cluster.country && !cluster.label && !cluster.catalog_number && !cluster.barcode && (
+                      <span className="text-dark-text-tertiary italic">No metadata</span>
+                    )}
+                  </div>
+                </td>
+                {/* MusicBrainz Match Column */}
+                <td className="px-4 py-3">
+                  {cluster.mb_release_id ? (
+                    <div className="text-xs space-y-0.5">
+                      {cluster.mb_release_date && (
+                        <div className={`text-dark-text-secondary ${cluster.date && cluster.date !== cluster.mb_release_date ? 'text-yellow-400' : ''}`}>
+                          <span className="text-dark-text-tertiary">Date:</span> {cluster.mb_release_date}
+                        </div>
+                      )}
+                      {cluster.mb_release_country && (
+                        <div className={`text-dark-text-secondary ${cluster.country && cluster.country !== cluster.mb_release_country ? 'text-yellow-400' : ''}`}>
+                          <span className="text-dark-text-tertiary">Country:</span> {cluster.mb_release_country}
+                        </div>
+                      )}
+                      {cluster.mb_release_label && (
+                        <div className={`text-dark-text-secondary ${cluster.label && cluster.label !== cluster.mb_release_label ? 'text-yellow-400' : ''}`}>
+                          <span className="text-dark-text-tertiary">Label:</span> {cluster.mb_release_label}
+                        </div>
+                      )}
+                      {cluster.mb_release_barcode && (
+                        <div className={`text-dark-text-secondary ${cluster.barcode && cluster.barcode !== cluster.mb_release_barcode ? 'text-yellow-400' : ''}`}>
+                          <span className="text-dark-text-tertiary">Barcode:</span> {cluster.mb_release_barcode}
+                        </div>
+                      )}
+                      {!cluster.mb_release_date && !cluster.mb_release_country && !cluster.mb_release_label && !cluster.mb_release_barcode && (
+                        <span className="text-dark-text-tertiary italic">No metadata</span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-dark-text-tertiary italic">Not matched</span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {cluster.mb_confidence !== null ? (
+                    <span className={`text-sm font-mono ${
+                      cluster.mb_confidence >= 0.8 ? 'text-green-400' :
+                      cluster.mb_confidence >= 0.6 ? 'text-blue-400' :
+                      cluster.mb_confidence >= 0.35 ? 'text-yellow-400' :
+                      'text-red-400'
+                    }`}>
+                      {Math.round(cluster.mb_confidence * 100)}%
+                    </span>
+                  ) : (
+                    <span className="text-sm italic text-dark-text-tertiary">—</span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <button
+                    onClick={() => setRematchingCluster(cluster)}
+                    className="text-dark-text-secondary hover:text-dark-accent transition-colors"
+                    title="Re-match cluster"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {filteredAndSortedClusters.length === 0 && (
+          <div className="p-12 text-center">
+            <Filter className="mx-auto h-12 w-12 text-dark-text-tertiary" />
+            <h3 className="mt-4 text-sm font-medium text-dark-text">No clusters found</h3>
+            <p className="mt-2 text-sm text-dark-text-secondary">
+              {searchQuery ? 'Try a different search query' : 'No clusters match the current filter'}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 text-sm text-dark-text-secondary text-center">
+        Showing {filteredAndSortedClusters.length} of {clusters.length} clusters
+      </div>
+
+      {/* Rematch Modal */}
+      {rematchingCluster && (
+        <RematchModal
+          cluster={rematchingCluster}
+          onClose={() => setRematchingCluster(null)}
+          onUpdate={loadData}
+        />
+      )}
+    </div>
+  );
+}

@@ -18,6 +18,7 @@ module Skema.MusicBrainz.Types
   , MBTrack (..)
   , MBRecording (..)
   , MBReleaseSearch (..)
+  , MBRecordingSearch (..)
   , MBArtistSearch (..)
   , MBReleaseGroupSearch (..)
   , MBReleaseGroup (..)
@@ -28,6 +29,7 @@ module Skema.MusicBrainz.Types
   , FileGroup (..)
   , TrackMatch (..)
   , ReleaseMatch (..)
+  , IdentificationResult (..)
   ) where
 
 import Data.Aeson
@@ -252,7 +254,12 @@ data MBRecording = MBRecording
   , mbRecordingLength :: Maybe Int
   } deriving (Show, Eq, Generic)
 
-instance FromJSON MBRecording
+instance FromJSON MBRecording where
+  parseJSON = withObject "MBRecording" $ \o -> do
+    mbRecordingId <- o .: "id"
+    mbRecordingTitle <- o .: "title"
+    mbRecordingLength <- o .:? "length"
+    pure MBRecording{..}
 
 -- | MusicBrainz release search result.
 data MBReleaseSearch = MBReleaseSearch
@@ -265,6 +272,18 @@ instance FromJSON MBReleaseSearch where
     mbSearchReleases <- o .: "releases"
     mbSearchCount <- o .: "count"
     pure MBReleaseSearch{..}
+
+-- | MusicBrainz recording search result.
+data MBRecordingSearch = MBRecordingSearch
+  { mbSearchRecordings :: [MBRecording]
+  , mbSearchRecordingCount :: Int
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON MBRecordingSearch where
+  parseJSON = withObject "MBRecordingSearch" $ \o -> do
+    mbSearchRecordings <- o .: "recordings"
+    mbSearchRecordingCount <- o .: "count"
+    pure MBRecordingSearch{..}
 
 -- | MusicBrainz Release Group (represents an album across all its releases).
 data MBReleaseGroup = MBReleaseGroup
@@ -428,4 +447,10 @@ data ReleaseMatch = ReleaseMatch
   , rmTotalCost :: Double  -- Lower is better
   , rmConfidence :: Double  -- 0.0 to 1.0, based on how many tracks matched well
   , rmCandidates :: [MBRelease]  -- All candidate releases found (for user selection)
+  } deriving (Show, Eq, Generic)
+
+-- | Result of identification: either a match above threshold, or just candidates
+data IdentificationResult = IdentificationResult
+  { irMatch :: Maybe ReleaseMatch  -- Best match if above confidence threshold
+  , irCandidates :: [(MBRelease, Double)]  -- All candidates with their confidence scores
   } deriving (Show, Eq, Generic)

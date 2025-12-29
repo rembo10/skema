@@ -32,7 +32,7 @@ import Skema.Database.Utils (downloadStatusToText)
 import Skema.FileSystem.PathFormatter (PathContext(..), formatPath)
 import Skema.Core.Metadata (scanAndParseMetadata, groupParsedFiles, MetadataResult(..), GroupedFiles(..))
 import Skema.MusicBrainz.Identify (identifyFileGroup)
-import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), MBRelease(..), MBID(..), unMBID, mbSearchReleases, TrackMatch(..), MBTrack(..), mbReleaseTracks)
+import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), IdentificationResult(..), MBRelease(..), MBID(..), unMBID, mbSearchReleases, TrackMatch(..), MBTrack(..), mbReleaseTracks)
 import Skema.MusicBrainz.Client (MBClientEnv, searchReleases)
 import Skema.Domain.Identification (IdentifyConfig(..), buildSearchQuery)
 import Skema.Config.Types (Config(..), LibraryConfig(..))
@@ -242,7 +242,7 @@ importDownload config le bus pool mbClientEnv download catalogAlbum = do
 
               pure $ case fullResult of
                 Left err -> Left err
-                Right maybeMatch -> Right (candidateCount, maybeMatch, cfgMinConfidence identifyConfig)
+                Right (IdentificationResult maybeMatch _) -> Right (candidateCount, maybeMatch, cfgMinConfidence identifyConfig)
 
         case identifyResult of
           Left err -> do

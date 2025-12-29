@@ -32,7 +32,7 @@ identifyFileGroups :: LogEnv
                    -> MBClientEnv
                    -> IdentifyConfig
                    -> [FileGroup]
-                   -> IO [(FileGroup, Either MBClientError (Maybe ReleaseMatch))]
+                   -> IO [(FileGroup, Either MBClientError IdentificationResult)]
 identifyFileGroups le mbEnv config groups = do
   let initialContext = ()
       initialNamespace = "musicbrainz.identify"
@@ -55,9 +55,9 @@ identifyFileGroups le mbEnv config groups = do
         case result of
           Left err ->
             $(logTM) ErrorS $ logStr $ ("[" <> show idx <> "] API error for '" <> albumName <> "': " <> prettyClientError err :: Text)
-          Right Nothing ->
-            $(logTM) WarningS $ logStr $ ("[" <> show idx <> "] No match found for '" <> albumName <> "'" :: Text)
-          Right (Just match) ->
+          Right (IdentificationResult Nothing candidates) ->
+            $(logTM) WarningS $ logStr $ ("[" <> show idx <> "] No match found for '" <> albumName <> "' (" <> show (length candidates) <> " candidates below threshold)" :: Text)
+          Right (IdentificationResult (Just match) _) ->
             $(logTM) InfoS $ logStr $ ("[" <> show idx <> "] Matched '" <> albumName <> "' to '" <>
               mbReleaseTitle (rmRelease match) <> "' (confidence: " <>
               show (round (rmConfidence match * 100) :: Int) <> "%)" :: Text)
@@ -76,11 +76,11 @@ identifyFileGroup :: LogEnv
                   -> MBClientEnv
                   -> IdentifyConfig
                   -> FileGroup
-                  -> IO (Either MBClientError (Maybe ReleaseMatch))
+                  -> IO (Either MBClientError IdentificationResult)
 identifyFileGroup le mbEnv config fg = do
   -- First, try direct lookup if we have a release ID in tags
   case fgReleaseId fg of
-    Just releaseId -> identifyByReleaseId mbEnv config fg releaseId
+    Just releaseId -> identifyByReleaseId le mbEnv config fg releaseId
     Nothing -> identifyBySearch le mbEnv config fg
 
 -- | Apply join phrase normalization to a release if configured
@@ -92,26 +92,62 @@ normalizeRelease config release =
 
 -- | Identify by existing MusicBrainz release ID in tags (IO orchestration).
 --
--- Fetches release via HTTP, then uses pure domain logic for matching.
-identifyByReleaseId :: MBClientEnv
+-- Fetches the specific release AND searches for alternatives so users can
+-- easily switch if the tagged release isn't the one they want.
+identifyByReleaseId :: LogEnv
+                    -> MBClientEnv
                     -> IdentifyConfig
                     -> FileGroup
                     -> ReleaseMBID
-                    -> IO (Either MBClientError (Maybe ReleaseMatch))
-identifyByReleaseId mbEnv config fg releaseId = do
-  -- IO: Fetch release from MusicBrainz
+                    -> IO (Either MBClientError IdentificationResult)
+identifyByReleaseId le mbEnv config fg releaseId = do
+  -- IO: Fetch the specific release from MusicBrainz
   result <- getRelease mbEnv releaseId
   case result of
     Left err -> pure $ Left err
     Right release -> do
-      -- Pure: Apply normalization
-      let normalizedRelease = normalizeRelease config release
+      -- Also search for alternative releases so users have options
+      -- Build search query and fetch alternatives
+      let query = buildSearchQuery fg
+      searchResult <- searchReleases mbEnv query (Just $ cfgSearchLimit config) Nothing
 
-      -- Pure: Compute match using domain logic
-      let match = computeReleaseMatch fg [] (normalizedRelease, 0.0)
+      case searchResult of
+        Left _searchErr -> do
+          -- If search fails, still return the direct lookup result
+          let normalizedRelease = normalizeRelease config release
+          let match = computeReleaseMatch fg [normalizedRelease] (normalizedRelease, 0.0)
+          let bestMatch = selectBestMatch (cfgMinConfidence config) [match]
+          pure $ Right $ IdentificationResult bestMatch [(normalizedRelease, rmConfidence match)]
 
-      -- Pure: Select match if it meets threshold
-      pure $ Right $ selectBestMatch (cfgMinConfidence config) [match]
+        Right mbSearchResult -> do
+          -- Got search results - fetch details for alternatives
+          let searchCandidates = map (normalizeRelease config) $ mbSearchReleases mbSearchResult
+
+          if null searchCandidates
+            then do
+              -- No search results, use direct lookup only
+              let normalizedRelease = normalizeRelease config release
+              let match = computeReleaseMatch fg [normalizedRelease] (normalizedRelease, 0.0)
+              let bestMatch = selectBestMatch (cfgMinConfidence config) [match]
+              pure $ Right $ IdentificationResult bestMatch [(normalizedRelease, rmConfidence match)]
+            else do
+              -- Fetch full details for top candidates (including the tagged release)
+              candidateDetails <- fetchCandidateDetails le mbEnv config searchCandidates (cfgMaxCandidates config)
+
+              -- Make sure the tagged release is in the candidate list
+              let normalizedRelease = normalizeRelease config release
+              let allCandidates = if normalizedRelease `elem` candidateDetails
+                                  then candidateDetails
+                                  else normalizedRelease : take (cfgMaxCandidates config - 1) candidateDetails
+
+              -- Rank and match all candidates
+              let rankedCandidates = rankReleaseCandidates (length allCandidates) fg allCandidates
+              let detailedMatches = map (computeReleaseMatch fg allCandidates) rankedCandidates
+
+              -- Select best match and extract candidates with scores
+              let bestMatch = selectBestMatch (cfgMinConfidence config) detailedMatches
+              let candidatesWithScores = map (\m -> (rmRelease m, rmConfidence m)) detailedMatches
+              pure $ Right $ IdentificationResult bestMatch candidatesWithScores
 
 -- | Identify by searching MusicBrainz (IO orchestration).
 --
@@ -120,7 +156,7 @@ identifyBySearch :: LogEnv
                  -> MBClientEnv
                  -> IdentifyConfig
                  -> FileGroup
-                 -> IO (Either MBClientError (Maybe ReleaseMatch))
+                 -> IO (Either MBClientError IdentificationResult)
 identifyBySearch le mbEnv config fg = do
   -- Pure: Build search query from file group metadata
   let query = buildSearchQuery fg
@@ -133,9 +169,9 @@ identifyBySearch le mbEnv config fg = do
       -- Pure: Apply normalization to search results
       let candidates = map (normalizeRelease config) $ mbSearchReleases searchResult
 
-      -- If no candidates, return Nothing
+      -- If no candidates, return empty result
       if null candidates
-        then pure $ Right Nothing
+        then pure $ Right $ IdentificationResult Nothing []
         else do
           -- IO: Fetch full details for candidates (including tracks)
           -- This is the expensive part (MusicBrainz API calls), so we limit to maxCandidates
@@ -144,7 +180,7 @@ identifyBySearch le mbEnv config fg = do
 
           -- Check if we successfully fetched any candidate details
           if null candidateDetails
-            then pure $ Right Nothing
+            then pure $ Right $ IdentificationResult Nothing []
             else do
               -- Pure: Rank candidates by metadata only (no limit - we'll use Hungarian to pick best)
               -- We already fetched full details for all candidates, so run Hungarian on all of them
@@ -165,7 +201,11 @@ identifyBySearch le mbEnv config fg = do
                     $(logTM) DebugS $ logStr $ ("  " <> show idx <> ". \"" <> title <> "\" - confidence: " <> show (round (confidence * 100) :: Int) <> "%" :: Text)
 
               -- Pure: Select best match if it meets threshold
-              pure $ Right $ selectBestMatch (cfgMinConfidence config) detailedMatches
+              let bestMatch = selectBestMatch (cfgMinConfidence config) detailedMatches
+              -- Extract candidates with their confidence scores
+              let candidatesWithScores = map (\m -> (rmRelease m, rmConfidence m)) detailedMatches
+              -- Return result with match (if any) AND all candidates with scores
+              pure $ Right $ IdentificationResult bestMatch candidatesWithScores
 
 -- | Fetch full details for release candidates (IO operation).
 fetchCandidateDetails :: LogEnv -> MBClientEnv -> IdentifyConfig -> [MBRelease] -> Int -> IO [MBRelease]

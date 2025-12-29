@@ -30,6 +30,8 @@ export interface GroupedDiff {
   diffs: MetadataDiff[];
 }
 
+export type MatchSource = 'auto_fingerprint' | 'auto_metadata' | 'manual';
+
 export interface Cluster {
   id: number;
   metadata_hash: string;
@@ -42,6 +44,9 @@ export interface Cluster {
   created_at: string;
   updated_at: string;
   last_identified_at: string | null;
+  // Match provenance
+  match_source: MatchSource | null;
+  match_locked: boolean;
   // Cluster metadata (from first track, used for identification)
   label: string | null;
   catalog_number: string | null;
@@ -57,6 +62,61 @@ export interface Cluster {
   mb_release_label: string | null;
   mb_release_catalog_number: string | null;
   mb_release_barcode: string | null;
+  // Alternative match candidates (JSON array)
+  mb_candidates: string | null;
+}
+
+export interface ClusterTrack {
+  id: number;
+  path: string;
+  title: string | null;
+  artist: string | null;
+  track_number: number | null;
+  disc_number: number | null;
+  duration: number | null;
+  // MusicBrainz recording mapping (from track matching)
+  mb_recording_id: string | null;
+  mb_recording_title: string | null;
+}
+
+export interface MBTrackInfo {
+  position: number;
+  title: string;
+  length: number | null;
+  recording_id: string;
+  artist: string | null;
+  disc_number: number;
+}
+
+export interface ClusterWithTracks {
+  cluster: Cluster;
+  tracks: ClusterTrack[];
+  mb_tracks: MBTrackInfo[] | null;
+}
+
+export interface TrackWithCluster {
+  id: number;
+  path: string;
+  title: string | null;
+  artist: string | null;
+  track_number: number | null;
+  disc_number: number | null;
+  duration: number | null;
+  // MusicBrainz recording match (track level)
+  mb_recording_id: string | null;
+  mb_recording_title: string | null;
+  // Cluster information
+  cluster_id: number | null;
+  cluster_album: string | null;
+  cluster_album_artist: string | null;
+  cluster_year: number | null;
+  // MusicBrainz release match (cluster level)
+  mb_release_id: string | null;
+  mb_release_title: string | null;
+  mb_release_artist: string | null;
+  mb_confidence: number | null;
+  match_source: MatchSource | null;
+  match_locked: boolean;
 }
 
 export interface CandidateRelease {
@@ -67,6 +127,10 @@ export interface CandidateRelease {
   country: string | null;
   track_count: number;
   confidence: number;
+  // Additional identifying information
+  barcode: string | null;
+  label: string | null;
+  catalog_number: string | null;
 }
 
 export interface Task {

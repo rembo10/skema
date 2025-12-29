@@ -55,25 +55,22 @@ defaultIdentifyConfig = IdentifyConfig
 
 -- | Build a MusicBrainz search query from file group metadata.
 --
--- Uses album + artist as core query. Other fields are only included if non-empty
--- to prevent over-constraining the search.
+-- Uses album + artist as core query. Barcode is intentionally NOT included to get
+-- broader search results with multiple candidates for user selection.
+-- Barcode is still used for ranking candidates, just not for filtering the search.
 --
 -- This is a pure function with no side effects.
 buildSearchQuery :: FileGroup -> Text
 buildSearchQuery fg =
   let -- Core query: album and artist (required)
+      -- NOTE: We intentionally do NOT include barcode here to ensure we get
+      -- multiple candidates so users can pick alternatives if the automatic match isn't right.
       coreParts = catMaybes
         [ (\a -> "release:\"" <> escapeQuery (normalizeSearchText a) <> "\"") <$> fgAlbum fg
         , (\a -> "artist:\"" <> escapeQuery (normalizeSearchText a) <> "\"") <$> fgArtist fg
         ]
 
-      -- Optional parts: only include if non-empty and non-trivial
-      -- Barcode is highly specific, so include it
-      optionalParts = catMaybes
-        [ (\b -> "barcode:" <> b) <$> (fgBarcode fg >>= \b -> if T.null b then Nothing else Just b)
-        ]
-
-      allParts = coreParts <> optionalParts
+      allParts = coreParts
   in T.intercalate " AND " allParts
 
 -- | Normalize text for MusicBrainz search queries.

@@ -55,6 +55,9 @@ clusterToResponse cluster maybeMetadata =
       , clusterResponseCreatedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.clusterCreatedAt cluster)
       , clusterResponseUpdatedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.clusterUpdatedAt cluster)
       , clusterResponseLastIdentifiedAt = fmap (show :: UTCTime -> Text) (DBTypes.clusterLastIdentifiedAt cluster)
+      -- Match provenance
+      , clusterResponseMatchSource = fmap DBTypes.matchSourceToText (DBTypes.clusterMatchSource cluster)
+      , clusterResponseMatchLocked = DBTypes.clusterMatchLocked cluster
       -- Cluster metadata from first track (used for MusicBrainz identification)
       , clusterResponseLabel = maybeMetadata >>= DBTypes.metaLabel
       , clusterResponseCatalogNumber = maybeMetadata >>= DBTypes.metaCatalogNumber
@@ -70,6 +73,8 @@ clusterToResponse cluster maybeMetadata =
       , clusterResponseMBReleaseLabel = mbRelease >>= mbReleaseLabel
       , clusterResponseMBReleaseCatalogNumber = mbRelease >>= mbReleaseCatalogNumber
       , clusterResponseMBReleaseBarcode = mbRelease >>= mbReleaseBarcode
+      -- Alternative match candidates (JSON array)
+      , clusterResponseMBCandidates = DBTypes.clusterMBCandidates cluster
       }
 
 -- * MusicBrainz Search Conversions

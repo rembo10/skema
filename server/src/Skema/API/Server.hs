@@ -95,7 +95,7 @@ server le bus authStore serverCfg jwtSecret registry connPool libPath cacheDir c
    :<|> configServer le bus serverCfg jwtSecret connPool configVar configPath
    :<|> configSchemaServer
    :<|> diffsServer le bus serverCfg jwtSecret registry connPool configVar
-   :<|> clustersServer le serverCfg jwtSecret registry connPool configVar
+   :<|> clustersServer le bus serverCfg jwtSecret registry connPool configVar
    :<|> statsServer serverCfg jwtSecret connPool configVar
    :<|> acquisitionServer serverCfg jwtSecret connPool configVar
    :<|> catalogServer le bus serverCfg jwtSecret registry connPool cacheDir configVar

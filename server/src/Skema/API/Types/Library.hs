@@ -10,16 +10,21 @@ module Skema.API.Types.Library
   , ScanResponse(..)
   , FileInfo(..)
   , LibraryStats(..)
+  , UpdateTrackRequest(..)
+  , TrackWithCluster(..)
   ) where
 
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
 import GHC.Generics ()
 import Servant
+import Database.SQLite.Simple.FromRow (FromRow(..), field)
 
 -- | Library management endpoints.
 type LibraryAPI = "library" :> Header "Authorization" Text :>
   ( "scan" :> Post '[JSON] ScanResponse
   :<|> "files" :> Get '[JSON] [FileInfo]
+  :<|> "tracks" :> Get '[JSON] [TrackWithCluster]
+  :<|> "tracks" :> Capture "trackId" Int64 :> ReqBody '[JSON] UpdateTrackRequest :> Patch '[JSON] NoContent
   )
 
 -- | Stats API endpoints.
@@ -82,3 +87,68 @@ instance ToJSON LibraryStats where
 
 instance FromJSON LibraryStats where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 5 }
+
+-- | Request to update track properties (e.g., move to different cluster).
+data UpdateTrackRequest = UpdateTrackRequest
+  { updateTrackClusterId :: Maybe Int64  -- Nothing = remove from cluster
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON UpdateTrackRequest where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
+
+instance FromJSON UpdateTrackRequest where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
+
+-- | Track with cluster and MusicBrainz information for frontend.
+data TrackWithCluster = TrackWithCluster
+  { trackId :: Int64
+  , trackPath :: Text
+  , trackTitle :: Maybe Text
+  , trackArtist :: Maybe Text
+  , trackTrackNumber :: Maybe Int
+  , trackDiscNumber :: Maybe Int
+  , trackDuration :: Maybe Double
+  -- MusicBrainz recording match (track level)
+  , trackMbRecordingId :: Maybe Text
+  , trackMbRecordingTitle :: Maybe Text
+  -- Cluster information
+  , trackClusterId :: Maybe Int64
+  , trackClusterAlbum :: Maybe Text
+  , trackClusterAlbumArtist :: Maybe Text
+  , trackClusterYear :: Maybe Int
+  -- MusicBrainz release match (cluster level)
+  , trackMbReleaseId :: Maybe Text
+  , trackMbReleaseTitle :: Maybe Text
+  , trackMbReleaseArtist :: Maybe Text
+  , trackMbConfidence :: Maybe Double
+  , trackMatchSource :: Maybe Text
+  , trackMatchLocked :: Bool
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON TrackWithCluster where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 5 }
+
+instance FromJSON TrackWithCluster where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 5 }
+
+instance FromRow TrackWithCluster where
+  fromRow = TrackWithCluster
+    <$> field -- id
+    <*> field -- path
+    <*> field -- title
+    <*> field -- artist
+    <*> field -- track_number
+    <*> field -- disc_number
+    <*> field -- duration
+    <*> field -- mb_recording_id
+    <*> field -- mb_recording_title
+    <*> field -- cluster_id
+    <*> field -- cluster_album
+    <*> field -- cluster_album_artist
+    <*> field -- cluster_year
+    <*> field -- mb_release_id
+    <*> field -- mb_release_title
+    <*> field -- mb_release_artist
+    <*> field -- mb_confidence
+    <*> field -- match_source
+    <*> field -- match_locked

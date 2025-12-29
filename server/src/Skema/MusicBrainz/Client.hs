@@ -9,6 +9,7 @@
 module Skema.MusicBrainz.Client
   ( -- * API Client
     searchReleases
+  , searchRecordings
   , getRelease
   , getArtist
   , searchArtists
@@ -165,3 +166,18 @@ searchReleaseGroups env@MBClientEnv{..} query limit offset = do
   pure $ case result of
     Left err -> Left $ MBHttpError err
     Right releaseGroups -> Right releaseGroups
+
+-- | Search for MusicBrainz recordings by query.
+--
+-- Automatically retries with exponential backoff via centralized HTTP client.
+searchRecordings :: MBClientEnv -> Text -> Maybe Int -> Maybe Int -> IO (Either MBClientError MBRecordingSearch)
+searchRecordings env@MBClientEnv{..} query limit offset = do
+  let params = [("query", query), ("fmt", "json")]
+             <> maybe [] (\l -> [("limit", show l)]) limit
+             <> maybe [] (\o -> [("offset", show o)]) offset
+      url = buildMBUrl mbBaseUrl "recording" params
+
+  result <- mbGetJSON env url
+  pure $ case result of
+    Left err -> Left $ MBHttpError err
+    Right recordings -> Right recordings

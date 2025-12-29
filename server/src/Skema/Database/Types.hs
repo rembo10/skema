@@ -23,6 +23,9 @@ module Skema.Database.Types
   , textToSourceType
   , albumStatusToText
   , textToAlbumStatus
+  , matchSourceToText
+  , textToMatchSource
+  , MatchSource(..)
     -- * Catalog Models
   , CatalogArtistRecord (..)
   , CatalogAlbumRecord (..)
@@ -156,6 +159,13 @@ data MetadataChangeRecord = MetadataChangeRecord
   , changeRevertedAt :: Maybe UTCTime
   } deriving (Show, Eq, Generic)
 
+-- | Match source enumeration - how was this cluster matched to MB?
+data MatchSource
+  = AutoFingerprint  -- Matched automatically via AcoustID fingerprint
+  | AutoMetadata     -- Matched automatically via metadata search
+  | Manual           -- Manually assigned by user
+  deriving (Show, Eq, Generic, Data)
+
 -- | Cluster record.
 data ClusterRecord = ClusterRecord
   { clusterId :: Maybe Int64
@@ -171,6 +181,8 @@ data ClusterRecord = ClusterRecord
   , clusterLastIdentifiedAt :: Maybe UTCTime
   , clusterMBReleaseData :: Maybe Text
   , clusterMBCandidates :: Maybe Text
+  , clusterMatchSource :: Maybe MatchSource
+  , clusterMatchLocked :: Bool
   } deriving (Show, Eq, Generic)
 
 -- | Source type for acquisition sources (providers).
@@ -378,6 +390,19 @@ textToDownloadStatus "cancelled" = Just DownloadCancelled
 textToDownloadStatus "identification_failure" = Just DownloadIdentificationFailure
 textToDownloadStatus _ = Nothing
 
+-- | Convert MatchSource to Text for database storage.
+matchSourceToText :: MatchSource -> Text
+matchSourceToText AutoFingerprint = "auto_fingerprint"
+matchSourceToText AutoMetadata = "auto_metadata"
+matchSourceToText Manual = "manual"
+
+-- | Parse MatchSource from Text (database representation).
+textToMatchSource :: Text -> Maybe MatchSource
+textToMatchSource "auto_fingerprint" = Just AutoFingerprint
+textToMatchSource "auto_metadata" = Just AutoMetadata
+textToMatchSource "manual" = Just Manual
+textToMatchSource _ = Nothing
+
 -- FromRow instances (SQLite only)
 instance SQLite.FromRow LibraryTrackRecord where
   fromRow = LibraryTrackRecord
@@ -460,11 +485,28 @@ instance SQLite.FromRow MetadataChangeRecord where
     <*> SQLite.field <*> SQLite.field <*> SQLite.field <*> SQLite.field
 
 instance SQLite.FromRow ClusterRecord where
-  fromRow = ClusterRecord
-    <$> SQLite.field <*> SQLite.field <*> SQLite.field <*> SQLite.field
-    <*> SQLite.field <*> SQLite.field <*> SQLite.field <*> SQLite.field
-    <*> SQLite.field <*> SQLite.field <*> SQLite.field <*> SQLite.field
-    <*> SQLite.field
+  fromRow = do
+    cId <- SQLite.field
+    metaHash <- SQLite.field
+    album <- SQLite.field
+    albumArtist <- SQLite.field
+    trackCnt <- SQLite.field
+    mbRelId <- SQLite.field
+    mbRelGrpId <- SQLite.field
+    mbConf <- SQLite.field
+    createdAt <- SQLite.field
+    updatedAt <- SQLite.field
+    lastIdAt <- SQLite.field
+    mbRelData <- SQLite.field
+    mbCands <- SQLite.field
+    matchSrcText <- SQLite.field :: SQLite.RowParser (Maybe Text)
+    matchLck <- toBool <$> SQLite.field
+    let matchSrc = matchSrcText >>= textToMatchSource
+    pure $ ClusterRecord cId metaHash album albumArtist trackCnt mbRelId mbRelGrpId mbConf createdAt updatedAt lastIdAt mbRelData mbCands matchSrc matchLck
+    where
+      toBool :: Int -> Bool
+      toBool 0 = False
+      toBool _ = True
 
 instance SQLite.FromRow AcquisitionSourceRecord where
   fromRow = do

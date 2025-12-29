@@ -9,8 +9,11 @@ module Skema.API.Types.Clusters
   , ClusterResponse(..)
   , ClusterWithTracksResponse(..)
   , ClusterTrackInfo(..)
+  , MBTrackInfo(..)
   , CandidateRelease(..)
   , AssignReleaseRequest(..)
+  , UpdateTrackRecordingRequest(..)
+  , CreateClusterRequest(..)
   ) where
 
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
@@ -24,6 +27,17 @@ type ClustersAPI = "clusters" :> Header "Authorization" Text :>
   :<|> Capture "clusterId" Int64 :> "candidates" :> Get '[JSON] [CandidateRelease]
   :<|> Capture "clusterId" Int64 :> "release" :> ReqBody '[JSON] AssignReleaseRequest :> Put '[JSON] ClusterResponse
   :<|> Capture "clusterId" Int64 :> "release" :> DeleteNoContent
+  -- Track recording mapping endpoint
+  :<|> Capture "clusterId" Int64 :> "tracks" :> Capture "trackId" Int64 :> "recording" :> ReqBody '[JSON] UpdateTrackRecordingRequest :> Put '[JSON] NoContent
+  -- Re-identify endpoint
+  :<|> Capture "clusterId" Int64 :> "reidentify" :> Post '[JSON] ClusterResponse
+  -- Search for releases (for manual matching)
+  :<|> "search-releases" :> QueryParam' '[Required, Strict] "query" Text :> QueryParam "limit" Int :> Get '[JSON] [CandidateRelease]
+  -- Search for recordings (for manual track matching)
+  :<|> "search-recordings" :> QueryParam' '[Required, Strict] "query" Text :> QueryParam "limit" Int :> Get '[JSON] [MBTrackInfo]
+  -- Cluster manipulation endpoints
+  :<|> ReqBody '[JSON] CreateClusterRequest :> Post '[JSON] ClusterResponse
+  :<|> Capture "clusterId" Int64 :> QueryParam "merge_into" Int64 :> DeleteNoContent
   )
 
 -- | Cluster response (without track details).
@@ -39,6 +53,9 @@ data ClusterResponse = ClusterResponse
   , clusterResponseCreatedAt :: Text
   , clusterResponseUpdatedAt :: Text
   , clusterResponseLastIdentifiedAt :: Maybe Text
+  -- Match provenance fields
+  , clusterResponseMatchSource :: Maybe Text  -- "auto_fingerprint", "auto_metadata", or "manual"
+  , clusterResponseMatchLocked :: Bool  -- True if manually assigned and locked from re-matching
   -- Cluster metadata (from first track, used for identification)
   , clusterResponseLabel :: Maybe Text
   , clusterResponseCatalogNumber :: Maybe Text
@@ -54,6 +71,8 @@ data ClusterResponse = ClusterResponse
   , clusterResponseMBReleaseLabel :: Maybe Text
   , clusterResponseMBReleaseCatalogNumber :: Maybe Text
   , clusterResponseMBReleaseBarcode :: Maybe Text
+  -- Alternative match candidates (for user selection)
+  , clusterResponseMBCandidates :: Maybe Text  -- JSON array of MBRelease objects
   } deriving (Show, Eq, Generic)
 
 instance ToJSON ClusterResponse where
@@ -71,6 +90,9 @@ data ClusterTrackInfo = ClusterTrackInfo
   , clusterTrackTrackNumber :: Maybe Int
   , clusterTrackDiscNumber :: Maybe Int
   , clusterTrackDuration :: Maybe Double
+  -- MusicBrainz recording mapping (from track matching)
+  , clusterTrackMBRecordingId :: Maybe Text
+  , clusterTrackMBRecordingTitle :: Maybe Text
   } deriving (Show, Eq, Generic)
 
 instance ToJSON ClusterTrackInfo where
@@ -79,17 +101,34 @@ instance ToJSON ClusterTrackInfo where
 instance FromJSON ClusterTrackInfo where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 12 }
 
+-- | MusicBrainz track info from cached release data.
+data MBTrackInfo = MBTrackInfo
+  { mbTrackInfoPosition :: Int
+  , mbTrackInfoTitle :: Text
+  , mbTrackInfoLength :: Maybe Int
+  , mbTrackInfoRecordingId :: Text
+  , mbTrackInfoArtist :: Maybe Text
+  , mbTrackInfoDiscNumber :: Int
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON MBTrackInfo where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
+
+instance FromJSON MBTrackInfo where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
+
 -- | Cluster response with track details.
 data ClusterWithTracksResponse = ClusterWithTracksResponse
   { clusterWithTracksCluster :: ClusterResponse
   , clusterWithTracksTracks :: [ClusterTrackInfo]
+  , clusterWithTracksMBTracks :: Maybe [MBTrackInfo]
   } deriving (Show, Eq, Generic)
 
 instance ToJSON ClusterWithTracksResponse where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 17 }
 
 instance FromJSON ClusterWithTracksResponse where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 17 }
 
 -- | MusicBrainz candidate release.
 data CandidateRelease = CandidateRelease
@@ -100,6 +139,10 @@ data CandidateRelease = CandidateRelease
   , candidateCountry :: Maybe Text
   , candidateTrackCount :: Int
   , candidateConfidence :: Double
+  -- Additional identifying information
+  , candidateBarcode :: Maybe Text
+  , candidateLabel :: Maybe Text
+  , candidateCatalogNumber :: Maybe Text
   } deriving (Show, Eq, Generic)
 
 instance ToJSON CandidateRelease where
@@ -120,3 +163,28 @@ instance ToJSON AssignReleaseRequest where
 
 instance FromJSON AssignReleaseRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 6 }
+
+-- | Request to update a track's recording mapping.
+data UpdateTrackRecordingRequest = UpdateTrackRecordingRequest
+  { updateRecordingId :: Text
+  , updateRecordingTitle :: Maybe Text
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON UpdateTrackRecordingRequest where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 6 }
+
+instance FromJSON UpdateTrackRecordingRequest where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 6 }
+
+-- | Request to create a new cluster from tracks.
+data CreateClusterRequest = CreateClusterRequest
+  { createClusterTrackIds :: [Int64]
+  , createClusterAlbum :: Maybe Text
+  , createClusterAlbumArtist :: Maybe Text
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON CreateClusterRequest where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 13 }
+
+instance FromJSON CreateClusterRequest where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 13 }

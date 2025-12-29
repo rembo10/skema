@@ -6,6 +6,7 @@
 -- | Identifier service - identifies albums using MusicBrainz.
 module Skema.Services.Identifier
   ( startIdentifierService
+  , clusterToFileGroup
   ) where
 
 import Skema.Services.Dependencies (IdentifierDeps(..))
@@ -13,15 +14,16 @@ import Skema.Services.Common (metadataRecordToMonatone)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getAllClusters, getClusterWithTracks, updateClusterWithMBData, updateClusterLastIdentified, updateTrackCluster, getTrackedArtistByMBID, getCatalogAlbumByReleaseGroupMBID)
+import Skema.Database.Repository (getAllClusters, getClusterWithTracks, updateClusterWithMBData, updateClusterLastIdentified, updateClusterWithCandidates, updateTrackCluster, getTrackedArtistByMBID, getCatalogAlbumByReleaseGroupMBID)
 import Skema.Database.Types (ClusterRecord(..), LibraryTrackMetadataRecord(..))
 import qualified Skema.Database.Types as DBTypes
 import Skema.MusicBrainz.Identify (identifyFileGroup)
 import Skema.Domain.Identification (IdentifyConfig(..), shouldRetryIdentification)
-import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), TrackMatch(..), MBID(..), unMBID, MBRelease(..))
+import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), TrackMatch(..), IdentificationResult(..), MBID(..), unMBID, MBRelease(..), MBTrack(..))
 import Skema.Config.Types (Config(..), LibraryConfig(..))
 import qualified Monatone.Metadata as M
 import System.OsPath (OsPath, takeDirectory)
+import qualified System.OsPath as OP
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
@@ -101,7 +103,8 @@ handleClustersGenerated IdentifierDeps{..} groupsNeedingId = do
         clusters <- liftIO $ withConnection pool $ \conn -> do
           allClusters <- getAllClusters conn
           -- Pure: Use domain logic to filter clusters needing identification
-          pure $ filter (clusterNeedsIdentification identifyConfig now) allClusters
+          -- Skip locked clusters (manually assigned matches)
+          pure $ filter (\c -> not (clusterMatchLocked c) && clusterNeedsIdentification identifyConfig now c) allClusters
 
         -- Convert clusters to FileGroups
         fileGroups <- liftIO $ withConnection pool $ \conn -> do
@@ -141,15 +144,15 @@ handleClustersGenerated IdentifierDeps{..} groupsNeedingId = do
               case result of
                 Left err ->
                   $(logTM) ErrorS $ logStr $ ("[" <> show idx <> "] API error: " <> show err :: Text)
-                Right Nothing ->
-                  $(logTM) WarningS $ logStr $ ("[" <> show idx <> "] No match found" :: Text)
-                Right (Just match) ->
+                Right (IdentificationResult Nothing candidates) ->
+                  $(logTM) WarningS $ logStr $ ("[" <> show idx <> "] No match found (" <> show (length candidates) <> " candidates below threshold)" :: Text)
+                Right (IdentificationResult (Just match) _) ->
                   $(logTM) InfoS $ logStr $ ("[" <> show idx <> "] Matched (confidence: " <>
                     show (round (rmConfidence match * 100) :: Integer) <> "%)" :: Text)
 
             -- Process this result immediately
             processed <- (case result of
-                Right (Just match) -> do
+                Right (IdentificationResult (Just match) _) -> do
                   -- Persist this match in its own connection
                   withConnection pool $ \conn -> do
                     -- Update cluster with MusicBrainz data (including cached release details)
@@ -179,11 +182,24 @@ handleClustersGenerated IdentifierDeps{..} groupsNeedingId = do
                         -- Get track IDs for this cluster
                         matchResult <- getClusterWithTracks conn cid
                         let trackIds = case matchResult of
-                              Just (_, trackList) -> map (\(tid, _, _) -> tid) trackList
+                              Just (_, trackList) -> map (\(tid, _, _, _, _) -> tid) trackList
                               Nothing -> []
 
                         -- Link tracks to cluster (already done, but ensure it's set)
                         updateTrackCluster conn cid trackIds
+
+                        -- Save track→recording mappings from munkres matching
+                        let trackMatches = rmTrackMatches match
+                        forM_ trackMatches $ \tm -> do
+                          let filePath = tmFilePath tm
+                              recording = tmTrack tm
+                              recordingId = unMBID (mbTrackRecordingId recording)
+                              recordingTitle = mbTrackTitle recording
+                          -- Update the track's mb_recording_id and mb_recording_title
+                          pathStr <- OP.decodeUtf filePath
+                          executeQuery conn
+                            "UPDATE library_tracks SET mb_recording_id = ?, mb_recording_title = ? WHERE path = ?"
+                            (Just recordingId, Just recordingTitle, toText pathStr)
 
                       Nothing -> pure ()
 
@@ -231,11 +247,12 @@ handleClustersGenerated IdentifierDeps{..} groupsNeedingId = do
                       pure True  -- Successfully processed
                     Nothing -> pure False
 
-                Right Nothing -> do
-                  -- No match found - update last_identified_at
+                Right (IdentificationResult Nothing candidatesWithScores) -> do
+                  -- No match found above threshold - save candidates for manual selection
+                  let candidates = map fst candidatesWithScores
                   withConnection pool $ \conn ->
                     case clusterId cluster of
-                      Just cid -> updateClusterLastIdentified conn cid
+                      Just cid -> updateClusterWithCandidates conn cid candidates
                       Nothing -> pure ()
                   pure False
 
@@ -276,12 +293,12 @@ clusterToFileGroup conn cluster = do
               -- Use first track for directory
               case viaNonEmpty head tracks of
                 Nothing -> pure Nothing  -- Should never happen due to null check above
-                Just (_, firstPath, _) -> do
+                Just (_, firstPath, _, _, _) -> do
                   let dir = takeDirectory firstPath
 
                   -- Extract metadata from all tracks - use first non-Nothing value for each field
                   -- This ensures we use available metadata even if it's only on one track
-                  let allMeta = map (\(_, _, meta) -> meta) tracks
+                  let allMeta = map (\(_, _, meta, _, _) -> meta) tracks
 
                   -- Find first non-Nothing value for each field
                   let findFirst f = viaNonEmpty head $ mapMaybe f allMeta
@@ -307,5 +324,5 @@ clusterToFileGroup conn cluster = do
                     }
 
 -- | Convert a track with metadata to (OsPath, Metadata) format.
-trackToFileMetadata :: (Int64, OsPath, LibraryTrackMetadataRecord) -> (OsPath, M.Metadata)
-trackToFileMetadata (_, path, meta) = (path, metadataRecordToMonatone meta)
+trackToFileMetadata :: (Int64, OsPath, LibraryTrackMetadataRecord, Maybe Text, Maybe Text) -> (OsPath, M.Metadata)
+trackToFileMetadata (_, path, meta, _, _) = (path, metadataRecordToMonatone meta)

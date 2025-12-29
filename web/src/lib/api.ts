@@ -1,4 +1,4 @@
-import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, CatalogAlbum, Download, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest } from '../types/api';
+import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, CatalogAlbum, Download, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster } from '../types/api';
 
 // Auto-detect base path from where the app is loaded
 // This allows the app to work at any subpath (e.g., /skema, /music, etc.)
@@ -326,6 +326,69 @@ export const api = {
   async removeRelease(clusterId: number): Promise<void> {
     return fetchApi<void>(`/clusters/${clusterId}/release`, {
       method: 'DELETE',
+    });
+  },
+
+  async getCandidates(clusterId: number): Promise<CandidateRelease[]> {
+    return fetchApi<CandidateRelease[]>(`/clusters/${clusterId}/candidates`);
+  },
+
+  async searchReleases(query: string, limit?: number): Promise<CandidateRelease[]> {
+    const params = new URLSearchParams({ query });
+    if (limit) params.append('limit', limit.toString());
+    return fetchApi<CandidateRelease[]>(`/clusters/search-releases?${params}`);
+  },
+
+  async searchRecordings(query: string, limit?: number): Promise<MBTrackInfo[]> {
+    const params = new URLSearchParams({ query });
+    if (limit) params.append('limit', limit.toString());
+    return fetchApi<MBTrackInfo[]>(`/clusters/search-recordings?${params}`);
+  },
+
+  async updateTrackRecording(
+    clusterId: number,
+    trackId: number,
+    recordingId: string,
+    recordingTitle?: string
+  ): Promise<void> {
+    return fetchApi<void>(`/clusters/${clusterId}/tracks/${trackId}/recording`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        recording_id: recordingId,
+        recording_title: recordingTitle,
+      }),
+    });
+  },
+
+  async reidentifyCluster(clusterId: number): Promise<Cluster> {
+    return fetchApi<Cluster>(`/clusters/${clusterId}/reidentify`, {
+      method: 'POST',
+    });
+  },
+
+  async getClusterWithTracks(clusterId: number): Promise<{
+    cluster: Cluster;
+    tracks: Array<{
+      id: number;
+      path: string;
+      title: string | null;
+      artist: string | null;
+      track_number: number | null;
+      disc_number: number | null;
+      duration: number | null;
+    }>;
+  }> {
+    return fetchApi(`/clusters/${clusterId}`);
+  },
+
+  async getAllTracks(): Promise<TrackWithCluster[]> {
+    return fetchApi<TrackWithCluster[]>('/library/tracks');
+  },
+
+  async updateTrack(trackId: number, update: { cluster_id: number | null }): Promise<void> {
+    return fetchApi<void>(`/library/tracks/${trackId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(update),
     });
   },
 

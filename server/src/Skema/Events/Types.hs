@@ -202,6 +202,10 @@ data Event
       , diffClusterId :: Int64
       , diffCount :: Int
       }
+  | TracksRematched
+      { rematchedClusterId :: Int64
+      , rematchedTrackCount :: Int
+      }
   | MetadataDiffApplied
       { diffId :: Int64
       }
@@ -485,6 +489,10 @@ eventToJSON = \case
     [ "track_id" .= diffTrackId
     , "cluster_id" .= diffClusterId
     , "diff_count" .= diffCount
+    ]
+  TracksRematched{..} -> object
+    [ "cluster_id" .= rematchedClusterId
+    , "track_count" .= rematchedTrackCount
     ]
   MetadataDiffApplied{..} -> object
     [ "diff_id" .= diffId

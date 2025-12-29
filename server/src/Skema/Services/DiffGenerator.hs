@@ -16,8 +16,8 @@ import Skema.Services.Common (metadataRecordToMonatone)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getClusterWithTracks, insertMetadataDiff, deleteMetadataDiffsForTrack, computeMetadataDiffs)
-import Skema.Database.Types (LibraryTrackMetadataRecord(..))
+import Skema.Database.Repository (getClusterWithTracks, getClusterById, insertMetadataDiff, deleteMetadataDiffsForTrack, computeMetadataDiffs)
+import Skema.Database.Types (LibraryTrackMetadataRecord(..), ClusterRecord(..))
 import Skema.MusicBrainz.Client (getRelease)
 import Skema.MusicBrainz.Types (MBRelease(..), MBTrack(..), MBID(..), mbReleaseTracks)
 import Control.Concurrent.Async (Async, async)
@@ -29,7 +29,7 @@ import Katip
 
 -- | Start the diff generator service.
 --
--- This service listens for CLUSTER_IDENTIFIED events and generates metadata diffs.
+-- This service listens for CLUSTER_IDENTIFIED and TRACKS_REMATCHED events and generates metadata diffs.
 startDiffGeneratorService :: DiffGeneratorDeps -> IO (Async ())
 startDiffGeneratorService deps = do
   chan <- STM.atomically $ subscribe (diffEventBus deps)
@@ -45,6 +45,16 @@ startDiffGeneratorService deps = do
               let le = diffLogEnv deps
               runKatipContextT le () "diff-generator.error" $ do
                 $(logTM) ErrorS $ logStr $ ("Exception processing cluster " <> show cid <> ": " <> show e :: Text)
+            Right () -> pure ()
+        pure ()
+      TracksRematched cid _trackCount -> do
+        _ <- async $ do
+          result <- try $ handleTracksRematched deps cid
+          case result of
+            Left (e :: SomeException) -> do
+              let le = diffLogEnv deps
+              runKatipContextT le () "diff-generator.error" $ do
+                $(logTM) ErrorS $ logStr $ ("Exception processing tracks rematched for cluster " <> show cid <> ": " <> show e :: Text)
             Right () -> pure ()
         pure ()
       _ -> pure ()  -- Ignore other events
@@ -83,7 +93,7 @@ handleClusterIdentified DiffGeneratorDeps{..} clusterId releaseId = do
               Right mbRelease -> do
                 -- Generate diffs for each track
                 liftIO $ withConnection pool $ \conn -> do
-                  forM_ tracks $ \(trackId, _path, metadata) -> do
+                  forM_ tracks $ \(trackId, _path, metadata, _mbRecId, _mbRecTitle) -> do
                     -- Convert metadata record to Monatone format
                     let fileMeta = metadataRecordToMonatone metadata
 
@@ -116,3 +126,32 @@ handleClusterIdentified DiffGeneratorDeps{..} clusterId releaseId = do
                                 , diffClusterId = clusterId
                                 , diffCount = length diffs
                                 }
+
+-- | Handle a tracks rematched event.
+-- This regenerates diffs for the cluster after manual track rematch.
+handleTracksRematched :: DiffGeneratorDeps -> Int64 -> IO ()
+handleTracksRematched DiffGeneratorDeps{..} clusterId = do
+  let le = diffLogEnv
+  let pool = diffDbPool
+
+  runKatipContextT le () "services.diff-generator" $ do
+    katipAddContext (sl "cluster_id" clusterId) $ do
+      -- Get cluster to find its release ID
+      maybeCluster <- liftIO $ withConnection pool $ \conn ->
+        getClusterById conn clusterId
+
+      case maybeCluster of
+        Nothing -> do
+          $(logTM) WarningS $ logStr ("Cluster not found: " <> show clusterId :: Text)
+          pure ()
+
+        Just cluster ->
+          case clusterMBReleaseId cluster of
+            Nothing -> do
+              $(logTM) InfoS $ logStr ("Cluster " <> show clusterId <> " has no MB release assigned, skipping diff generation" :: Text)
+              pure ()
+
+            Just releaseId -> do
+              $(logTM) InfoS $ logStr ("Regenerating diffs for cluster " <> show clusterId <> " after track rematch" :: Text)
+              -- Reuse the existing handler
+              liftIO $ handleClusterIdentified DiffGeneratorDeps{..} clusterId releaseId

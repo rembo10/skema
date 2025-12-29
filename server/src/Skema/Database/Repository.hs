@@ -37,7 +37,9 @@ module Skema.Database.Repository
   , findClusterByHash
   , createCluster
   , updateClusterWithMBData
+  , updateClusterWithMBDataManual
   , updateClusterLastIdentified
+  , updateClusterWithCandidates
   , updateTrackCluster
   , getClusterById
   , getAllClusters
@@ -124,7 +126,9 @@ import Skema.Database.Repository.Clusters
   , findClusterByHash
   , createCluster
   , updateClusterWithMBData
+  , updateClusterWithMBDataManual
   , updateClusterLastIdentified
+  , updateClusterWithCandidates
   , updateTrackCluster
   , getClusterById
   , getAllClusters

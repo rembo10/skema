@@ -24,7 +24,9 @@ export function useSSE(enabled: boolean = true) {
     updateAlbumCover,
     addDownload,
     updateDownload,
-    setAuthEnabled
+    setAuthEnabled,
+    addCluster,
+    updateCluster
   } = useAppStore();
 
   useEffect(() => {
@@ -179,8 +181,25 @@ export function useSSE(enabled: boolean = true) {
         }, 5000);
       });
 
-      eventSource.addEventListener('ClusterIdentified', () => {
-        // Don't show individual cluster identification, just the progress
+      eventSource.addEventListener('ClusterIdentified', async (e: MessageEvent) => {
+        // Fetch and update the cluster in the store
+        try {
+          const data = JSON.parse(e.data);
+          const { api } = await import('../lib/api');
+          const updatedCluster = await api.getClusters().then(clusters =>
+            clusters.find(c => c.id === data.cluster_id)
+          );
+          if (updatedCluster) {
+            const clusters = useAppStore.getState().clusters;
+            if (clusters.some(c => c.id === updatedCluster.id)) {
+              updateCluster(updatedCluster.id, updatedCluster);
+            } else {
+              addCluster(updatedCluster);
+            }
+          }
+        } catch (error) {
+          console.error('Error handling ClusterIdentified:', error);
+        }
       });
 
       // Persistence events

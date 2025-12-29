@@ -7,7 +7,9 @@ module Skema.Database.Repository.Clusters
   , findClusterByHash
   , createCluster
   , updateClusterWithMBData
+  , updateClusterWithMBDataManual
   , updateClusterLastIdentified
+  , updateClusterWithCandidates
   , updateTrackCluster
   , getClusterById
   , getAllClusters
@@ -55,7 +57,7 @@ computeClusterHash album albumArtist trackCount =
 findClusterByHash :: SQLite.Connection -> Text -> IO (Maybe ClusterRecord)
 findClusterByHash conn hash = do
   results <- queryRows conn
-    "SELECT id, metadata_hash, album, album_artist, track_count, mb_release_id, mb_release_group_id, mb_confidence, created_at, updated_at, last_identified_at, mb_release_data, mb_candidates \
+    "SELECT id, metadata_hash, album, album_artist, track_count, mb_release_id, mb_release_group_id, mb_confidence, created_at, updated_at, last_identified_at, mb_release_data, mb_candidates, match_source, match_locked \
     \FROM clusters WHERE metadata_hash = ?"
     (Only hash)
   pure $ viaNonEmpty head results
@@ -67,8 +69,9 @@ createCluster conn hash album albumArtist trackCount =
     "INSERT INTO clusters (metadata_hash, album, album_artist, track_count) VALUES (?, ?, ?, ?) RETURNING id"
     (hash, album, albumArtist, trackCount)
 
--- | Update a cluster with MusicBrainz match data.
+-- | Update a cluster with MusicBrainz match data (automatic matching).
 -- Now accepts the full MBRelease and candidate list, caching both as JSON for performance.
+-- Sets match_source to auto_metadata and does NOT lock the match.
 updateClusterWithMBData :: SQLite.Connection -> Int64 -> MBRelease -> Double -> [MBRelease] -> IO ()
 updateClusterWithMBData conn cid release confidence candidates = do
   now <- getCurrentTime
@@ -80,9 +83,26 @@ updateClusterWithMBData conn cid release confidence candidates = do
       candidatesJson = if null candidates
                        then Nothing
                        else Just $ TL.toStrict $ TLE.decodeUtf8 $ encode candidates
+      -- Auto matching source
+      matchSource = matchSourceToText AutoMetadata
   executeQuery conn
-    "UPDATE clusters SET mb_release_id = ?, mb_release_group_id = ?, mb_confidence = ?, last_identified_at = ?, updated_at = ?, mb_release_data = ?, mb_candidates = ? WHERE id = ?"
-    (Just releaseId, releaseGroupId, Just confidence, Just now, now, Just releaseJson, candidatesJson, cid)
+    "UPDATE clusters SET mb_release_id = ?, mb_release_group_id = ?, mb_confidence = ?, last_identified_at = ?, updated_at = ?, mb_release_data = ?, mb_candidates = ?, match_source = ? WHERE id = ?"
+    (Just releaseId, releaseGroupId, Just confidence, Just now, now, Just releaseJson, candidatesJson, Just matchSource, cid)
+
+-- | Update a cluster with MusicBrainz match data (manual assignment).
+-- This version marks the match as "manual" and LOCKS it to prevent automatic re-matching.
+updateClusterWithMBDataManual :: SQLite.Connection -> Int64 -> MBRelease -> Double -> IO ()
+updateClusterWithMBDataManual conn cid release confidence = do
+  now <- getCurrentTime
+  let releaseId = unMBID (mbReleaseId release)
+      releaseGroupId = fmap unMBID (mbReleaseGroupId release)
+      -- Serialize the full MBRelease to JSON for caching
+      releaseJson = TL.toStrict $ TLE.decodeUtf8 $ encode release
+      -- Manual matching source
+      matchSource = matchSourceToText Manual
+  executeQuery conn
+    "UPDATE clusters SET mb_release_id = ?, mb_release_group_id = ?, mb_confidence = ?, last_identified_at = ?, updated_at = ?, mb_release_data = ?, match_source = ?, match_locked = ? WHERE id = ?"
+    (Just releaseId, releaseGroupId, Just confidence, Just now, now, Just releaseJson, Just matchSource, True, cid)
 
 -- | Update last_identified_at timestamp for a cluster (even when no match found).
 -- This prevents repeatedly trying to identify clusters that failed to match.
@@ -92,6 +112,18 @@ updateClusterLastIdentified conn cid = do
   executeQuery conn
     "UPDATE clusters SET last_identified_at = ?, updated_at = ? WHERE id = ?"
     (Just now, now, cid)
+
+-- | Update a cluster with candidates but no match (confidence below threshold).
+-- Saves the candidates for manual selection while marking that identification was attempted.
+updateClusterWithCandidates :: SQLite.Connection -> Int64 -> [MBRelease] -> IO ()
+updateClusterWithCandidates conn cid candidates = do
+  now <- getCurrentTime
+  let candidatesJson = if null candidates
+                       then Nothing
+                       else Just $ TL.toStrict $ TLE.decodeUtf8 $ encode candidates
+  executeQuery conn
+    "UPDATE clusters SET mb_candidates = ?, last_identified_at = ?, updated_at = ? WHERE id = ?"
+    (candidatesJson, Just now, now, cid)
 
 -- | Update the cluster_id for tracks.
 -- Replaces the old junction table approach with direct FK assignment.
@@ -106,7 +138,7 @@ updateTrackCluster conn cid trackIds = do
 getClusterById :: SQLite.Connection -> Int64 -> IO (Maybe ClusterRecord)
 getClusterById conn cid = do
   results <- queryRows conn
-    "SELECT id, metadata_hash, album, album_artist, track_count, mb_release_id, mb_release_group_id, mb_confidence, created_at, updated_at, last_identified_at, mb_release_data, mb_candidates \
+    "SELECT id, metadata_hash, album, album_artist, track_count, mb_release_id, mb_release_group_id, mb_confidence, created_at, updated_at, last_identified_at, mb_release_data, mb_candidates, match_source, match_locked \
     \FROM clusters WHERE id = ?"
     (Only cid)
   pure $ viaNonEmpty head results
@@ -115,7 +147,7 @@ getClusterById conn cid = do
 getAllClusters :: SQLite.Connection -> IO [ClusterRecord]
 getAllClusters conn =
   queryRows_ conn
-    "SELECT id, metadata_hash, album, album_artist, track_count, mb_release_id, mb_release_group_id, mb_confidence, created_at, updated_at, last_identified_at, mb_release_data, mb_candidates \
+    "SELECT id, metadata_hash, album, album_artist, track_count, mb_release_id, mb_release_group_id, mb_confidence, created_at, updated_at, last_identified_at, mb_release_data, mb_candidates, match_source, match_locked \
     \FROM clusters ORDER BY updated_at DESC"
 
 -- | Create an empty metadata record for a track.
@@ -159,20 +191,21 @@ emptyMetadataRecord tid = LibraryTrackMetadataRecord
   }
 
 -- | Get a cluster with all its tracks and metadata.
-getClusterWithTracks :: SQLite.Connection -> Int64 -> IO (Maybe (ClusterRecord, [(Int64, OsPath, LibraryTrackMetadataRecord)]))
+-- Returns tuples of (track_id, path, metadata, mb_recording_id, mb_recording_title)
+getClusterWithTracks :: SQLite.Connection -> Int64 -> IO (Maybe (ClusterRecord, [(Int64, OsPath, LibraryTrackMetadataRecord, Maybe Text, Maybe Text)]))
 getClusterWithTracks conn cid = do
   -- Get the cluster
   maybeCluster <- getClusterById conn cid
   case maybeCluster of
     Nothing -> pure Nothing
     Just cluster -> do
-      -- Get all tracks in the cluster
-      trackIds <- queryRows conn
-        "SELECT id, path FROM library_tracks WHERE cluster_id = ? ORDER BY id"
-        (Only cid) :: IO [(Int64, String)]
+      -- Get all tracks in the cluster with recording IDs
+      trackData <- queryRows conn
+        "SELECT id, path, mb_recording_id, mb_recording_title FROM library_tracks WHERE cluster_id = ? ORDER BY id"
+        (Only cid) :: IO [(Int64, String, Maybe Text, Maybe Text)]
 
       -- For each track, get its metadata
-      tracks <- forM trackIds $ \(tid, pathStr) -> do
+      tracks <- forM trackData $ \(tid, pathStr, mbRecId, mbRecTitle) -> do
         path <- stringToOsPath pathStr
         -- Get metadata using the function from Repository.Tracks
         results <- queryRows conn
@@ -181,6 +214,6 @@ getClusterWithTracks conn cid = do
           (Only tid)
         let maybeMeta = viaNonEmpty head results
         let metadata = fromMaybe (emptyMetadataRecord tid) maybeMeta
-        pure (tid, path, metadata)
+        pure (tid, path, metadata, mbRecId, mbRecTitle)
 
       pure $ Just (cluster, tracks)
