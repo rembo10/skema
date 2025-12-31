@@ -7,7 +7,10 @@ module Skema.API.Handlers.Clusters
   ( clustersServer
   ) where
 
-import Skema.API.Types.Clusters (ClustersAPI, ClusterResponse(..), ClusterWithTracksResponse(..), ClusterTrackInfo(..), MBTrackInfo(..), CandidateRelease(..), AssignReleaseRequest(..), UpdateTrackRecordingRequest(..), CreateClusterRequest(..))
+import Skema.API.Types.Clusters (ClustersAPI, ClusterResponse(..), ClusterWithTracksResponse(..), ClusterTrackInfo(..), MBTrackInfo(..), CandidateRelease(..), AssignReleaseRequest(..), UpdateTrackRecordingRequest(..), CreateClusterRequest(..), ClusterTaskRequest(..))
+import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
+import Skema.Core.TaskManager (TaskManager)
+import qualified Skema.Core.TaskManager as TM
 import Skema.API.Handlers.Auth (throwJsonError)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
@@ -28,10 +31,11 @@ import qualified System.OsPath as OP
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BSL
-import Data.Aeson (eitherDecode)
+import Data.Aeson (eitherDecode, toJSON, object, (.=))
 import Data.Time (getCurrentTime)
 import Database.SQLite.Simple (Only(..))
 import qualified Control.Concurrent.STM as STM
+import Control.Concurrent.Async (async)
 import Servant
 import Katip
 
@@ -44,20 +48,129 @@ throw500 :: Text -> Handler a
 throw500 = throwJsonError err500
 
 -- | Clusters API handlers.
-clustersServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> ConnectionPool -> TVar Cfg.Config -> Server ClustersAPI
-clustersServer le bus _serverCfg jwtSecret registry connPool configVar = \maybeAuthHeader ->
-  getAllClustersHandler maybeAuthHeader
+clustersServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> TVar Cfg.Config -> Server ClustersAPI
+clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \maybeAuthHeader ->
+  taskHandler maybeAuthHeader
+  :<|> getAllClustersHandler maybeAuthHeader
   :<|> getClusterHandler maybeAuthHeader
   :<|> getCandidatesHandler maybeAuthHeader
   :<|> assignReleaseHandler maybeAuthHeader
   :<|> removeReleaseHandler maybeAuthHeader
   :<|> updateTrackRecordingHandler maybeAuthHeader
-  :<|> reidentifyClusterHandler maybeAuthHeader
   :<|> searchReleasesHandler maybeAuthHeader
   :<|> searchRecordingsHandler maybeAuthHeader
   :<|> createClusterHandler maybeAuthHeader
   :<|> deleteClusterHandler maybeAuthHeader
   where
+    taskHandler :: Maybe Text -> ClusterTaskRequest -> Handler TaskResponse
+    taskHandler authHeader req = do
+      _ <- requireAuth configVar jwtSecret authHeader
+      config <- liftIO $ STM.atomically $ STM.readTVar configVar
+
+      let clusterId = clusterTaskClusterId req
+
+      -- Create task based on request type
+      case clusterTaskType req of
+        "identify" -> liftIO $ do
+          -- Create the task
+          taskResp <- TM.createTask tm ClustersResource (Just clusterId) "identify"
+          let taskId = taskResponseId taskResp
+
+          -- Spawn async worker to execute the identification
+          _ <- async $ do
+            -- Get the cluster
+            maybeCluster <- withConnection connPool $ \conn ->
+              DB.getClusterById conn clusterId
+            case maybeCluster of
+              Nothing -> do
+                TM.failTask tm taskId $ "Cluster not found: " <> show clusterId
+              Just cluster -> do
+                let mbEnv = srMBClientEnv registry
+                let libConfig = Cfg.library config
+
+                -- Build identify config
+                let identifyConfig = IdentifyConfig
+                      { cfgMaxCandidates = 5
+                      , cfgMinConfidence = 0.35
+                      , cfgSearchLimit = 20
+                      , cfgNormalizeFeaturing = Cfg.libraryNormalizeFeaturing libConfig
+                      , cfgNormalizeFeaturingTo = Cfg.libraryNormalizeFeaturingTo libConfig
+                      , cfgRetryIntervalHours = 24
+                      }
+
+                -- Remove current match to unlock
+                when (isJust $ DBTypes.clusterMBReleaseId cluster) $ do
+                  withConnection connPool $ \conn -> do
+                    now <- getCurrentTime
+                    executeQuery conn
+                      "UPDATE clusters SET mb_release_id = NULL, mb_release_group_id = NULL, mb_confidence = NULL, match_source = NULL, match_locked = 0, mb_candidates = NULL, updated_at = ? WHERE id = ?"
+                      (now, clusterId)
+
+                TM.updateTaskProgress tm taskId 0.2 (Just "Converting cluster to file group...")
+
+                -- Convert cluster to FileGroup
+                maybeFileGroup <- withConnection connPool $ \conn ->
+                  clusterToFileGroup conn cluster
+                case maybeFileGroup of
+                  Nothing -> do
+                    TM.failTask tm taskId "Failed to convert cluster to file group"
+                  Just fileGroup -> do
+                    TM.updateTaskProgress tm taskId 0.4 (Just "Identifying with MusicBrainz...")
+
+                    -- Identify the cluster
+                    result <- identifyFileGroup le mbEnv identifyConfig fileGroup
+
+                    -- Process result
+                    case result of
+                      Left err -> do
+                        TM.failTask tm taskId $ "MusicBrainz error: " <> show err
+                      Right (IdentificationResult Nothing candidatesWithScores) -> do
+                        TM.updateTaskProgress tm taskId 0.8 (Just "Saving candidates...")
+                        -- No match found above confidence threshold - save candidates for manual selection
+                        let candidates = map fst candidatesWithScores
+                        withConnection connPool $ \conn ->
+                          DB.updateClusterWithCandidates conn clusterId candidates
+                        TM.completeTask tm taskId (Just $ toJSON $ object
+                          [ "message" .= ("No confident match found. Saved " <> show (length candidates) <> " candidates for manual selection." :: Text)
+                          , "candidates_count" .= length candidates
+                          ])
+
+                      Right (IdentificationResult (Just match) _) -> do
+                        TM.updateTaskProgress tm taskId 0.7 (Just "Saving match...")
+                        -- Match found - save it
+                        withConnection connPool $ \conn -> do
+                          let release = rmRelease match
+                          let confidence = rmConfidence match
+                          let candidates = rmCandidates match
+                          DB.updateClusterWithMBData conn clusterId release confidence candidates
+
+                          -- Save track matches
+                          forM_ (rmTrackMatches match) $ \tm' -> do
+                            let filePath = tmFilePath tm'
+                                recording = tmTrack tm'
+                                recordingId = unMBID (mbTrackRecordingId recording)
+                                recordingTitle = mbTrackTitle recording
+                            pathStr <- OP.decodeUtf filePath
+                            executeQuery conn
+                              "UPDATE library_tracks SET mb_recording_id = ?, mb_recording_title = ? WHERE path = ?"
+                              (Just recordingId, Just recordingTitle, toText pathStr)
+
+                        -- Emit TracksRematched event (for diff regeneration)
+                        let trackCount = length (rmTrackMatches match)
+                        publishAndLog bus le "api.clusters.task" $ TracksRematched
+                          { rematchedClusterId = clusterId
+                          , rematchedTrackCount = trackCount
+                          }
+
+                        TM.completeTask tm taskId (Just $ toJSON $ object
+                          [ "message" .= ("Successfully identified cluster with " <> show trackCount <> " tracks" :: Text)
+                          , "release_id" .= unMBID (mbReleaseId $ rmRelease match)
+                          , "confidence" .= rmConfidence match
+                          , "track_matches" .= trackCount
+                          ])
+
+          pure taskResp
+        _ -> throwError err400 { errBody = "Unknown task type" }
     getAllClustersHandler :: Maybe Text -> Handler [ClusterResponse]
     getAllClustersHandler authHeader = do
       _ <- requireAuth configVar jwtSecret authHeader
@@ -245,102 +358,6 @@ clustersServer le bus _serverCfg jwtSecret registry connPool configVar = \maybeA
         }
 
       pure NoContent
-
-    reidentifyClusterHandler :: Maybe Text -> Int64 -> Handler ClusterResponse
-    reidentifyClusterHandler authHeader clusterId = do
-      _ <- requireAuth configVar jwtSecret authHeader
-
-      -- Get the cluster
-      maybeCluster <- liftIO $ withConnection connPool $ \conn ->
-        DB.getClusterById conn clusterId
-      cluster <- case maybeCluster of
-        Nothing -> throw404 $ "Cluster not found: " <> show clusterId
-        Just c -> pure c
-
-      -- Read current config
-      config <- liftIO $ STM.atomically $ STM.readTVar configVar
-      let mbEnv = srMBClientEnv registry
-      let libConfig = Cfg.library config
-
-      -- Build identify config
-      let identifyConfig = IdentifyConfig
-            { cfgMaxCandidates = 5
-            , cfgMinConfidence = 0.35
-            , cfgSearchLimit = 20
-            , cfgNormalizeFeaturing = Cfg.libraryNormalizeFeaturing libConfig
-            , cfgNormalizeFeaturingTo = Cfg.libraryNormalizeFeaturingTo libConfig
-            , cfgRetryIntervalHours = 24
-            }
-
-      -- Remove current match to unlock
-      when (isJust $ DBTypes.clusterMBReleaseId cluster) $ do
-        liftIO $ withConnection connPool $ \conn -> do
-          now <- getCurrentTime
-          executeQuery conn
-            "UPDATE clusters SET mb_release_id = NULL, mb_release_group_id = NULL, mb_confidence = NULL, match_source = NULL, match_locked = 0, mb_candidates = NULL, updated_at = ? WHERE id = ?"
-            (now, clusterId)
-
-      -- Convert cluster to FileGroup
-      maybeFileGroup <- liftIO $ withConnection connPool $ \conn ->
-        clusterToFileGroup conn cluster
-      fileGroup <- case maybeFileGroup of
-        Nothing -> throw500 "Failed to convert cluster to file group"
-        Just fg -> pure fg
-
-      -- Identify the cluster
-      result <- liftIO $ identifyFileGroup le mbEnv identifyConfig fileGroup
-
-      -- Process result
-      case result of
-        Left err -> throw500 $ "MusicBrainz error: " <> show err
-        Right (IdentificationResult Nothing candidatesWithScores) -> do
-          -- No match found above confidence threshold - save candidates for manual selection
-          let candidates = map fst candidatesWithScores
-          liftIO $ withConnection connPool $ \conn ->
-            DB.updateClusterWithCandidates conn clusterId candidates
-          -- Return updated cluster
-          getAllClustersHandler authHeader >>= \clusters ->
-            case find (\c -> clusterResponseId c == clusterId) clusters of
-              Nothing -> throw404 "Cluster not found after reidentification"
-              Just c -> pure c
-
-        Right (IdentificationResult (Just match) _) -> do
-          -- Match found - save it
-          liftIO $ withConnection connPool $ \conn -> do
-            let release = rmRelease match
-            let confidence = rmConfidence match
-            let candidates = rmCandidates match
-            DB.updateClusterWithMBData conn clusterId release confidence candidates
-
-            -- Save track matches
-            forM_ (rmTrackMatches match) $ \tm -> do
-              let filePath = tmFilePath tm
-                  recording = tmTrack tm
-                  recordingId = unMBID (mbTrackRecordingId recording)
-                  recordingTitle = mbTrackTitle recording
-              pathStr <- OP.decodeUtf filePath
-              executeQuery conn
-                "UPDATE library_tracks SET mb_recording_id = ?, mb_recording_title = ? WHERE path = ?"
-                (Just recordingId, Just recordingTitle, toText pathStr)
-
-          -- Emit TracksRematched event (for diff regeneration)
-          let trackCount = length (rmTrackMatches match)
-          liftIO $ publishAndLog bus le "api.clusters" $ TracksRematched
-            { rematchedClusterId = clusterId
-            , rematchedTrackCount = trackCount
-            }
-
-          -- Emit ClusterIdentified event
-          let releaseId = unMBID (mbReleaseId $ rmRelease match)
-          let releaseGroupId = mbReleaseGroupId (rmRelease match) >>= Just . unMBID
-          liftIO $ runKatipContextT le () "api.reidentify" $ do
-            $(logTM) InfoS $ logStr $ ("Re-identified cluster " <> show clusterId <> " to release " <> releaseId :: Text)
-
-          -- Return updated cluster
-          getAllClustersHandler authHeader >>= \clusters ->
-            case find (\c -> clusterResponseId c == clusterId) clusters of
-              Nothing -> throw404 "Cluster not found after reidentification"
-              Just c -> pure c
 
     searchReleasesHandler :: Maybe Text -> Text -> Maybe Int -> Handler [CandidateRelease]
     searchReleasesHandler authHeader query maybeLimit = do

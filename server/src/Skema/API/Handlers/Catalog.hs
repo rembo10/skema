@@ -5,8 +5,11 @@ module Skema.API.Handlers.Catalog
   ( catalogServer
   ) where
 
-import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..))
+import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), CatalogTaskRequest(..))
 import Skema.API.Types.Events (EventResponse(..))
+import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
+import Skema.Core.TaskManager (TaskManager)
+import qualified Skema.Core.TaskManager as TM
 import Skema.API.Handlers.Auth (throwJsonError)
 import Skema.API.Handlers.Utils (withAuthDB)
 import Skema.Auth (requireAuth)
@@ -22,6 +25,8 @@ import Skema.Domain.Converters (mbArtistSearchToCatalogResponse, mbReleaseGroupS
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
+import Control.Concurrent.Async (async)
+import Data.Aeson (toJSON, object, (.=))
 import Servant
 import Katip
 import Data.Time (UTCTime)
@@ -39,20 +44,83 @@ throw500 :: Text -> Handler a
 throw500 = throwJsonError err500
 
 -- | Catalog API handlers.
-catalogServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> ConnectionPool -> FilePath -> TVar Cfg.Config -> Server CatalogAPI
-catalogServer le bus _serverCfg jwtSecret registry connPool _cacheDir configVar = \maybeAuthHeader ->
-  queryHandler maybeAuthHeader
+catalogServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> FilePath -> TVar Cfg.Config -> Server CatalogAPI
+catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configVar = \maybeAuthHeader ->
+  taskHandler maybeAuthHeader
+  :<|> queryHandler maybeAuthHeader
   :<|> getArtistsHandler maybeAuthHeader
   :<|> createArtistHandler maybeAuthHeader
   :<|> updateArtistHandler maybeAuthHeader
   :<|> deleteArtistHandler maybeAuthHeader
-  :<|> refreshArtistHandler maybeAuthHeader
-  :<|> refreshAllHandler maybeAuthHeader
   :<|> getAlbumsHandler maybeAuthHeader
   :<|> createAlbumHandler maybeAuthHeader
   :<|> updateAlbumHandler maybeAuthHeader
   :<|> deleteAlbumHandler maybeAuthHeader
   where
+    taskHandler :: Maybe Text -> CatalogTaskRequest -> Handler TaskResponse
+    taskHandler authHeader req = do
+      _ <- requireAuth configVar jwtSecret authHeader
+
+      -- Create task based on request type
+      case catalogTaskType req of
+        "refresh" -> case catalogTaskArtistId req of
+          Nothing -> throwError err400 { errBody = "Artist ID required for refresh task" }
+          Just artistId -> liftIO $ do
+            -- Create the task
+            taskResp <- TM.createTask tm CatalogResource (Just artistId) "refresh"
+            let taskId = taskResponseId taskResp
+
+            -- Spawn async worker to execute the refresh
+            _ <- async $ do
+              -- Get artist by ID to find MBID
+              maybeArtist <- withConnection connPool $ \conn -> do
+                artists <- DB.getCatalogArtists conn Nothing
+                pure $ find (\a -> DBTypes.catalogArtistId a == Just artistId) artists
+              case maybeArtist of
+                Nothing -> do
+                  TM.failTask tm taskId $ "Artist not found: " <> show artistId
+                Just artist -> do
+                  TM.updateTaskProgress tm taskId 0.3 (Just "Emitting refresh event...")
+                  -- Emit refresh event
+                  EventBus.publishAndLog bus le "api.catalog.task" $ Events.CatalogArtistRefreshRequested
+                    { Events.refreshArtistMBID = DBTypes.catalogArtistMBID artist
+                    }
+                  TM.completeTask tm taskId (Just $ toJSON $ object
+                    [ "message" .= ("Artist catalog refresh requested for: " <> DBTypes.catalogArtistName artist :: Text)
+                    , "artist_mbid" .= DBTypes.catalogArtistMBID artist
+                    ])
+
+            pure taskResp
+
+        "refresh_all" -> liftIO $ do
+          -- Create the task
+          taskResp <- TM.createTask tm CatalogResource Nothing "refresh_all"
+          let taskId = taskResponseId taskResp
+
+          -- Spawn async worker to execute the refresh
+          _ <- async $ do
+            TM.updateTaskProgress tm taskId 0.2 (Just "Fetching followed artists...")
+            -- Get all followed artists
+            followedArtists <- withConnection connPool $ \conn ->
+              DB.getCatalogArtists conn (Just True)
+
+            let totalArtists = length followedArtists
+            TM.updateTaskProgress tm taskId 0.4 (Just $ "Emitting refresh events for " <> show totalArtists <> " artists...")
+
+            -- Emit refresh event for each
+            forM_ followedArtists $ \artist ->
+              EventBus.publishAndLog bus le "api.catalog.task" $ Events.CatalogArtistRefreshRequested
+                { Events.refreshArtistMBID = DBTypes.catalogArtistMBID artist
+                }
+
+            TM.completeTask tm taskId (Just $ toJSON $ object
+              [ "message" .= ("Catalog refresh requested for " <> show totalArtists <> " artists" :: Text)
+              , "artists_count" .= totalArtists
+              ])
+
+          pure taskResp
+
+        _ -> throwError err400 { errBody = "Unknown task type" }
     -- Universal search handler - searches both artists and albums
     queryHandler :: Maybe Text -> CatalogQueryRequest -> Handler CatalogQueryResponse
     queryHandler authHeader req = do
@@ -198,43 +266,6 @@ catalogServer le bus _serverCfg jwtSecret registry connPool _cacheDir configVar 
       liftIO $ withConnection connPool $ \conn ->
         DB.deleteCatalogArtist conn artistId
       pure NoContent
-
-    -- Refresh single artist's catalog
-    refreshArtistHandler :: Maybe Text -> Int64 -> Handler EventResponse
-    refreshArtistHandler authHeader artistId = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      -- Get artist by ID to find MBID
-      maybeArtist <- liftIO $ withConnection connPool $ \conn -> do
-        artists <- DB.getCatalogArtists conn Nothing
-        pure $ find (\a -> DBTypes.catalogArtistId a == Just artistId) artists
-      case maybeArtist of
-        Nothing -> throw404 $ "Artist not found: " <> show artistId
-        Just artist -> do
-          -- Emit refresh event
-          liftIO $ EventBus.publishAndLog bus le "api.catalog" $ Events.CatalogArtistRefreshRequested
-            { Events.refreshArtistMBID = DBTypes.catalogArtistMBID artist
-            }
-          pure $ EventResponse
-            { eventResponseSuccess = True
-            , eventResponseMessage = "Artist catalog refresh requested"
-            }
-
-    -- Refresh all followed artists' catalogs
-    refreshAllHandler :: Maybe Text -> Handler EventResponse
-    refreshAllHandler authHeader = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      -- Get all followed artists
-      followedArtists <- liftIO $ withConnection connPool $ \conn ->
-        DB.getCatalogArtists conn (Just True)
-      -- Emit refresh event for each
-      liftIO $ forM_ followedArtists $ \artist ->
-        EventBus.publishAndLog bus le "api.catalog" $ Events.CatalogArtistRefreshRequested
-          { Events.refreshArtistMBID = DBTypes.catalogArtistMBID artist
-          }
-      pure $ EventResponse
-        { eventResponseSuccess = True
-        , eventResponseMessage = "Catalog refresh requested for " <> show (length followedArtists) <> " artists"
-        }
 
     -- Get catalog albums
     getAlbumsHandler :: Maybe Text -> Maybe Bool -> Maybe Int64 -> Handler [CatalogAlbumResponse]

@@ -5,7 +5,10 @@ module Skema.API.Handlers.Downloads
   ( downloadsServer
   ) where
 
-import Skema.API.Types.Downloads (DownloadsAPI, DownloadResponse(..), QueueDownloadRequest, QueueDownloadResponse(..))
+import Skema.API.Types.Downloads (DownloadsAPI, DownloadResponse(..), QueueDownloadRequest, QueueDownloadResponse(..), DownloadTaskRequest(..))
+import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
+import Skema.Core.TaskManager (TaskManager)
+import qualified Skema.Core.TaskManager as TM
 import Skema.API.Handlers.Auth (throwJsonError)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
@@ -17,6 +20,8 @@ import qualified Skema.Config.Types as Cfg
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
+import Control.Concurrent.Async (async)
+import Data.Aeson (toJSON, object, (.=))
 import Servant
 import Katip
 import Database.SQLite.Simple (Only(..))
@@ -32,14 +37,45 @@ throw500 :: Text -> Handler a
 throw500 = throwJsonError err500
 
 -- | Downloads API handlers.
-downloadsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> STM.TVar (Map.Map Int64 (Double, Text)) -> TVar Cfg.Config -> Server DownloadsAPI
-downloadsServer le bus _serverCfg jwtSecret connPool progressMap configVar = \maybeAuthHeader ->
-  getAllDownloadsHandler maybeAuthHeader
+downloadsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> TaskManager -> ConnectionPool -> STM.TVar (Map.Map Int64 (Double, Text)) -> TVar Cfg.Config -> Server DownloadsAPI
+downloadsServer le bus _serverCfg jwtSecret tm connPool progressMap configVar = \maybeAuthHeader ->
+  taskHandler maybeAuthHeader
+  :<|> getAllDownloadsHandler maybeAuthHeader
   :<|> getDownloadHandler maybeAuthHeader
   :<|> queueDownloadHandler maybeAuthHeader
   :<|> deleteDownloadHandler maybeAuthHeader
-  :<|> reidentifyDownloadHandler maybeAuthHeader
   where
+    taskHandler :: Maybe Text -> DownloadTaskRequest -> Handler TaskResponse
+    taskHandler authHeader req = do
+      _ <- requireAuth configVar jwtSecret authHeader
+
+      let downloadId = downloadTaskDownloadId req
+
+      -- Create task based on request type
+      case downloadTaskType req of
+        "reidentify" -> liftIO $ do
+          -- Create the task
+          taskResp <- TM.createTask tm DownloadsResource (Just downloadId) "reidentify"
+          let taskId = taskResponseId taskResp
+
+          -- Spawn async worker to execute the reidentification
+          _ <- async $ do
+            TM.updateTaskProgress tm taskId 0.3 (Just "Emitting reidentify event...")
+            -- Emit DownloadCompleted event to trigger re-import/re-identification
+            EventBus.publishAndLog bus le "api.downloads.task" $ Events.DownloadCompleted
+              { Events.downloadId = downloadId
+              , Events.downloadTitle = ""  -- Will be looked up by importer
+              , Events.downloadPath = Nothing  -- Will be looked up by importer
+              }
+            TM.completeTask tm taskId (Just $ toJSON $ object
+              [ "message" .= ("Download reidentification requested" :: Text)
+              , "download_id" .= downloadId
+              ])
+
+          pure taskResp
+
+        _ -> throwError err400 { errBody = "Unknown task type" }
+
     getAllDownloadsHandler :: Maybe Text -> Handler [DownloadResponse]
     getAllDownloadsHandler authHeader = do
       _ <- requireAuth configVar jwtSecret authHeader
@@ -111,15 +147,4 @@ downloadsServer le bus _serverCfg jwtSecret connPool progressMap configVar = \ma
       -- Delete the download record from the database
       liftIO $ withConnection connPool $ \conn ->
         DownloadsRepo.deleteDownload conn downloadId
-      pure NoContent
-
-    reidentifyDownloadHandler :: Maybe Text -> Int64 -> Handler NoContent
-    reidentifyDownloadHandler authHeader downloadId = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      -- Emit DownloadCompleted event to trigger re-import/re-identification
-      liftIO $ EventBus.publishAndLog bus le "api.downloads" $ Events.DownloadCompleted
-        { Events.downloadId = downloadId
-        , Events.downloadTitle = ""  -- Will be looked up by importer
-        , Events.downloadPath = Nothing  -- Will be looked up by importer
-        }
       pure NoContent

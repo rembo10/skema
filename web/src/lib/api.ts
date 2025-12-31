@@ -1,4 +1,4 @@
-import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, CatalogAlbum, Download, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster } from '../types/api';
+import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, CatalogAlbum, Download, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task } from '../types/api';
 
 // Auto-detect base path from where the app is loaded
 // This allows the app to work at any subpath (e.g., /skema, /music, etc.)
@@ -360,9 +360,13 @@ export const api = {
     });
   },
 
-  async reidentifyCluster(clusterId: number): Promise<Cluster> {
-    return fetchApi<Cluster>(`/clusters/${clusterId}/reidentify`, {
+  async reidentifyCluster(clusterId: number): Promise<Task> {
+    return fetchApi<Task>('/clusters/tasks', {
       method: 'POST',
+      body: JSON.stringify({
+        type: 'identify',
+        cluster_id: clusterId,
+      }),
     });
   },
 
@@ -509,15 +513,22 @@ export const api = {
     });
   },
 
-  async refreshCatalogArtist(artistId: number): Promise<{ success: boolean; message: string }> {
-    return fetchApi<{ success: boolean; message: string }>(`/catalog/artists/${artistId}/refresh`, {
+  async refreshCatalogArtist(artistId: number): Promise<Task> {
+    return fetchApi<Task>('/catalog/tasks', {
       method: 'POST',
+      body: JSON.stringify({
+        type: 'refresh',
+        artist_id: artistId,
+      }),
     });
   },
 
-  async refreshAllCatalogArtists(): Promise<{ success: boolean; message: string }> {
-    return fetchApi<{ success: boolean; message: string }>('/catalog/refresh', {
+  async refreshAllCatalogArtists(): Promise<Task> {
+    return fetchApi<Task>('/catalog/tasks', {
       method: 'POST',
+      body: JSON.stringify({
+        type: 'refresh_all',
+      }),
     });
   },
 
@@ -588,9 +599,13 @@ export const api = {
     });
   },
 
-  async reidentifyDownload(downloadId: number): Promise<void> {
-    return fetchApi<void>(`/downloads/${downloadId}/reidentify`, {
+  async reidentifyDownload(downloadId: number): Promise<Task> {
+    return fetchApi<Task>('/downloads/tasks', {
       method: 'POST',
+      body: JSON.stringify({
+        type: 'reidentify',
+        download_id: downloadId,
+      }),
     });
   },
 

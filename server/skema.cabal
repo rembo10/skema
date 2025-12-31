@@ -85,6 +85,7 @@ library
     Skema.API.Types.Downloads
     Skema.API.Types.Filesystem
     Skema.API.Types.QualityProfiles
+    Skema.API.Types.Tasks
     Skema.API.Server
     Skema.API.Handlers.Auth
     Skema.API.Handlers.Library
@@ -98,7 +99,9 @@ library
     Skema.API.Handlers.Events
     Skema.API.Handlers.Filesystem
     Skema.API.Handlers.QualityProfiles
+    Skema.API.Handlers.Tasks
     Skema.API.Handlers.Static
+    Skema.Core.TaskManager
     Skema.API.Handlers.Utils
     Skema.Auth.Types
     Skema.Auth.Store

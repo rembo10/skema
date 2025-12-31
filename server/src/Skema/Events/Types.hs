@@ -283,6 +283,29 @@ data Event
       { configReloadError :: Text
       }
   | Heartbeat
+
+  -- Task events
+  | TaskCreated
+      { taskCreatedId :: Text
+      , taskCreatedResource :: Text
+      , taskCreatedType :: Text
+      }
+  | TaskProgressUpdated
+      { taskProgressId :: Text
+      , taskProgressValue :: Double
+      , taskProgressMessage :: Maybe Text
+      }
+  | TaskCompleted
+      { taskCompletedId :: Text
+      , taskCompletedResult :: Maybe Value
+      }
+  | TaskFailed'
+      { taskFailedId :: Text
+      , taskFailedError :: Text
+      }
+  | TaskCancelled'
+      { taskCancelledId :: Text
+      }
   deriving (Show, Eq, Generic, Data)
 
 -- | Metadata attached to every event.

@@ -7,13 +7,14 @@
 module Skema.API.Types.Library
   ( LibraryAPI
   , StatsAPI
-  , ScanResponse(..)
   , FileInfo(..)
   , LibraryStats(..)
   , UpdateTrackRequest(..)
   , TrackWithCluster(..)
+  , LibraryTaskRequest(..)
   ) where
 
+import Skema.API.Types.Tasks (TaskResponse)
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
 import GHC.Generics ()
 import Servant
@@ -21,7 +22,7 @@ import Database.SQLite.Simple.FromRow (FromRow(..), field)
 
 -- | Library management endpoints.
 type LibraryAPI = "library" :> Header "Authorization" Text :>
-  ( "scan" :> Post '[JSON] ScanResponse
+  ( "tasks" :> ReqBody '[JSON] LibraryTaskRequest :> PostCreated '[JSON] TaskResponse
   :<|> "files" :> Get '[JSON] [FileInfo]
   :<|> "tracks" :> Get '[JSON] [TrackWithCluster]
   :<|> "tracks" :> Capture "trackId" Int64 :> ReqBody '[JSON] UpdateTrackRequest :> Patch '[JSON] NoContent
@@ -29,29 +30,6 @@ type LibraryAPI = "library" :> Header "Authorization" Text :>
 
 -- | Stats API endpoints.
 type StatsAPI = "stats" :> Header "Authorization" Text :> Get '[JSON] LibraryStats
-
--- | Response for library scan.
-data ScanResponse = ScanResponse
-  { scanSuccess :: Bool
-  , scanMessage :: Text
-  , scanFilesAdded :: Int
-  , scanFilesModified :: Int
-  , scanFilesDeleted :: Int
-  , scanIdentifyRun :: Bool
-    -- ^ Whether identification was run
-  , scanIdentifyTotalGroups :: Maybe Int
-    -- ^ Total number of file groups (albums) processed
-  , scanIdentifyMatchedGroups :: Maybe Int
-    -- ^ Number of groups successfully matched to MusicBrainz
-  , scanIdentifyFilesUpdated :: Maybe Int
-    -- ^ Number of individual files updated with MusicBrainz IDs
-  } deriving (Show, Eq, Generic)
-
-instance ToJSON ScanResponse where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 4 }
-
-instance FromJSON ScanResponse where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 4 }
 
 -- | File information for API responses.
 data FileInfo = FileInfo
@@ -152,3 +130,15 @@ instance FromRow TrackWithCluster where
     <*> field -- mb_confidence
     <*> field -- match_source
     <*> field -- match_locked
+
+-- | Request to create a library task.
+data LibraryTaskRequest = LibraryTaskRequest
+  { libraryTaskType :: Text
+    -- ^ Task type: "scan"
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON LibraryTaskRequest where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
+
+instance FromJSON LibraryTaskRequest where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }

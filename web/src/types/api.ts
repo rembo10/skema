@@ -135,23 +135,17 @@ export interface CandidateRelease {
 
 export interface Task {
   id: string;
-  type: 'LibraryScan' | 'MusicBrainzIdentify' | 'MetadataApply';
-  status: 'TaskPending' | 'TaskRunning' | 'TaskCompleted' | 'TaskFailed';
-  progress?: {
-    message: string;
-    percent?: number;
-  };
-  result?: {
-    files_scanned?: number;
-    total_groups?: number;
-    matched_groups?: number;
-    files_updated?: number;
-    changes_applied?: number;
-  };
+  resource: 'LibraryResource' | 'ClustersResource' | 'CatalogResource' | 'DownloadsResource';
+  resource_id: number | null;
+  type: string;  // "scan", "identify", "refresh", "refresh_all", "reidentify"
+  status: 'TaskQueued' | 'TaskRunning' | 'TaskCompleted' | 'TaskFailed' | 'TaskCancelled';
+  progress: number;  // 0.0 to 1.0
+  message: string | null;
+  result: unknown | null;  // JSON result data
+  error: string | null;
   created_at: string;
-  started_at?: string;
-  completed_at?: string;
-  error?: string;
+  started_at: string | null;
+  completed_at: string | null;
 }
 
 export interface MetadataChange {

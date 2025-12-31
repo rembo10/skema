@@ -5,7 +5,10 @@ module Skema.API.Handlers.Library
   ( libraryServer
   ) where
 
-import Skema.API.Types.Library (LibraryAPI, ScanResponse(..), UpdateTrackRequest(..), TrackWithCluster(..))
+import Skema.API.Types.Library (LibraryAPI, UpdateTrackRequest(..), TrackWithCluster(..), LibraryTaskRequest(..))
+import Skema.API.Types.Tasks (TaskResource(..))
+import Skema.Core.TaskManager (TaskManager)
+import qualified Skema.Core.TaskManager as TM
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
@@ -18,53 +21,52 @@ import qualified System.OsPath as OP
 import Servant
 import Katip
 import qualified Control.Concurrent.STM as STM
+import Control.Concurrent.Async (async)
+import Data.Aeson (toJSON, object, (.=))
+import Skema.API.Types.Tasks (TaskResponse(..))
 
 -- | Library API handlers.
-libraryServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> ConnectionPool -> TVar Cfg.Config -> Server LibraryAPI
-libraryServer le bus _serverCfg jwtSecret _registry pool configVar = \maybeAuthHeader ->
-  scanHandler maybeAuthHeader
+libraryServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> TVar Cfg.Config -> Server LibraryAPI
+libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAuthHeader ->
+  taskHandler maybeAuthHeader
   :<|> filesHandler maybeAuthHeader
   :<|> tracksHandler maybeAuthHeader
   :<|> updateTrackHandler maybeAuthHeader
   where
-    scanHandler authHeader = do
+    taskHandler authHeader req = do
       _ <- requireAuth configVar jwtSecret authHeader
       config <- liftIO $ STM.atomically $ STM.readTVar configVar
 
-      liftIO $ do
-        -- Get library path
-        case Cfg.libraryPath (Cfg.library config) of
-          Nothing -> pure $ ScanResponse
-            { scanSuccess = False
-            , scanMessage = "Library path not configured"
-            , scanFilesAdded = 0
-            , scanFilesModified = 0
-            , scanFilesDeleted = 0
-            , scanIdentifyRun = False
-            , scanIdentifyTotalGroups = Nothing
-            , scanIdentifyMatchedGroups = Nothing
-            , scanIdentifyFilesUpdated = Nothing
-            }
-          Just libOsPath -> do
-            libPathText <- OP.decodeUtf libOsPath
+      -- Create task based on request type
+      case libraryTaskType req of
+        "scan" -> liftIO $ do
+          -- Create the task
+          taskResp <- TM.createTask tm LibraryResource Nothing "scan"
+          let taskId = taskResponseId taskResp
 
+          -- Spawn async worker to execute the scan
+          _ <- async $ do
             -- Emit library scan requested event
-            EventBus.publishAndLog bus le "api" $
-              Events.LibraryScanRequested
-                { Events.scanPath = toText libPathText
-                }
+            case Cfg.libraryPath (Cfg.library config) of
+              Nothing -> do
+                TM.failTask tm taskId "Library path not configured"
+              Just libOsPath -> do
+                libPathText <- OP.decodeUtf libOsPath
+                EventBus.publishAndLog bus le "library-task" $
+                  Events.LibraryScanRequested
+                    { Events.scanPath = toText libPathText
+                    }
 
-            pure $ ScanResponse
-              { scanSuccess = True
-              , scanMessage = "Library scan started: " <> toText libPathText
-              , scanFilesAdded = 0
-              , scanFilesModified = 0
-              , scanFilesDeleted = 0
-              , scanIdentifyRun = False
-              , scanIdentifyTotalGroups = Nothing
-              , scanIdentifyMatchedGroups = Nothing
-              , scanIdentifyFilesUpdated = Nothing
-              }
+                -- For now, just complete the task immediately
+                -- TODO: Hook up actual scan logic with progress updates
+                TM.updateTaskProgress tm taskId 0.5 (Just "Scanning files...")
+                TM.completeTask tm taskId (Just $ toJSON $ object
+                  [ "message" .= ("Scan completed for: " <> toText libPathText :: Text)
+                  , "files_scanned" .= (0 :: Int)
+                  ])
+
+          pure taskResp
+        _ -> throwError err400 { errBody = "Unknown task type" }
 
     filesHandler authHeader = do
       _ <- requireAuth configVar jwtSecret authHeader

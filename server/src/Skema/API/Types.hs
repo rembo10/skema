@@ -17,6 +17,7 @@
 -- * "Skema.API.Types.Downloads" - Download management endpoints
 -- * "Skema.API.Types.Filesystem" - Filesystem browsing endpoints
 -- * "Skema.API.Types.QualityProfiles" - Quality profile endpoints
+-- * "Skema.API.Types.Tasks" - Task management endpoints
 -- * "Skema.API.Types.Common" - Shared common types
 module Skema.API.Types
   ( API
@@ -33,9 +34,10 @@ import Skema.API.Types.Downloads (DownloadsAPI)
 import Skema.API.Types.Events (EventsAPI)
 import Skema.API.Types.Filesystem (FilesystemAPI)
 import Skema.API.Types.QualityProfiles (QualityProfilesAPI)
+import Skema.API.Types.Tasks (TasksAPI)
 import Servant
 
 -- | Top-level API combining all sub-APIs and static file serving.
-type API = "api" :> (AuthAPI :<|> LibraryAPI :<|> ConfigAPI :<|> ConfigSchemaAPI :<|> DiffsAPI :<|> ClustersAPI :<|> StatsAPI :<|> AcquisitionAPI :<|> CatalogAPI :<|> DownloadsAPI :<|> EventsAPI :<|> FilesystemAPI :<|> QualityProfilesAPI)
+type API = "api" :> (AuthAPI :<|> LibraryAPI :<|> ConfigAPI :<|> ConfigSchemaAPI :<|> DiffsAPI :<|> ClustersAPI :<|> StatsAPI :<|> AcquisitionAPI :<|> CatalogAPI :<|> DownloadsAPI :<|> EventsAPI :<|> FilesystemAPI :<|> QualityProfilesAPI :<|> TasksAPI)
       :<|> "images" :> Raw
       :<|> Raw  -- Catch-all for frontend SPA

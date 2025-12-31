@@ -14,22 +14,23 @@ module Skema.API.Types.Catalog
   , UpdateCatalogArtistRequest(..)
   , CreateCatalogAlbumRequest(..)
   , UpdateCatalogAlbumRequest(..)
+  , CatalogTaskRequest(..)
   ) where
 
 import Skema.API.Types.Events (EventResponse)
+import Skema.API.Types.Tasks (TaskResponse)
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
 import GHC.Generics ()
 import Servant
 
 -- | Catalog API endpoints.
 type CatalogAPI = "catalog" :> Header "Authorization" Text :>
-  ( "query" :> ReqBody '[JSON] CatalogQueryRequest :> Post '[JSON] CatalogQueryResponse
+  ( "tasks" :> ReqBody '[JSON] CatalogTaskRequest :> PostCreated '[JSON] TaskResponse
+  :<|> "query" :> ReqBody '[JSON] CatalogQueryRequest :> Post '[JSON] CatalogQueryResponse
   :<|> "artists" :> QueryParam "followed" Bool :> Get '[JSON] [CatalogArtistResponse]
   :<|> "artists" :> ReqBody '[JSON] CreateCatalogArtistRequest :> PostCreated '[JSON] CatalogArtistResponse
   :<|> "artists" :> Capture "artistId" Int64 :> ReqBody '[JSON] UpdateCatalogArtistRequest :> Patch '[JSON] CatalogArtistResponse
   :<|> "artists" :> Capture "artistId" Int64 :> DeleteNoContent
-  :<|> "artists" :> Capture "artistId" Int64 :> "refresh" :> Post '[JSON] EventResponse
-  :<|> "refresh" :> Post '[JSON] EventResponse
   :<|> "albums" :> QueryParam "wanted" Bool :> QueryParam "artistId" Int64 :> Get '[JSON] [CatalogAlbumResponse]
   :<|> "albums" :> ReqBody '[JSON] CreateCatalogAlbumRequest :> PostCreated '[JSON] CatalogAlbumResponse
   :<|> "albums" :> Capture "albumId" Int64 :> ReqBody '[JSON] UpdateCatalogAlbumRequest :> Patch '[JSON] CatalogAlbumResponse
@@ -180,3 +181,17 @@ instance ToJSON UpdateCatalogAlbumRequest where
 
 instance FromJSON UpdateCatalogAlbumRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
+
+-- | Request to create a catalog task.
+data CatalogTaskRequest = CatalogTaskRequest
+  { catalogTaskType :: Text
+    -- ^ Task type: "refresh" or "refresh_all"
+  , catalogTaskArtistId :: Maybe Int64
+    -- ^ Artist ID to refresh (Nothing for refresh_all)
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON CatalogTaskRequest where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
+
+instance FromJSON CatalogTaskRequest where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }

@@ -22,7 +22,10 @@ import Skema.API.Handlers.Diffs (diffsServer)
 import Skema.API.Handlers.Events (eventsServer)
 import Skema.API.Handlers.Filesystem (filesystemServer)
 import Skema.API.Handlers.QualityProfiles (qualityProfilesServer)
+import Skema.API.Handlers.Tasks (tasksServer)
 import Skema.API.Handlers.Static (staticFileServer, frontendServer)
+import Skema.Core.TaskManager (TaskManager)
+import qualified Skema.Core.TaskManager as TM
 import Skema.Auth (AuthStore, newAuthStore, checkAuthEnabled)
 import Skema.Auth.JWT (JWTSecret, getJWTSecret)
 import Skema.Database.Connection (ConnectionPool)
@@ -82,27 +85,28 @@ requestLoggingMiddleware le application req responseHandler = do
     responseHandler response
 
 -- | WAI application with logging middleware.
-app :: LogEnv -> EventBus -> AuthStore -> ServerConfig -> JWTSecret -> ServiceRegistry -> ConnectionPool -> Maybe Text -> FilePath -> FilePath -> Application
-app le bus authStore serverCfg jwtSecret registry connPool libPath cacheDir configPath =
+app :: LogEnv -> EventBus -> AuthStore -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> FilePath -> Application
+app le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir configPath =
   requestLoggingMiddleware le $
-    serve (Proxy :: Proxy API) (server le bus authStore serverCfg jwtSecret registry connPool libPath cacheDir (srConfigVar registry) configPath)
+    serve (Proxy :: Proxy API) (server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir (srConfigVar registry) configPath)
 
 -- | Servant server.
-server :: LogEnv -> EventBus -> AuthStore -> ServerConfig -> JWTSecret -> ServiceRegistry -> ConnectionPool -> Maybe Text -> FilePath -> TVar Config -> FilePath -> Server API
-server le bus authStore serverCfg jwtSecret registry connPool libPath cacheDir configVar configPath =
+server :: LogEnv -> EventBus -> AuthStore -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> TVar Config -> FilePath -> Server API
+server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir configVar configPath =
   (authServer authStore jwtSecret configVar
-   :<|> libraryServer le bus serverCfg jwtSecret registry connPool configVar
+   :<|> libraryServer le bus serverCfg jwtSecret registry tm connPool configVar
    :<|> configServer le bus serverCfg jwtSecret connPool configVar configPath
    :<|> configSchemaServer
    :<|> diffsServer le bus serverCfg jwtSecret registry connPool configVar
-   :<|> clustersServer le bus serverCfg jwtSecret registry connPool configVar
+   :<|> clustersServer le bus serverCfg jwtSecret registry tm connPool configVar
    :<|> statsServer serverCfg jwtSecret connPool configVar
    :<|> acquisitionServer serverCfg jwtSecret connPool configVar
-   :<|> catalogServer le bus serverCfg jwtSecret registry connPool cacheDir configVar
-   :<|> downloadsServer le bus serverCfg jwtSecret connPool (srDownloadProgressMap registry) configVar
+   :<|> catalogServer le bus serverCfg jwtSecret registry tm connPool cacheDir configVar
+   :<|> downloadsServer le bus serverCfg jwtSecret tm connPool (srDownloadProgressMap registry) configVar
    :<|> eventsServer le bus serverCfg jwtSecret connPool libPath configVar
    :<|> filesystemServer serverCfg jwtSecret configVar
-   :<|> qualityProfilesServer serverCfg jwtSecret connPool configVar)
+   :<|> qualityProfilesServer serverCfg jwtSecret connPool configVar
+   :<|> tasksServer jwtSecret tm configVar)
   :<|> staticFileServer cacheDir
   :<|> frontendServer
 
@@ -140,6 +144,10 @@ startServer le bus serverCfg registry connPool libPath cacheDir configPath cliPo
     -- Create auth store
     authStore <- liftIO newAuthStore
 
+    -- Create task manager
+    taskManager <- liftIO $ TM.newTaskManager bus le
+    $(logTM) InfoS $ logStr ("Task manager initialized" :: Text)
+
     -- Start heartbeat worker for SSE keep-alive
     liftIO $ startHeartbeatWorker le bus
     $(logTM) InfoS $ logStr ("Heartbeat worker started" :: Text)
@@ -159,7 +167,7 @@ startServer le bus serverCfg registry connPool libPath cacheDir configPath cliPo
                  $ defaultSettings
 
     -- Run server with exception handling
-    liftIO (runSettings settings (app le bus authStore serverCfg jwtSecret registry connPool libPath cacheDir configPath)) `catch` handleStartupException host port
+    liftIO (runSettings settings (app le bus authStore serverCfg jwtSecret registry taskManager connPool libPath cacheDir configPath)) `catch` handleStartupException host port
   where
     handleStartupException :: Text -> Int -> E.SomeException -> KatipContextT IO ()
     handleStartupException _h p ex =
