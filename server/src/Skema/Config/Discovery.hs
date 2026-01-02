@@ -140,28 +140,46 @@ applyPortToConfig maybePort config = do
     orElse (Just x) _ = Just x
     orElse Nothing y = y
 
--- | Ensure JWT secret exists in config, generating and saving if needed.
+-- | Ensure JWT secret exists in config, checking environment variable if needed.
+--
+-- Priority order:
+-- 1. JWT secret in config file
+-- 2. SKEMA_JWT_SECRET environment variable
+-- 3. Auto-generate a new secret and try to persist it
+--
+-- If a secret needs to be generated:
+-- - Try to write it back to the config file
+-- - If write fails (read-only mount), continue with in-memory secret
+-- - Next startup will re-generate if config still has no secret
 ensureJWTSecret :: FilePath -> Config -> IO (Either Text Config)
 ensureJWTSecret configPath config = do
   let srvConfig = server config
 
   case serverJwtSecret srvConfig of
     Just _ -> do
-      -- JWT secret already exists
+      -- JWT secret already exists in config
       pure $ Right config
     Nothing -> do
-      -- Generate new JWT secret
-      newSecret <- generateJWTSecretString
+      -- Check for environment variable
+      envSecret <- lookupEnv "SKEMA_JWT_SECRET"
+      case envSecret of
+        Just secret | not (null secret) -> do
+          -- Use secret from environment
+          let updatedServerConfig = srvConfig { serverJwtSecret = Just (toText secret) }
+          let updatedConfig = config { server = updatedServerConfig }
+          pure $ Right updatedConfig
+        _ -> do
+          -- No secret in config or environment - generate one
+          newSecret <- generateJWTSecretString
+          let updatedServerConfig = srvConfig { serverJwtSecret = Just newSecret }
+          let updatedConfig = config { server = updatedServerConfig }
 
-      -- Update config with new secret
-      let updatedServerConfig = srvConfig { serverJwtSecret = Just newSecret }
-      let updatedConfig = config { server = updatedServerConfig }
-
-      -- Save updated config to file
-      writeResult <- safeWriteConfig configPath updatedConfig
-      case writeResult of
-        Left err -> pure $ Left $ "Failed to save config with JWT secret: " <> err
-        Right () -> pure $ Right updatedConfig
+          -- Try to persist the secret, but don't fail if config is read-only
+          _ <- safeWriteConfig configPath updatedConfig
+          -- Note: We ignore write failures here. If the config is read-only,
+          -- the secret will be re-generated in-memory on next startup.
+          -- Production deployments should use SKEMA_JWT_SECRET environment variable.
+          pure $ Right updatedConfig
 
 -- | Ensure the config directory exists.
 --

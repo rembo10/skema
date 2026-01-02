@@ -61,6 +61,7 @@ docker-compose up -d
   - `SKEMA_HOST=0.0.0.0` (required for Docker)
   - `SKEMA_PORT=8182` (optional)
   - `SKEMA_USERNAME` / `SKEMA_PASSWORD` (optional authentication)
+  - `SKEMA_JWT_SECRET` (optional, hex-encoded 256-bit secret for JWT signing. Auto-generated if not provided)
 
 The application will be available at `http://localhost:8182`.
 

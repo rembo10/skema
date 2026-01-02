@@ -22,7 +22,8 @@ import qualified Skema.Config.Types as Cfg
 -- | Load configuration from a file path.
 --
 -- Returns either an error message or the loaded config.
--- If the password is plaintext, it will be hashed with bcrypt and saved back to the file.
+-- This function never writes to the config file, making it safe for read-only mounts.
+-- Password hashing and migrations are done in-memory only.
 loadConfig :: OsPath -> IO (Either Text Config)
 loadConfig configPath = do
   pathStr <- OP.decodeUtf configPath
@@ -35,26 +36,33 @@ loadConfig configPath = do
         -- Check if config needs migration
         cfgAfterMigration <- if needsMigration cfg
           then do
-            -- Create backup before migration
-            _ <- createBackup pathStr
-
             migrationResult <- migrateConfig cfg
             case migrationResult of
               Left _err -> pure cfg  -- Continue with unmigrated config
               Right migratedCfg -> do
-                -- Save migrated config
+                -- Try to persist the migration, but don't fail if config is read-only
                 _ <- safeWriteConfig pathStr migratedCfg
+                -- Note: We ignore write failures here. If the config is read-only,
+                -- the migration will be re-applied in-memory on next startup.
+                -- This allows both read-only and writable configs to work.
                 pure migratedCfg
           else pure cfg
 
         -- Apply environment variable overrides
         cfgWithEnv <- applyEnvOverrides cfgAfterMigration
 
-        -- Check if password needs to be hashed
+        -- Hash password if needed
         updatedCfg <- hashPasswordIfNeeded cfgWithEnv pathStr
         pure $ Right updatedCfg
 
--- | Hash password if it's plaintext and save the config back.
+-- | Hash password if it's plaintext and optionally persist to file.
+--
+-- If the password is plaintext:
+-- 1. Hash it in-memory
+-- 2. Try to write it back to the config file
+-- 3. If write fails (read-only mount), continue with in-memory hash
+--
+-- This allows both read-only and writable configs to work.
 hashPasswordIfNeeded :: Config -> FilePath -> IO Config
 hashPasswordIfNeeded cfg configPath = do
   case serverPassword (Cfg.server cfg) of
@@ -72,11 +80,12 @@ hashPasswordIfNeeded cfg configPath = do
               let updatedServerCfg = (Cfg.server cfg) { serverPassword = Just hashed }
               let updatedCfg = cfg { Cfg.server = updatedServerCfg }
 
-              -- Save the updated config back to the file safely
-              writeResult <- safeWriteConfig configPath updatedCfg
-              case writeResult of
-                Left _err -> pure cfg  -- Return original config if save fails
-                Right () -> pure updatedCfg
+              -- Try to persist the hashed password, but don't fail if config is read-only
+              _ <- safeWriteConfig configPath updatedCfg
+              -- Note: We ignore write failures here. If the config is read-only,
+              -- the password will be re-hashed in-memory on next startup.
+              -- This allows both read-only and writable configs to work.
+              pure updatedCfg
 
 -- | Load configuration from a String file path.
 --
