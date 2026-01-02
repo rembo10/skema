@@ -91,7 +91,7 @@ testScanAndGroup = withTestEnv $ \env -> do
               -- Verify metadata
               case tracks of
                 [] -> assertFailure "Expected at least one track"
-                ((_,_, firstMeta):_) -> do
+                ((_,_, firstMeta, _, _):_) -> do
                   metaAlbumArtist firstMeta @?= Just "Test Artist"
                   metaAlbum firstMeta @?= Just "Test Album"
 
@@ -222,11 +222,11 @@ testCompilationAlbum = withTestEnv $ \env -> do
               length tracks @?= 4
 
               -- All should have same album artist
-              let albumArtists = mapMaybe (\(_,_,meta) -> metaAlbumArtist meta) tracks
+              let albumArtists = mapMaybe (\(_,_,meta,_,_) -> metaAlbumArtist meta) tracks
               all (== "Various Artists") albumArtists @?= True
 
               -- But different track artists
-              let trackArtists = mapMaybe (\(_,_,meta) -> metaArtist meta) tracks
+              let trackArtists = mapMaybe (\(_,_,meta,_,_) -> metaArtist meta) tracks
               length (nub trackArtists) @?= 3  -- Three different artists
 
     -- Cleanup
