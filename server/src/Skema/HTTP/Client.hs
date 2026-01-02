@@ -35,6 +35,7 @@ module Skema.HTTP.Client
   , get
   , getWithBasicAuth
   , post
+  , postForm
   , getJSON
   , getJSONWithBasicAuth
   , postJSON
@@ -47,7 +48,8 @@ import qualified Data.List as List
 import Network.HTTP.Client (Manager, Request, Response, httpLbs, responseBody, responseStatus, responseHeaders, parseRequest, requestHeaders, method, requestBody, RequestBody(..), newManager, applyBasicAuth, host, path, queryString, secure)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types.Status (statusCode)
-import Network.HTTP.Types.Header (hUserAgent, hRetryAfter, hAuthorization)
+import Network.HTTP.Types.Header (hUserAgent, hRetryAfter, hAuthorization, hContentType)
+import Network.HTTP.Types (urlEncode)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -524,6 +526,30 @@ post client url body headers = do
                 requestHeaders req
             , method = "POST"
             , requestBody = RequestBodyLBS body
+            }
+          reqWithAuth = applyAuthForDomain client domain reqWithHeaders
+      result <- makeRequestWithRetry client reqWithAuth
+      pure $ fmap responseBody result
+
+-- | Convenience method: POST form-encoded request
+-- Properly URL-encodes form parameters and sets the correct Content-Type header
+postForm :: HttpClient -> Text -> [(Text, Text)] -> IO (Either HttpError LBS.ByteString)
+postForm client url formParams = do
+  case parseRequest (toString url) of
+    Nothing -> pure $ Left $ HttpParseError ("Invalid URL: " <> url)
+    Just req -> do
+      let domain = fromMaybe "unknown" $ extractDomain url
+          userAgent = getUserAgentForDomain client domain
+          -- Encode form parameters properly
+          encodeParam (k, v) = urlEncode True (TE.encodeUtf8 k) <> "=" <> urlEncode True (TE.encodeUtf8 v)
+          formBody = LBS.fromStrict $ mconcat $ List.intersperse "&" $ fmap encodeParam formParams
+          reqWithHeaders = req
+            { requestHeaders =
+                (hUserAgent, TE.encodeUtf8 userAgent) :
+                (hContentType, "application/x-www-form-urlencoded") :
+                requestHeaders req
+            , method = "POST"
+            , requestBody = RequestBodyLBS formBody
             }
           reqWithAuth = applyAuthForDomain client domain reqWithHeaders
       result <- makeRequestWithRetry client reqWithAuth
