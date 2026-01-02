@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# OPTIONS_GHC -Wno-unused-matches #-}
 
 -- | API server implementation.
 module Skema.API.Server

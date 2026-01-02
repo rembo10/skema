@@ -19,7 +19,7 @@ import Skema.Database.Connection
 import Skema.Database.Repository (getClusterWithTracks, getClusterById, insertMetadataDiff, deleteMetadataDiffsForTrack, computeMetadataDiffs)
 import Skema.Database.Types (LibraryTrackMetadataRecord(..), ClusterRecord(..))
 import Skema.MusicBrainz.Client (getRelease)
-import Skema.MusicBrainz.Types (MBRelease(..), MBTrack(..), MBID(..), mbReleaseTracks)
+import Skema.MusicBrainz.Types (MBTrack(..), MBID(..), mbReleaseTracks)
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)

@@ -17,7 +17,6 @@ module Skema.API.Types.Catalog
   , CatalogTaskRequest(..)
   ) where
 
-import Skema.API.Types.Events (EventResponse)
 import Skema.API.Types.Tasks (TaskResponse)
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
 import GHC.Generics ()

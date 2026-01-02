@@ -14,7 +14,7 @@ import Skema.Services.Common (metadataRecordToMonatone)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getAllClusters, getClusterWithTracks, updateClusterWithMBData, updateClusterLastIdentified, updateClusterWithCandidates, updateTrackCluster, getTrackedArtistByMBID, getCatalogAlbumByReleaseGroupMBID)
+import Skema.Database.Repository (getAllClusters, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster, getTrackedArtistByMBID, getCatalogAlbumByReleaseGroupMBID)
 import Skema.Database.Types (ClusterRecord(..), LibraryTrackMetadataRecord(..))
 import qualified Skema.Database.Types as DBTypes
 import Skema.MusicBrainz.Identify (identifyFileGroup)

@@ -25,20 +25,15 @@ module Skema.Core.TaskManager
 
 import Skema.API.Types.Tasks (TaskResponse(..), TaskStatus(..), TaskResource(..))
 import Skema.Events.Bus (EventBus, publishAndLog)
-import Skema.Events.Types (Event)
 import qualified Skema.Events.Types as Events
 import qualified Control.Concurrent.STM as STM
-import Control.Concurrent.STM (TVar, readTVar, modifyTVar')
 import qualified Data.Map.Strict as Map
-import Data.Aeson (Value, ToJSON(..), object, (.=))
+import Data.Aeson (Value)
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
-import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
 import Katip (LogEnv)
-import Data.Maybe (isNothing)
-import Data.Function ((&))
 import Data.Text (pack)
 
 -- | Internal task representation.

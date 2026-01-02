@@ -5,7 +5,7 @@ module Skema.API.Handlers.Library
   ( libraryServer
   ) where
 
-import Skema.API.Types.Library (LibraryAPI, UpdateTrackRequest(..), TrackWithCluster(..), LibraryTaskRequest(..))
+import Skema.API.Types.Library (LibraryAPI, UpdateTrackRequest(..), TrackWithCluster, LibraryTaskRequest(..))
 import Skema.API.Types.Tasks (TaskResource(..))
 import Skema.Core.TaskManager (TaskManager)
 import qualified Skema.Core.TaskManager as TM

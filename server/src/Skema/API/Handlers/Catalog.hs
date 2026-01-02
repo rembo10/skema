@@ -6,7 +6,6 @@ module Skema.API.Handlers.Catalog
   ) where
 
 import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), CatalogTaskRequest(..))
-import Skema.API.Types.Events (EventResponse(..))
 import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
 import Skema.Core.TaskManager (TaskManager)
 import qualified Skema.Core.TaskManager as TM

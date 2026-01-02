@@ -586,3 +586,24 @@ eventToJSON = \case
     [ "error" .= configReloadError
     ]
   Heartbeat -> object []
+  TaskCreated{..} -> object
+    [ "task_id" .= taskCreatedId
+    , "resource" .= taskCreatedResource
+    , "type" .= taskCreatedType
+    ]
+  TaskProgressUpdated{..} -> object
+    [ "task_id" .= taskProgressId
+    , "progress" .= taskProgressValue
+    , "message" .= taskProgressMessage
+    ]
+  TaskCompleted{..} -> object
+    [ "task_id" .= taskCompletedId
+    , "result" .= taskCompletedResult
+    ]
+  TaskFailed'{..} -> object
+    [ "task_id" .= taskFailedId
+    , "error" .= taskFailedError
+    ]
+  TaskCancelled'{..} -> object
+    [ "task_id" .= taskCancelledId
+    ]

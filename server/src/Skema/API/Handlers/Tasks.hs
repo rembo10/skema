@@ -5,14 +5,13 @@ module Skema.API.Handlers.Tasks
   ( tasksServer
   ) where
 
-import Skema.API.Types.Tasks (TasksAPI, TaskResponse, TaskStatus, TaskResource)
+import Skema.API.Types.Tasks (TasksAPI)
 import Skema.Core.TaskManager (TaskManager)
 import qualified Skema.Core.TaskManager as TM
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Config.Types (Config)
 import Servant
-import qualified Control.Concurrent.STM as STM
 
 -- | Global tasks API handlers.
 tasksServer :: JWTSecret -> TaskManager -> TVar Config -> Server TasksAPI
