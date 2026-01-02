@@ -17,7 +17,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import GHC.Generics ()
 import Network.HTTP.Client (RequestBody(..), parseRequest, httpLbs, responseBody, responseStatus, responseCookieJar, CookieJar, method, cookieJar, requestBody, requestHeaders)
-import Network.HTTP.Types (statusCode, hContentType)
+import Network.HTTP.Types (statusCode, hContentType, urlEncode)
 import qualified Data.ByteString.Char8 as BS8
 
 import Skema.DownloadClient.Types
@@ -191,11 +191,13 @@ ensureLoggedIn QBittorrentClient{..} = do
       let url = T.unpack qbtUrl <> "/api/v2/auth/login"
           manager = getManager qbtHttpClient
       request <- parseRequest url
-      let request' = request
+      let encodedUsername = urlEncode True (TE.encodeUtf8 qbtUsername)
+          encodedPassword = urlEncode True (TE.encodeUtf8 qbtPassword)
+          request' = request
             { method = "POST"
             , requestBody = RequestBodyBS $
-                "username=" <> TE.encodeUtf8 qbtUsername <>
-                "&password=" <> TE.encodeUtf8 qbtPassword
+                "username=" <> encodedUsername <>
+                "&password=" <> encodedPassword
             , requestHeaders = [(hContentType, "application/x-www-form-urlencoded")]
             }
 
