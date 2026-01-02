@@ -89,9 +89,11 @@ musicbrainz:
   # MusicBrainz metadata provider configuration
   # Which MusicBrainz server to use
   server: official
-  # Username for Headphones VIP (required if using VIP)
+  # Custom MusicBrainz server URL (required if server is 'custom')
+  custom_url: https://musicbrainz.example.com
+  # Username for authentication (required for Headphones VIP, optional for custom)
   username: null
-  # Password for Headphones VIP (required if using VIP)
+  # Password for authentication (required for Headphones VIP, optional for custom)
   password: null
   # Primary album types to fetch (e.g., Album, EP)
   album_types: ["Album"]

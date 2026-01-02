@@ -361,6 +361,7 @@ instance ToJSON DownloadConfig where
 data MusicBrainzServer
   = OfficialMusicBrainz    -- ^ Official MusicBrainz (musicbrainz.org, 1 req/sec, no auth)
   | HeadphonesVIP          -- ^ Headphones VIP mirror (musicbrainz.codeshy.com, 3 req/sec, requires auth)
+  | CustomServer Text      -- ^ Custom MusicBrainz server (provide full URL)
   deriving (Show, Eq, Generic)
 
 instance FromJSON MusicBrainzServer where
@@ -369,11 +370,15 @@ instance FromJSON MusicBrainzServer where
     case serverType of
       "official" -> pure OfficialMusicBrainz
       "headphones_vip" -> pure HeadphonesVIP
+      "custom" -> do
+        url <- o .: "custom_url"
+        pure $ CustomServer url
       _ -> fail $ "Unknown MusicBrainz server: " <> serverType
 
 instance ToJSON MusicBrainzServer where
   toJSON OfficialMusicBrainz = object ["server" .= ("official" :: Text)]
   toJSON HeadphonesVIP = object ["server" .= ("headphones_vip" :: Text)]
+  toJSON (CustomServer url) = object ["server" .= ("custom" :: Text), "custom_url" .= url]
 
 -- | MusicBrainz configuration.
 data MusicBrainzConfig = MusicBrainzConfig
@@ -524,6 +529,7 @@ getMusicBrainzServerUrl :: MusicBrainzConfig -> Text
 getMusicBrainzServerUrl cfg = case mbServer cfg of
   OfficialMusicBrainz -> "https://musicbrainz.org"
   HeadphonesVIP -> "https://musicbrainz.codeshy.com"
+  CustomServer url -> url
 
 -- | Media configuration (artist images, album covers).
 data MediaConfig = MediaConfig

@@ -3,6 +3,7 @@
 // Source: Skema.Config.Schema
 
 import { PathInput } from './PathInput';
+import { UrlInput } from './UrlInput';
 import type { Config } from '../types/api';
 
 // ===================================================================
@@ -14,21 +15,24 @@ interface FieldProps {
   field: string;
   value: any;
   onChange: (section: keyof Config, field: string, value: any) => void;
-  type: 'string' | 'path' | 'integer' | 'boolean' | 'enum';
+  type: 'string' | 'path' | 'url' | 'integer' | 'boolean' | 'enum';
   description: string;
   options?: string[];
   sensitive?: boolean;
   advanced?: boolean;
   dependsOn?: string;
+  dependsOnValue?: { field: string; values: string[] };
   showAdvanced?: boolean;
   sectionValues?: any;
 }
 
-function ConfigField({ section, field, value, onChange, type, description, options, sensitive, advanced, dependsOn, showAdvanced, sectionValues }: FieldProps) {
+function ConfigField({ section, field, value, onChange, type, description, options, sensitive, advanced, dependsOn, dependsOnValue, showAdvanced, sectionValues }: FieldProps) {
   // Hide advanced fields unless showAdvanced is true
   if (advanced && !showAdvanced) return null;
   // Hide fields that depend on another field being truthy
   if (dependsOn && sectionValues && !sectionValues[dependsOn]) return null;
+  // Hide fields that depend on another field having specific values
+  if (dependsOnValue && sectionValues && !dependsOnValue.values.includes(sectionValues[dependsOnValue.field])) return null;
 
   const id = `${section}_${field}`;
   const label = field.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
@@ -75,6 +79,20 @@ function ConfigField({ section, field, value, onChange, type, description, optio
           onChange={(v) => onChange(section, field, v)}
           type="directory"
           description={description}
+        />
+      );
+
+    case 'url':
+      return (
+        <UrlInput
+          id={id}
+          label={label}
+          value={value || ''}
+          onChange={(v) => onChange(section, field, v)}
+          description={description}
+          placeholder="localhost:5000"
+          defaultProtocol="http://"
+          className="w-96"
         />
       );
 
@@ -362,7 +380,18 @@ export function MusicbrainzConfigSection({ config, onChange, showAdvanced = fals
         onChange={onChange}
         type="enum"
         description="Which MusicBrainz server to use"
-        options={['official', 'headphones_vip']}
+        options={['official', 'headphones_vip', 'custom']}
+        showAdvanced={showAdvanced}
+        sectionValues={section}
+      />
+      <ConfigField
+        section="musicbrainz"
+        field="custom_url"
+        value={section.custom_url}
+        onChange={onChange}
+        type="url"
+        description="Custom MusicBrainz server URL (required if server is 'custom')"
+        dependsOnValue={{ field: "server", values: ["custom"] }}
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
@@ -372,7 +401,8 @@ export function MusicbrainzConfigSection({ config, onChange, showAdvanced = fals
         value={section.username}
         onChange={onChange}
         type="string"
-        description="Username for Headphones VIP (required if using VIP)"
+        description="Username for authentication (required for Headphones VIP, optional for custom)"
+        dependsOnValue={{ field: "server", values: ["headphones_vip", "custom"] }}
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
@@ -382,8 +412,9 @@ export function MusicbrainzConfigSection({ config, onChange, showAdvanced = fals
         value={section.password}
         onChange={onChange}
         type="string"
-        description="Password for Headphones VIP (required if using VIP)"
+        description="Password for authentication (required for Headphones VIP, optional for custom)"
         sensitive
+        dependsOnValue={{ field: "server", values: ["headphones_vip", "custom"] }}
         showAdvanced={showAdvanced}
         sectionValues={section}
       />

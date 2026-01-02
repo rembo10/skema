@@ -47,8 +47,10 @@ module Skema.Config.Schema
   , required
   , advanced
   , dependsOn
+  , dependsOnValue
   , fieldType
   , pathField
+  , urlField
   , boolField
   , intField
   , enumField
@@ -94,6 +96,7 @@ import qualified Data.Aeson.Key as Key
 data FieldType
   = FTString        -- ^ Text input
   | FTPath          -- ^ Path picker
+  | FTUrl           -- ^ URL input with protocol selector
   | FTInt           -- ^ Integer input
   | FTBool          -- ^ Toggle/checkbox
   | FTEnum [Text]   -- ^ Dropdown with options
@@ -104,6 +107,7 @@ data FieldType
 instance ToJSON FieldType where
   toJSON FTString = object ["type" .= ("string" :: Text)]
   toJSON FTPath = object ["type" .= ("path" :: Text)]
+  toJSON FTUrl = object ["type" .= ("url" :: Text)]
   toJSON FTInt = object ["type" .= ("integer" :: Text)]
   toJSON FTBool = object ["type" .= ("boolean" :: Text)]
   toJSON (FTEnum opts) = object ["type" .= ("enum" :: Text), "options" .= opts]
@@ -123,6 +127,7 @@ data FieldMeta = FieldMeta
   , fmRequired :: Bool       -- ^ Is this field required?
   , fmAdvanced :: Bool       -- ^ Hidden unless "Show Advanced" is toggled
   , fmDependsOn :: Maybe Text -- ^ Only show if this field is truthy
+  , fmDependsOnValue :: Maybe (Text, [Text]) -- ^ Only show if field has one of these values (field, [values])
   } deriving (Show, Eq)
 
 instance ToJSON FieldMeta where
@@ -136,6 +141,9 @@ instance ToJSON FieldMeta where
     , if fmRequired fm then Just $ "required" .= True else Nothing
     , if fmAdvanced fm then Just $ "advanced" .= True else Nothing
     , ("depends_on" .=) <$> fmDependsOn fm
+    , case fmDependsOnValue fm of
+        Just (field, values) -> Just $ "depends_on_value" .= object ["field" .= field, "values" .= values]
+        Nothing -> Nothing
     ]
 
 -- | Create a field with help text (defaults to string type)
@@ -152,6 +160,7 @@ name .:: helpText = FieldMeta
   , fmRequired = False
   , fmAdvanced = False
   , fmDependsOn = Nothing
+  , fmDependsOnValue = Nothing
   }
 
 infixl 8 .::
@@ -188,6 +197,10 @@ advanced fm = fm { fmAdvanced = True }
 dependsOn :: Text -> FieldMeta -> FieldMeta
 dependsOn field fm = fm { fmDependsOn = Just field }
 
+-- | Field depends on another field having one of the specified values
+dependsOnValue :: Text -> [Text] -> FieldMeta -> FieldMeta
+dependsOnValue field values fm = fm { fmDependsOnValue = Just (field, values) }
+
 -- | Set field type
 fieldType :: FieldType -> FieldMeta -> FieldMeta
 fieldType ft fm = fm { fmType = ft }
@@ -195,6 +208,10 @@ fieldType ft fm = fm { fmType = ft }
 -- | Convenience: mark as path type
 pathField :: FieldMeta -> FieldMeta
 pathField = fieldType FTPath
+
+-- | Convenience: mark as URL type
+urlField :: FieldMeta -> FieldMeta
+urlField = fieldType FTUrl
 
 -- | Convenience: mark as boolean type
 boolField :: FieldMeta -> FieldMeta
@@ -449,6 +466,7 @@ generateTypeScriptTypes = T.unlines $
     fieldTypeToTS :: FieldType -> Text
     fieldTypeToTS FTString = "string"
     fieldTypeToTS FTPath = "string | null"
+    fieldTypeToTS FTUrl = "string"
     fieldTypeToTS FTInt = "number"
     fieldTypeToTS FTBool = "boolean"
     fieldTypeToTS (FTEnum opts) = T.intercalate " | " (map (\o -> "'" <> o <> "'") opts)
@@ -485,6 +503,7 @@ generateTypeScriptTypes = T.unlines $
     fieldTypeToJSType :: FieldType -> Text
     fieldTypeToJSType FTString = "string"
     fieldTypeToJSType FTPath = "path"
+    fieldTypeToJSType FTUrl = "url"
     fieldTypeToJSType FTInt = "integer"
     fieldTypeToJSType FTBool = "boolean"
     fieldTypeToJSType (FTEnum _) = "enum"
@@ -517,6 +536,7 @@ generateReactComponents = T.unlines $
   , "// Source: Skema.Config.Schema"
   , ""
   , "import { PathInput } from './PathInput';"
+  , "import { UrlInput } from './UrlInput';"
   , "import type { Config } from '../types/api';"
   , ""
   , "// ==================================================================="
@@ -528,21 +548,24 @@ generateReactComponents = T.unlines $
   , "  field: string;"
   , "  value: any;"
   , "  onChange: (section: keyof Config, field: string, value: any) => void;"
-  , "  type: 'string' | 'path' | 'integer' | 'boolean' | 'enum';"
+  , "  type: 'string' | 'path' | 'url' | 'integer' | 'boolean' | 'enum';"
   , "  description: string;"
   , "  options?: string[];"
   , "  sensitive?: boolean;"
   , "  advanced?: boolean;"
   , "  dependsOn?: string;"
+  , "  dependsOnValue?: { field: string; values: string[] };"
   , "  showAdvanced?: boolean;"
   , "  sectionValues?: any;"
   , "}"
   , ""
-  , "function ConfigField({ section, field, value, onChange, type, description, options, sensitive, advanced, dependsOn, showAdvanced, sectionValues }: FieldProps) {"
+  , "function ConfigField({ section, field, value, onChange, type, description, options, sensitive, advanced, dependsOn, dependsOnValue, showAdvanced, sectionValues }: FieldProps) {"
   , "  // Hide advanced fields unless showAdvanced is true"
   , "  if (advanced && !showAdvanced) return null;"
   , "  // Hide fields that depend on another field being truthy"
   , "  if (dependsOn && sectionValues && !sectionValues[dependsOn]) return null;"
+  , "  // Hide fields that depend on another field having specific values"
+  , "  if (dependsOnValue && sectionValues && !dependsOnValue.values.includes(sectionValues[dependsOnValue.field])) return null;"
   , ""
   , "  const id = `${section}_${field}`;"
   , "  const label = field.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');"
@@ -589,6 +612,20 @@ generateReactComponents = T.unlines $
   , "          onChange={(v) => onChange(section, field, v)}"
   , "          type=\"directory\""
   , "          description={description}"
+  , "        />"
+  , "      );"
+  , ""
+  , "    case 'url':"
+  , "      return ("
+  , "        <UrlInput"
+  , "          id={id}"
+  , "          label={label}"
+  , "          value={value || ''}"
+  , "          onChange={(v) => onChange(section, field, v)}"
+  , "          description={description}"
+  , "          placeholder=\"localhost:5000\""
+  , "          defaultProtocol=\"http://\""
+  , "          className=\"w-96\""
   , "        />"
   , "      );"
   , ""
@@ -684,6 +721,7 @@ generateReactComponents = T.unlines $
         <> genSensitiveAttr fm
         <> genAdvancedAttr fm
         <> genDependsOnAttr fm
+        <> genDependsOnValueAttr fm
         <> "\n        showAdvanced={showAdvanced}"
         <> "\n        sectionValues={section}"
       , "      />"
@@ -692,6 +730,7 @@ generateReactComponents = T.unlines $
     fieldTypeToJSType :: FieldType -> Text
     fieldTypeToJSType FTString = "string"
     fieldTypeToJSType FTPath = "path"
+    fieldTypeToJSType FTUrl = "url"
     fieldTypeToJSType FTInt = "integer"
     fieldTypeToJSType FTBool = "boolean"
     fieldTypeToJSType (FTEnum _) = "enum"
@@ -711,6 +750,14 @@ generateReactComponents = T.unlines $
     genDependsOnAttr :: FieldMeta -> Text
     genDependsOnAttr fm = case fmDependsOn fm of
       Just dep -> "\n        dependsOn=\"" <> dep <> "\""
+      Nothing -> ""
+
+    genDependsOnValueAttr :: FieldMeta -> Text
+    genDependsOnValueAttr fm = case fmDependsOnValue fm of
+      Just (field, values) ->
+        "\n        dependsOnValue={{ field: \"" <> field <> "\", values: ["
+        <> T.intercalate ", " (map (\v -> "\"" <> v <> "\"") values)
+        <> "] }}"
       Nothing -> ""
 
     capitalize :: Text -> Text
@@ -846,12 +893,18 @@ indexerSchema = schema "indexers" "Usenet/torrent indexer configuration"
 musicbrainzSchema :: Schema
 musicbrainzSchema = schema "musicbrainz" "MusicBrainz metadata provider configuration"
   [ "server" .:: "Which MusicBrainz server to use"
-      & enumField ["official", "headphones_vip"]
+      & enumField ["official", "headphones_vip", "custom"]
       & example "official"
-  , "username" .:: "Username for Headphones VIP (required if using VIP)"
+  , "custom_url" .:: "Custom MusicBrainz server URL (required if server is 'custom')"
+      & urlField
+      & dependsOnValue "server" ["custom"]
+      & example "https://musicbrainz.example.com"
+  , "username" .:: "Username for authentication (required for Headphones VIP, optional for custom)"
+      & dependsOnValue "server" ["headphones_vip", "custom"]
       -- No example = null
-  , "password" .:: "Password for Headphones VIP (required if using VIP)"
+  , "password" .:: "Password for authentication (required for Headphones VIP, optional for custom)"
       & sensitive
+      & dependsOnValue "server" ["headphones_vip", "custom"]
       -- No example = null
   , "album_types" .:: "Primary album types to fetch (e.g., Album, EP)"
       & fieldType FTList

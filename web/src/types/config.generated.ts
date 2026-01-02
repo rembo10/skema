@@ -3,41 +3,6 @@
 // Source: Skema.Config.Schema
 
 // ===================================================================
-// Nested Config Types
-// ===================================================================
-
-export type DownloadClientType = 'sabnzbd' | 'nzbget' | 'transmission' | 'qbittorrent';
-
-export interface DownloadClient {
-  type: DownloadClientType;
-  url: string;
-  api_key?: string | null;
-  username?: string | null;
-  password?: string | null;
-  enabled: boolean;
-  download_dir?: string | null;
-  category?: string | null;
-}
-
-export interface Indexer {
-  name: string;
-  url: string;
-  api_key: string;
-  enabled: boolean;
-  priority: number;
-}
-
-export type NotificationProviderType = 'pushover';
-
-export interface NotificationProvider {
-  type: NotificationProviderType;
-  enabled: boolean;
-  user_key: string;
-  api_token: string;
-  priority?: number;
-}
-
-// ===================================================================
 // Config Types
 // ===================================================================
 
@@ -70,35 +35,36 @@ export interface ServerConfig {
 }
 
 export interface DownloadConfig {
-  nzb_client?: DownloadClient | null;
-  torrent_client?: DownloadClient | null;
+  nzb_client?: any;
+  torrent_client?: any;
   directory: string | null;
   check_interval: number;
   auto_import: boolean;
-  min_seeders: number | null;
-  max_size: number | null;
+  min_seeders: number;
+  max_size: number;
 }
 
 export interface IndexersConfig {
-  list: Indexer[];
+  list: any[];
   search_timeout: number;
 }
 
 export interface MusicbrainzConfig {
-  server: 'official' | 'headphones_vip';
+  server: 'official' | 'headphones_vip' | 'custom';
+  custom_url: string;
   username: string;
   password: string;
-  album_types: string[];
-  exclude_secondary_types: string[];
+  album_types: any[];
+  exclude_secondary_types: any[];
 }
 
 export interface MediaConfig {
-  lastfm_api_key: string | null;
+  lastfm_api_key: string;
 }
 
 export interface NotificationsConfig {
   enabled: boolean;
-  providers: NotificationProvider[];
+  providers: any[];
   on_album_found: boolean;
   on_album_downloaded: boolean;
   on_album_imported: boolean;
@@ -375,20 +341,27 @@ export const musicbrainzSchema: SectionMeta = {
       name: 'server',
       description: 'Which MusicBrainz server to use',
       type: 'enum',
-      options: ['official', 'headphones_vip']
+      options: ['official', 'headphones_vip', 'custom']
+    }
+
+,
+    {
+      name: 'custom_url',
+      description: 'Custom MusicBrainz server URL (required if server is \'custom\')',
+      type: 'url'
     }
 
 ,
     {
       name: 'username',
-      description: 'Username for Headphones VIP (required if using VIP)',
+      description: 'Username for authentication (required for Headphones VIP, optional for custom)',
       type: 'string'
     }
 
 ,
     {
       name: 'password',
-      description: 'Password for Headphones VIP (required if using VIP)',
+      description: 'Password for authentication (required for Headphones VIP, optional for custom)',
       type: 'string',
       sensitive: true
     }

@@ -53,7 +53,7 @@ export function UrlInput({
   };
 
   return (
-    <div>
+    <div className={className}>
       {label && (
         <label htmlFor={id} className="block text-sm font-medium text-dark-text mb-2">
           {label}
@@ -73,7 +73,7 @@ export function UrlInput({
           id={id}
           value={rest}
           onChange={(e) => handleUrlChange(e.target.value)}
-          className={`input flex-1 rounded-l-none focus:z-10 ${className}`}
+          className="input flex-1 rounded-l-none focus:z-10"
           placeholder={placeholder}
         />
       </div>

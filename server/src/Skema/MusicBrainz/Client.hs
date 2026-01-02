@@ -67,12 +67,12 @@ buildMBUrl baseUrl endpoint params =
 
 -- | Make a request with appropriate auth based on config
 --
--- Applies Basic Auth if using Headphones VIP with credentials configured.
+-- Applies Basic Auth if credentials are configured (for Headphones VIP or custom servers).
 -- Otherwise uses regular getJSON (which may apply domain-level auth if configured).
 mbGetJSON :: FromJSON a => MBClientEnv -> Text -> IO (Either HttpError a)
 mbGetJSON MBClientEnv{..} url =
-  case (mbServer mbConfig, mbUsername mbConfig, mbPassword mbConfig) of
-    (HeadphonesVIP, Just user, Just password) ->
+  case (mbUsername mbConfig, mbPassword mbConfig) of
+    (Just user, Just password) ->
       getJSONWithBasicAuth mbHttpClient url user password
     _ ->
       getJSON mbHttpClient url
