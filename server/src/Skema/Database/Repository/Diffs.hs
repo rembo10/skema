@@ -137,7 +137,7 @@ computeMetadataDiffs fileMeta mbTrack mbRelease =
     -- Track-level comparisons
     titleDiff = mkTextDiff "title" (M.title fileMeta) (Just $ mbTrackTitle mbTrack)
     trackNumDiff = mkDiff "track_number" (M.trackNumber fileMeta) (Just $ mbTrackPosition mbTrack) show
-    trackArtistDiff = mkTextDiff "track_artist" (M.artist fileMeta) (mbTrackArtist mbTrack)
+    trackArtistDiff = mkTextDiff "artist" (M.artist fileMeta) (mbTrackArtist mbTrack)
 
     -- Release-level comparisons
     albumDiff = mkTextDiff "album" (M.album fileMeta) (Just $ mbReleaseTitle mbRelease)
