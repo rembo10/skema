@@ -137,6 +137,7 @@ library
     Skema.Indexer.Search
     Skema.DownloadClient.Types
     Skema.DownloadClient.SABnzbd
+    Skema.DownloadClient.NZBGet
     Skema.DownloadClient.Transmission
     Skema.DownloadClient.QBittorrent
     Skema.Events.Types

@@ -15,6 +15,7 @@ import Skema.HTTP.Client (HttpClient)
 import Skema.Config.Types (DownloadConfig(..), DownloadClient(..), DownloadClientType(..), downloadClientTypeName)
 import Skema.DownloadClient.Types (DownloadClientAPI(..))
 import Skema.DownloadClient.SABnzbd (createSABnzbdClient, SABnzbdClient)
+import Skema.DownloadClient.NZBGet (createNZBGetClient, NZBGetClient)
 import Skema.DownloadClient.Transmission (createTransmissionClient, TransmissionClient)
 import Skema.DownloadClient.QBittorrent (createQBittorrentClient, QBittorrentClient)
 
@@ -25,35 +26,43 @@ import Skema.DownloadClient.QBittorrent (createQBittorrentClient, QBittorrentCli
 -- | Wrapper for different download client types
 data DownloadClientInstance
   = SABInstance SABnzbdClient
+  | NZBGetInstance NZBGetClient
   | TransmissionInstance TransmissionClient
   | QBittorrentInstance QBittorrentClient
 
 instance DownloadClientAPI DownloadClientInstance where
   testConnection (SABInstance c) = testConnection c
+  testConnection (NZBGetInstance c) = testConnection c
   testConnection (TransmissionInstance c) = testConnection c
   testConnection (QBittorrentInstance c) = testConnection c
 
   addDownload (SABInstance c) = addDownload c
+  addDownload (NZBGetInstance c) = addDownload c
   addDownload (TransmissionInstance c) = addDownload c
   addDownload (QBittorrentInstance c) = addDownload c
 
   getDownloadStatus (SABInstance c) = getDownloadStatus c
+  getDownloadStatus (NZBGetInstance c) = getDownloadStatus c
   getDownloadStatus (TransmissionInstance c) = getDownloadStatus c
   getDownloadStatus (QBittorrentInstance c) = getDownloadStatus c
 
   getAllDownloads (SABInstance c) = getAllDownloads c
+  getAllDownloads (NZBGetInstance c) = getAllDownloads c
   getAllDownloads (TransmissionInstance c) = getAllDownloads c
   getAllDownloads (QBittorrentInstance c) = getAllDownloads c
 
   pauseDownload (SABInstance c) = pauseDownload c
+  pauseDownload (NZBGetInstance c) = pauseDownload c
   pauseDownload (TransmissionInstance c) = pauseDownload c
   pauseDownload (QBittorrentInstance c) = pauseDownload c
 
   resumeDownload (SABInstance c) = resumeDownload c
+  resumeDownload (NZBGetInstance c) = resumeDownload c
   resumeDownload (TransmissionInstance c) = resumeDownload c
   resumeDownload (QBittorrentInstance c) = resumeDownload c
 
   removeDownload (SABInstance c) = removeDownload c
+  removeDownload (NZBGetInstance c) = removeDownload c
   removeDownload (TransmissionInstance c) = removeDownload c
   removeDownload (QBittorrentInstance c) = removeDownload c
 
@@ -69,8 +78,10 @@ createClientInstance httpClient DownloadClient{..} = do
       let apiKey = fromMaybe "" dcApiKey
       pure $ SABInstance $ createSABnzbdClient dcUrl apiKey httpClient dcDownloadDir dcCategory
 
-    NZBGet ->
-      fail "NZBGet client not yet implemented"
+    NZBGet -> do
+      let username = fromMaybe "" dcUsername
+          password = fromMaybe "" dcPassword
+      pure $ NZBGetInstance $ createNZBGetClient dcUrl username password httpClient dcCategory
 
     Transmission -> do
       client <- createTransmissionClient dcUrl dcUsername dcPassword httpClient
@@ -101,8 +112,14 @@ createClientInstances httpClient DownloadConfig{..} = do
               (dcCategory client)
 
           NZBGet -> do
-            -- TODO: Implement NZBGet client
-            pure Nothing
+            let username = fromMaybe "" (dcUsername client)
+                password = fromMaybe "" (dcPassword client)
+            pure $ Just $ NZBGetInstance $ createNZBGetClient
+              (dcUrl client)
+              username
+              password
+              httpClient
+              (dcCategory client)
 
           Transmission -> do
             client' <- createTransmissionClient
