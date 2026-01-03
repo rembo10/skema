@@ -46,6 +46,7 @@ library
     Skema.FileSystem.Scanner
     Skema.FileSystem.Watcher
     Skema.FileSystem.PathFormatter
+    Skema.FileSystem.Utils
     Skema.FileSystem.Browser
     Skema.Config.Types
     Skema.Config.Loader

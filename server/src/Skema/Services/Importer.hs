@@ -30,6 +30,7 @@ import Skema.Database.Types (DownloadRecord(..), CatalogAlbumRecord(..))
 import qualified Skema.Database.Types as DB
 import Skema.Database.Utils (downloadStatusToText)
 import Skema.FileSystem.PathFormatter (PathContext(..), formatPath)
+import Skema.FileSystem.Utils (moveFile)
 import Skema.Core.Metadata (scanAndParseMetadata, groupParsedFiles, MetadataResult(..), GroupedFiles(..))
 import Skema.MusicBrainz.Identify (identifyFileGroup)
 import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), IdentificationResult(..), MBRelease(..), MBID(..), unMBID, mbSearchReleases, TrackMatch(..), MBTrack(..), mbReleaseTracks)
@@ -413,7 +414,7 @@ importDownload config le bus pool mbClientEnv download catalogAlbum = do
                   -- Move file to new path
                   sourceStr <- OP.decodeUtf oldPath
                   targetStr <- OP.decodeUtf newPath
-                  Dir.renameFile sourceStr targetStr
+                  moveFile sourceStr targetStr
 
                   -- Insert/update track record
                   withConnection pool $ \conn -> do
