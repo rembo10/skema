@@ -9,8 +9,9 @@ module Skema.Config.Safe
   ) where
 
 import Skema.Config.Types (Config)
+import Skema.FileSystem.Utils (moveFile)
 import Data.Yaml (encodeFile, decodeFileEither, prettyPrintParseException)
-import System.Directory (copyFile, doesFileExist, renameFile, removeFile)
+import System.Directory (copyFile, doesFileExist, removeFile)
 import System.FilePath ((<.>))
 import Control.Exception (catch, try)
 import Data.Time.Clock (getCurrentTime)
@@ -75,11 +76,11 @@ atomicWriteConfig configPath cfg = do
           pure $ Left $ "Config validation failed: " <> toText (prettyPrintParseException parseErr)
 
         Right (_ :: Config) -> do
-          -- Valid config - atomically rename temp to actual
-          renameResult <- try $ renameFile tempPath configPath :: IO (Either SomeException ())
+          -- Valid config - atomically move temp to actual (handles cross-device moves)
+          renameResult <- try $ moveFile tempPath configPath :: IO (Either SomeException ())
           case renameResult of
             Left ex -> do
               catch (removeFile tempPath) (\(_ :: SomeException) -> pure ())
-              pure $ Left $ "Failed to rename temp config: " <> show ex
+              pure $ Left $ "Failed to move temp config: " <> show ex
             Right () ->
               pure $ Right ()

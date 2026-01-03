@@ -61,6 +61,15 @@ migrationApplied conn name = do
     Just (Only count) -> count > 0
     Nothing -> False
 
+-- | Check if a column exists in a table
+columnExists :: SQLite.Connection -> Text -> Text -> IO Bool
+columnExists conn tableName columnName = do
+  -- Use PRAGMA table_info to check if column exists
+  results <- queryRows conn
+    ("PRAGMA table_info(" <> tableName <> ")")
+    () :: IO [(Int, Text, Text, Int, Maybe Text, Int)]
+  pure $ any (\(_, name, _, _, _, _) -> name == columnName) results
+
 -- | Record that a migration has been applied
 recordMigration :: SQLite.Connection -> Text -> IO ()
 recordMigration conn name =
@@ -81,16 +90,22 @@ runIncrementalMigrations le conn = do
       $(logTM) InfoS "Running migration: 001_track_recording_and_provenance"
       liftIO $ do
         -- Add match provenance columns to clusters
-        executeQuery_ conn
-          "ALTER TABLE clusters ADD COLUMN match_source TEXT" `catch` (\(_ :: SQLite.SQLError) -> pure ())
-        executeQuery_ conn
-          "ALTER TABLE clusters ADD COLUMN match_locked INTEGER NOT NULL DEFAULT 0" `catch` (\(_ :: SQLite.SQLError) -> pure ())
+        -- Check if columns exist before adding them to avoid errors
+        matchSourceExists <- columnExists conn "clusters" "match_source"
+        unless matchSourceExists $
+          executeQuery_ conn "ALTER TABLE clusters ADD COLUMN match_source TEXT"
+
+        matchLockedExists <- columnExists conn "clusters" "match_locked"
+        unless matchLockedExists $
+          executeQuery_ conn "ALTER TABLE clusters ADD COLUMN match_locked INTEGER NOT NULL DEFAULT 0"
+
         executeQuery_ conn
           "CREATE INDEX IF NOT EXISTS idx_clusters_match_locked ON clusters(match_locked)"
 
         -- Add track recording title column (mb_recording_id already exists)
-        executeQuery_ conn
-          "ALTER TABLE library_tracks ADD COLUMN mb_recording_title TEXT" `catch` (\(_ :: SQLite.SQLError) -> pure ())
+        recordingTitleExists <- columnExists conn "library_tracks" "mb_recording_title"
+        unless recordingTitleExists $
+          executeQuery_ conn "ALTER TABLE library_tracks ADD COLUMN mb_recording_title TEXT"
 
         -- Create cluster match candidates table
         executeQuery_ conn
