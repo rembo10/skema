@@ -148,8 +148,129 @@ runIncrementalMigrations le conn = do
           \  AND mb_recording_id IS NULL \
           \  AND EXISTS (SELECT 1 FROM clusters WHERE id = library_tracks.cluster_id AND mb_release_data IS NOT NULL)"
 
-        recordMigration conn "001_track_recording_and_provenance"
-      $(logTM) InfoS "Completed migration: 001_track_recording_and_provenance"
+    -- Migration 002: Quality profiles and catalog improvements
+    applied002 <- liftIO $ migrationApplied conn "002_quality_profiles_and_catalog"
+    unless applied002 $ do
+      $(logTM) InfoS "Running migration: 002_quality_profiles_and_catalog"
+      liftIO $ do
+        -- Add RSS state tracking
+        executeQuery_ conn
+          "CREATE TABLE IF NOT EXISTS indexer_rss_state ( \
+          \  url TEXT PRIMARY KEY, \
+          \  name TEXT NOT NULL, \
+          \  last_seen_guid TEXT, \
+          \  last_check_at TIMESTAMP, \
+          \  last_successful_check_at TIMESTAMP, \
+          \  supports_rss_pagination INTEGER, \
+          \  capabilities_detected_at TIMESTAMP, \
+          \  consecutive_failures INTEGER NOT NULL DEFAULT 0, \
+          \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
+          \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
+          \)"
+
+        executeQuery_ conn
+          "CREATE INDEX IF NOT EXISTS idx_indexer_rss_state_last_check ON indexer_rss_state(last_check_at)"
+
+        -- Add RSS monitoring settings to settings table
+        rssEnabledExists <- columnExists conn "settings" "rss_sync_enabled"
+        unless rssEnabledExists $
+          executeQuery_ conn "ALTER TABLE settings ADD COLUMN rss_sync_enabled INTEGER NOT NULL DEFAULT 1"
+
+        rssIntervalExists <- columnExists conn "settings" "rss_sync_interval_seconds"
+        unless rssIntervalExists $
+          executeQuery_ conn "ALTER TABLE settings ADD COLUMN rss_sync_interval_seconds INTEGER NOT NULL DEFAULT 900"
+
+        rssThresholdExists <- columnExists conn "settings" "rss_sync_max_threshold_hours"
+        unless rssThresholdExists $
+          executeQuery_ conn "ALTER TABLE settings ADD COLUMN rss_sync_max_threshold_hours INTEGER NOT NULL DEFAULT 72"
+
+        -- Add timestamps to catalog_albums (from migration 003)
+        catalogCreatedAtExists <- columnExists conn "catalog_albums" "created_at"
+        unless catalogCreatedAtExists $
+          executeQuery_ conn "ALTER TABLE catalog_albums ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+
+        catalogUpdatedAtExists <- columnExists conn "catalog_albums" "updated_at"
+        unless catalogUpdatedAtExists $
+          executeQuery_ conn "ALTER TABLE catalog_albums ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+
+        -- Add audio quality tracking (from migration 004)
+        bitrateExists <- columnExists conn "library_track_metadata" "bitrate"
+        unless bitrateExists $
+          executeQuery_ conn "ALTER TABLE library_track_metadata ADD COLUMN bitrate INTEGER"
+
+        sampleRateExists <- columnExists conn "library_track_metadata" "sample_rate"
+        unless sampleRateExists $
+          executeQuery_ conn "ALTER TABLE library_track_metadata ADD COLUMN sample_rate INTEGER"
+
+        qualityExists <- columnExists conn "library_tracks" "quality"
+        unless qualityExists $ do
+          executeQuery_ conn "ALTER TABLE library_tracks ADD COLUMN quality TEXT"
+          -- Reset modification times to force a full rescan and populate quality data
+          executeQuery_ conn "UPDATE library_tracks SET modified_at = '1970-01-01 00:00:00'"
+
+        -- Update catalog album quality from cluster track quality
+        executeQuery_ conn
+          "UPDATE catalog_albums \
+          \SET current_quality = ( \
+          \  SELECT MIN(quality) \
+          \  FROM library_tracks \
+          \  WHERE cluster_id = catalog_albums.matched_cluster_id \
+          \  AND quality IS NOT NULL \
+          \) \
+          \WHERE matched_cluster_id IS NOT NULL"
+
+        -- Remove wanted and user_unwanted columns (derived state, not stored)
+        -- The "wanted" status is now computed from quality_profile_id + current_quality + matched_cluster_id
+        wantedExists <- columnExists conn "catalog_albums" "wanted"
+        when wantedExists $ do
+          -- SQLite doesn't support DROP COLUMN directly, need to recreate table
+          executeQuery_ conn
+            "CREATE TABLE catalog_albums_new ( \
+            \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
+            \  release_group_mbid TEXT NOT NULL UNIQUE, \
+            \  title TEXT NOT NULL, \
+            \  artist_id INTEGER REFERENCES catalog_artists(id) ON DELETE CASCADE, \
+            \  artist_mbid TEXT NOT NULL, \
+            \  artist_name TEXT NOT NULL, \
+            \  album_type TEXT, \
+            \  first_release_date TEXT, \
+            \  album_cover_url TEXT, \
+            \  album_cover_thumbnail_url TEXT, \
+            \  matched_cluster_id INTEGER REFERENCES clusters(id) ON DELETE SET NULL, \
+            \  quality_profile_id INTEGER REFERENCES quality_profiles(id) ON DELETE SET NULL, \
+            \  current_quality TEXT, \
+            \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
+            \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
+            \)"
+
+          -- Copy data from old table (excluding wanted and user_unwanted)
+          executeQuery_ conn
+            "INSERT INTO catalog_albums_new \
+            \  (id, release_group_mbid, title, artist_id, artist_mbid, artist_name, \
+            \   album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, \
+            \   matched_cluster_id, quality_profile_id, current_quality, created_at, updated_at) \
+            \SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, \
+            \       album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, \
+            \       matched_cluster_id, quality_profile_id, current_quality, \
+            \       COALESCE(created_at, CURRENT_TIMESTAMP), COALESCE(updated_at, CURRENT_TIMESTAMP) \
+            \FROM catalog_albums"
+
+          -- Drop old table and rename new one
+          executeQuery_ conn "DROP TABLE catalog_albums"
+          executeQuery_ conn "ALTER TABLE catalog_albums_new RENAME TO catalog_albums"
+
+          -- Recreate indexes
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_release_group_mbid ON catalog_albums(release_group_mbid)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_artist_id ON catalog_albums(artist_id)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_artist_mbid ON catalog_albums(artist_mbid)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_matched_cluster_id ON catalog_albums(matched_cluster_id)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_created_at ON catalog_albums(created_at DESC)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_quality_profile_id ON catalog_albums(quality_profile_id)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_current_quality ON catalog_albums(current_quality)"
+
+        recordMigration conn "002_quality_profiles_and_catalog"
+      $(logTM) InfoS "Completed migration: 002_quality_profiles_and_catalog"
+
 
 -- | Create the complete database schema.
 createSchema :: SQLite.Connection -> IO ()
@@ -378,6 +499,7 @@ createSchema conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_artists_quality_profile_id ON catalog_artists(quality_profile_id)"
 
   -- Create catalog_albums table with all fields
+  -- NOTE: "wanted" is NOT stored - it's computed from quality_profile_id + current_quality + matched_cluster_id
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS catalog_albums ( \
     \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
@@ -390,8 +512,6 @@ createSchema conn = do
     \  first_release_date TEXT, \
     \  album_cover_url TEXT, \
     \  album_cover_thumbnail_url TEXT, \
-    \  wanted INTEGER NOT NULL DEFAULT 0, \
-    \  user_unwanted INTEGER NOT NULL DEFAULT 0, \
     \  matched_cluster_id INTEGER REFERENCES clusters(id) ON DELETE SET NULL, \
     \  quality_profile_id INTEGER REFERENCES quality_profiles(id) ON DELETE SET NULL, \
     \  current_quality TEXT, \
@@ -402,7 +522,6 @@ createSchema conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_release_group_mbid ON catalog_albums(release_group_mbid)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_artist_id ON catalog_albums(artist_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_artist_mbid ON catalog_albums(artist_mbid)"
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_wanted ON catalog_albums(wanted)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_matched_cluster_id ON catalog_albums(matched_cluster_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_created_at ON catalog_albums(created_at DESC)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_quality_profile_id ON catalog_albums(quality_profile_id)"

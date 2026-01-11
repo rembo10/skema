@@ -109,7 +109,9 @@ mbReleaseGroupSearchToCatalogResponse searchResult maybeCatalogRecord =
     , catalogAlbumResponseFirstReleaseDate = mbrgsFirstReleaseDate searchResult
     , catalogAlbumResponseCoverUrl = maybeCatalogRecord >>= DBTypes.catalogAlbumCoverUrl
     , catalogAlbumResponseCoverThumbnailUrl = maybeCatalogRecord >>= DBTypes.catalogAlbumCoverThumbnailUrl
-    , catalogAlbumResponseWanted = maybe False DBTypes.catalogAlbumWanted maybeCatalogRecord
+    -- NOTE: "wanted" is now computed from quality profile, not stored
+    -- For MusicBrainz search results, we default to False (not in catalog yet)
+    , catalogAlbumResponseWanted = False
     , catalogAlbumResponseMatchedClusterId = maybeCatalogRecord >>= DBTypes.catalogAlbumMatchedClusterId
     , catalogAlbumResponseQualityProfileId = maybeCatalogRecord >>= DBTypes.catalogAlbumQualityProfileId
     , catalogAlbumResponseScore = Just (mbrgsScore searchResult)

@@ -180,7 +180,9 @@ handleCatalogAlbumAdded AcquisitionDeps{..} releaseGroupMBID albumTitle artistMB
               $(logTM) WarningS $ logStr $ ("Album not found in catalog: " <> albumTitle :: Text)
             Just album -> do
               -- Check if user has explicitly marked this album as unwanted
-              if DB.catalogAlbumUserUnwanted album
+              -- NOTE: "user_unwanted" column no longer exists
+              -- Albums that are not wanted simply won't have a quality profile assigned
+              if isNothing (DB.catalogAlbumQualityProfileId album)
                 then $(logTM) DebugS $ logStr $ ("Album explicitly unwanted by user, skipping: " <> albumTitle :: Text)
                 else do
                   -- Get the catalog artist to find which sources apply
@@ -229,7 +231,10 @@ handleCatalogAlbumAdded AcquisitionDeps{..} releaseGroupMBID albumTitle artistMB
                                 case DB.catalogAlbumId album of
                                   Just albumId -> do
                                     _ <- liftIO $ withConnection pool $ \conn ->
-                                      updateCatalogAlbumWanted conn albumId True
+                                      -- NOTE: "wanted" is no longer stored - it's derived from quality profile
+                                      -- Albums get wanted status from their quality_profile_id
+                                      -- For now, do nothing here (quality profile will determine wanted status)
+                                      pure ()
 
                                     -- Also insert into wanted_albums for backward compatibility
                                     case (sourceId source, DB.catalogArtistName <$> Just artist) of

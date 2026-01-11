@@ -41,6 +41,7 @@ library
   hs-source-dirs: src
 
   exposed-modules:
+    Skema.Core.Catalog
     Skema.Core.Library
     Skema.Core.Metadata
     Skema.FileSystem.Scanner
@@ -48,6 +49,7 @@ library
     Skema.FileSystem.PathFormatter
     Skema.FileSystem.Utils
     Skema.FileSystem.Browser
+    Skema.FileSystem.Trash
     Skema.Config.Types
     Skema.Config.Loader
     Skema.Config.Discovery
@@ -165,11 +167,14 @@ library
     Skema.Services.SourceEvaluator
     Skema.Services.MetadataWriter
     Skema.Services.Registry
+    Skema.Services.TrashCleanup
     Skema.Services.Download
     Skema.Services.Download.Client
     Skema.Services.Download.Scoring
     Skema.Services.Download.Search
     Skema.Services.Download.Monitor
+    Skema.Services.Download.RSSMonitor
+    Skema.Services.Download.Submission
     Skema.Services.Importer
     Skema.Services.Notifications
     Skema.Scraper.Metacritic

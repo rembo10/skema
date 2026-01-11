@@ -5,10 +5,11 @@ module Skema.API.Handlers.Catalog
   ( catalogServer
   ) where
 
-import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), CatalogTaskRequest(..))
+import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), CatalogTaskRequest(..), CatalogAlbumOverviewRequest(..), CatalogAlbumOverviewResponse(..), AlbumOverviewPagination(..), AlbumOverviewStats(..), AlbumOverviewResponse(..), BulkAlbumActionRequest(..), BulkAlbumAction(..), AlbumState(..), ActiveDownloadInfo(..), AlbumReleasesResponse(..), ReleaseResponse(..))
 import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
 import Skema.Core.TaskManager (TaskManager)
 import qualified Skema.Core.TaskManager as TM
+import qualified Skema.Core.Catalog as Core
 import Skema.API.Handlers.Auth (throwJsonError)
 import Skema.API.Handlers.Utils (withAuthDB)
 import Skema.Auth (requireAuth)
@@ -16,6 +17,7 @@ import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
+import Database.SQLite.Simple (Only(..))
 import qualified Skema.Config.Types as Cfg
 import Skema.Services.Registry (ServiceRegistry(..))
 import Skema.MusicBrainz.Client (searchArtists, searchReleaseGroups, prettyClientError)
@@ -24,11 +26,21 @@ import Skema.Domain.Converters (mbArtistSearchToCatalogResponse, mbReleaseGroupS
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
-import Control.Concurrent.Async (async)
+import Skema.Indexer.Client (searchIndexer)
+import Skema.Indexer.Types (SearchQuery(..), ReleaseInfo(..), IndexerResult(..), SearchResult(..), DownloadType(..))
+import Skema.Domain.Quality (qualityToText, textToQuality, qfCutoffQuality)
+import qualified Skema.Domain.Quality as Qual
+import Skema.HTTP.Client (HttpClient(..))
+import Control.Concurrent.Async (async, mapConcurrently, race)
+import Control.Concurrent (threadDelay)
+import Control.Exception (try, SomeException)
+import Data.Either (partitionEithers, rights)
 import Data.Aeson (toJSON, object, (.=))
 import Servant
 import Katip
-import Data.Time (UTCTime)
+import Data.Time (UTCTime, getCurrentTime, diffUTCTime)
+import qualified Data.Text as Text
+import qualified Control.Concurrent.STM as STM
 
 -- | Throw a 400 Bad Request error.
 throw400 :: Text -> Handler a
@@ -51,10 +63,12 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
   :<|> createArtistHandler maybeAuthHeader
   :<|> updateArtistHandler maybeAuthHeader
   :<|> deleteArtistHandler maybeAuthHeader
-  :<|> getAlbumsHandler maybeAuthHeader
+  :<|> albumOverviewHandler maybeAuthHeader
   :<|> createAlbumHandler maybeAuthHeader
   :<|> updateAlbumHandler maybeAuthHeader
   :<|> deleteAlbumHandler maybeAuthHeader
+  :<|> searchAlbumReleasesHandler maybeAuthHeader
+  :<|> bulkActionHandler maybeAuthHeader
   where
     taskHandler :: Maybe Text -> CatalogTaskRequest -> Handler TaskResponse
     taskHandler authHeader req = do
@@ -274,23 +288,37 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         albums <- case maybeArtistId of
           Nothing -> DB.getCatalogAlbums conn maybeWanted
           Just artistId -> DB.getCatalogAlbumsByArtistId conn artistId maybeWanted
-        forM albums $ \album -> pure $ CatalogAlbumResponse
-          { catalogAlbumResponseId = DBTypes.catalogAlbumId album
-          , catalogAlbumResponseReleaseGroupMBID = DBTypes.catalogAlbumReleaseGroupMBID album
-          , catalogAlbumResponseTitle = DBTypes.catalogAlbumTitle album
-          , catalogAlbumResponseArtistMBID = DBTypes.catalogAlbumArtistMBID album
-          , catalogAlbumResponseArtistName = DBTypes.catalogAlbumArtistName album
-          , catalogAlbumResponseType = DBTypes.catalogAlbumType album
-          , catalogAlbumResponseFirstReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
-          , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
-          , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
-          , catalogAlbumResponseWanted = DBTypes.catalogAlbumWanted album
-          , catalogAlbumResponseMatchedClusterId = DBTypes.catalogAlbumMatchedClusterId album
-          , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
-          , catalogAlbumResponseScore = Nothing  -- No score in database records
-          , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
-          , catalogAlbumResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumUpdatedAt album)
-          }
+        forM albums $ \album -> do
+          -- Compute wanted status using Core.Catalog logic
+          maybeProfile <- case DBTypes.catalogAlbumQualityProfileId album of
+            Nothing -> pure Nothing
+            Just profileId -> DB.getQualityProfile conn profileId
+
+          let albumContext = Core.AlbumContext
+                { Core.acQualityProfile = maybeProfile
+                , Core.acCurrentQuality = DBTypes.catalogAlbumCurrentQuality album >>= textToQuality
+                , Core.acInLibrary = isJust (DBTypes.catalogAlbumMatchedClusterId album)
+                , Core.acActiveDownloadStatus = Nothing  -- No download info in this handler
+                }
+              wanted = Core.isAlbumWanted albumContext
+
+          pure $ CatalogAlbumResponse
+            { catalogAlbumResponseId = DBTypes.catalogAlbumId album
+            , catalogAlbumResponseReleaseGroupMBID = DBTypes.catalogAlbumReleaseGroupMBID album
+            , catalogAlbumResponseTitle = DBTypes.catalogAlbumTitle album
+            , catalogAlbumResponseArtistMBID = DBTypes.catalogAlbumArtistMBID album
+            , catalogAlbumResponseArtistName = DBTypes.catalogAlbumArtistName album
+            , catalogAlbumResponseType = DBTypes.catalogAlbumType album
+            , catalogAlbumResponseFirstReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
+            , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
+            , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
+            , catalogAlbumResponseWanted = wanted
+            , catalogAlbumResponseMatchedClusterId = DBTypes.catalogAlbumMatchedClusterId album
+            , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
+            , catalogAlbumResponseScore = Nothing  -- No score in database records
+            , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
+            , catalogAlbumResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumUpdatedAt album)
+            }
 
     -- Create/upsert catalog album
     createAlbumHandler :: Maybe Text -> CreateCatalogAlbumRequest -> Handler CatalogAlbumResponse
@@ -332,7 +360,6 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           (createCatalogAlbumArtistName req)
           (createCatalogAlbumType req)
           (createCatalogAlbumFirstReleaseDate req)
-          (createCatalogAlbumWanted req)
           Nothing  -- matched_cluster_id is not set on creation
 
       -- Fetch the created/updated album
@@ -341,30 +368,43 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
       case maybeAlbum of
         Nothing -> throw500 "Failed to retrieve created album"
-        Just album -> pure $ CatalogAlbumResponse
-          { catalogAlbumResponseId = DBTypes.catalogAlbumId album
-          , catalogAlbumResponseReleaseGroupMBID = DBTypes.catalogAlbumReleaseGroupMBID album
-          , catalogAlbumResponseTitle = DBTypes.catalogAlbumTitle album
-          , catalogAlbumResponseArtistMBID = DBTypes.catalogAlbumArtistMBID album
-          , catalogAlbumResponseArtistName = DBTypes.catalogAlbumArtistName album
-          , catalogAlbumResponseType = DBTypes.catalogAlbumType album
-          , catalogAlbumResponseFirstReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
-          , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
-          , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
-          , catalogAlbumResponseWanted = DBTypes.catalogAlbumWanted album
-          , catalogAlbumResponseMatchedClusterId = DBTypes.catalogAlbumMatchedClusterId album
-          , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
-          , catalogAlbumResponseScore = Nothing
-          , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
-          , catalogAlbumResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumUpdatedAt album)
-          }
+        Just album -> do
+          -- Compute wanted status using Core.Catalog logic
+          maybeProfile <- liftIO $ withConnection connPool $ \conn ->
+            case DBTypes.catalogAlbumQualityProfileId album of
+              Nothing -> pure Nothing
+              Just profileId -> DB.getQualityProfile conn profileId
+
+          let albumContext = Core.AlbumContext
+                { Core.acQualityProfile = maybeProfile
+                , Core.acCurrentQuality = DBTypes.catalogAlbumCurrentQuality album >>= textToQuality
+                , Core.acInLibrary = isJust (DBTypes.catalogAlbumMatchedClusterId album)
+                , Core.acActiveDownloadStatus = Nothing
+                }
+              wanted = Core.isAlbumWanted albumContext
+
+          pure $ CatalogAlbumResponse
+            { catalogAlbumResponseId = DBTypes.catalogAlbumId album
+            , catalogAlbumResponseReleaseGroupMBID = DBTypes.catalogAlbumReleaseGroupMBID album
+            , catalogAlbumResponseTitle = DBTypes.catalogAlbumTitle album
+            , catalogAlbumResponseArtistMBID = DBTypes.catalogAlbumArtistMBID album
+            , catalogAlbumResponseArtistName = DBTypes.catalogAlbumArtistName album
+            , catalogAlbumResponseType = DBTypes.catalogAlbumType album
+            , catalogAlbumResponseFirstReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
+            , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
+            , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
+            , catalogAlbumResponseWanted = wanted
+            , catalogAlbumResponseMatchedClusterId = DBTypes.catalogAlbumMatchedClusterId album
+            , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
+            , catalogAlbumResponseScore = Nothing
+            , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
+            , catalogAlbumResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumUpdatedAt album)
+            }
 
     -- Update catalog album (wanted status and quality profile)
     updateAlbumHandler :: Maybe Text -> Int64 -> UpdateCatalogAlbumRequest -> Handler CatalogAlbumResponse
     updateAlbumHandler authHeader albumId req = do
       _ <- requireAuth configVar jwtSecret authHeader
-
-      let newWantedStatus = updateCatalogAlbumWanted req
 
       -- Fetch the album BEFORE updating to get current status
       maybeAlbumBefore <- liftIO $ withConnection connPool $ \conn -> do
@@ -374,14 +414,70 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       case maybeAlbumBefore of
         Nothing -> throw404 $ "Album not found: " <> show albumId
         Just albumBefore -> do
-          let wasWanted = DBTypes.catalogAlbumWanted albumBefore
+          -- Determine the new quality profile ID
+          let newProfileId = case updateCatalogAlbumQualityProfileId req of
+                Just newId -> newId  -- Use the new ID from request (might be Nothing to clear)
+                Nothing -> DBTypes.catalogAlbumQualityProfileId albumBefore  -- No change
 
-          -- Update the wanted status and quality profile
+          -- Get active download info from overview
+          maybeAlbumWithDownload <- liftIO $ withConnection connPool $ \conn -> do
+            overviews <- DB.getCatalogAlbumsOverview conn 1 0 Nothing Nothing Nothing Nothing Nothing Nothing
+            pure $ find (\row -> DB.caorAlbumId row == albumId) overviews
+
+          let maybeActiveDownloadId = maybeAlbumWithDownload >>= DB.caorActiveDownloadId
+              maybeActiveDownloadQuality = maybeAlbumWithDownload >>= DB.caorActiveDownloadQuality >>= textToQuality
+
+          -- Compute wanted status using Core.Catalog logic
+          (wasWanted, newWantedStatus, shouldCancel) <- liftIO $ withConnection connPool $ \conn -> do
+            -- Get profiles
+            maybeOldProfile <- case DBTypes.catalogAlbumQualityProfileId albumBefore of
+              Nothing -> pure Nothing
+              Just profileId -> DB.getQualityProfile conn profileId
+
+            maybeNewProfile <- case newProfileId of
+              Nothing -> pure Nothing
+              Just profileId -> DB.getQualityProfile conn profileId
+
+            -- Compute old wanted status
+            let oldContext = Core.AlbumContext
+                  { Core.acQualityProfile = maybeOldProfile
+                  , Core.acCurrentQuality = DBTypes.catalogAlbumCurrentQuality albumBefore >>= textToQuality
+                  , Core.acInLibrary = isJust (DBTypes.catalogAlbumMatchedClusterId albumBefore)
+                  , Core.acActiveDownloadStatus = Nothing
+                  }
+                wasWanted' = Core.isAlbumWanted oldContext
+
+            -- Compute new wanted status
+            let newContext = Core.AlbumContext
+                  { Core.acQualityProfile = maybeNewProfile
+                  , Core.acCurrentQuality = DBTypes.catalogAlbumCurrentQuality albumBefore >>= textToQuality
+                  , Core.acInLibrary = isJust (DBTypes.catalogAlbumMatchedClusterId albumBefore)
+                  , Core.acActiveDownloadStatus = Nothing
+                  }
+                newWanted = Core.isAlbumWanted newContext
+
+            -- Check if we should cancel active download using Core logic
+            let downloadCtx = Core.DownloadContext
+                  { Core.dcAlbumContext = newContext
+                  , Core.dcDownloadQuality = fromMaybe Qual.Unknown maybeActiveDownloadQuality
+                  , Core.dcNewProfile = maybeNewProfile
+                  }
+                shouldCancel' = isJust (Core.shouldCancelDownload downloadCtx)
+
+            pure (wasWanted', newWanted, shouldCancel')
+
+          -- Update the quality profile (wanted is now computed, not stored)
           liftIO $ withConnection connPool $ \conn ->
-            DB.updateCatalogAlbum conn albumId newWantedStatus
-              (updateCatalogAlbumQualityProfileId req)
+            DB.updateCatalogAlbum conn albumId (updateCatalogAlbumQualityProfileId req)
 
-          -- Emit WantedAlbumAdded event if album is being marked as wanted (not unwanted)
+          -- Cancel active download if Core logic says we should
+          case (shouldCancel, maybeActiveDownloadId) of
+            (True, Just downloadId) ->
+              liftIO $ withConnection connPool $ \conn ->
+                executeQuery conn "DELETE FROM downloads WHERE id = ?" (Only downloadId)
+            _ -> pure ()
+
+          -- Emit WantedAlbumAdded event if album is being marked as wanted (was not wanted before)
           when (newWantedStatus && not wasWanted) $ do
             liftIO $ EventBus.publishAndLog bus le "api.catalog" $ Events.WantedAlbumAdded
               { Events.wantedCatalogAlbumId = albumId
@@ -397,23 +493,38 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
           case maybeAlbum of
             Nothing -> throw404 $ "Album not found: " <> show albumId
-            Just album -> pure $ CatalogAlbumResponse
-              { catalogAlbumResponseId = DBTypes.catalogAlbumId album
-              , catalogAlbumResponseReleaseGroupMBID = DBTypes.catalogAlbumReleaseGroupMBID album
-              , catalogAlbumResponseTitle = DBTypes.catalogAlbumTitle album
-              , catalogAlbumResponseArtistMBID = DBTypes.catalogAlbumArtistMBID album
-              , catalogAlbumResponseArtistName = DBTypes.catalogAlbumArtistName album
-              , catalogAlbumResponseType = DBTypes.catalogAlbumType album
-              , catalogAlbumResponseFirstReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
-              , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
-              , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
-              , catalogAlbumResponseWanted = DBTypes.catalogAlbumWanted album
-              , catalogAlbumResponseMatchedClusterId = DBTypes.catalogAlbumMatchedClusterId album
-              , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
-              , catalogAlbumResponseScore = Nothing
-              , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
-              , catalogAlbumResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumUpdatedAt album)
-              }
+            Just album -> do
+              -- Re-compute wanted status for the response
+              maybeProfile <- liftIO $ withConnection connPool $ \conn ->
+                case DBTypes.catalogAlbumQualityProfileId album of
+                  Nothing -> pure Nothing
+                  Just profileId -> DB.getQualityProfile conn profileId
+
+              let albumContext = Core.AlbumContext
+                    { Core.acQualityProfile = maybeProfile
+                    , Core.acCurrentQuality = DBTypes.catalogAlbumCurrentQuality album >>= textToQuality
+                    , Core.acInLibrary = isJust (DBTypes.catalogAlbumMatchedClusterId album)
+                    , Core.acActiveDownloadStatus = Nothing
+                    }
+                  wanted = Core.isAlbumWanted albumContext
+
+              pure $ CatalogAlbumResponse
+                { catalogAlbumResponseId = DBTypes.catalogAlbumId album
+                , catalogAlbumResponseReleaseGroupMBID = DBTypes.catalogAlbumReleaseGroupMBID album
+                , catalogAlbumResponseTitle = DBTypes.catalogAlbumTitle album
+                , catalogAlbumResponseArtistMBID = DBTypes.catalogAlbumArtistMBID album
+                , catalogAlbumResponseArtistName = DBTypes.catalogAlbumArtistName album
+                , catalogAlbumResponseType = DBTypes.catalogAlbumType album
+                , catalogAlbumResponseFirstReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
+                , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
+                , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
+                , catalogAlbumResponseWanted = wanted
+                , catalogAlbumResponseMatchedClusterId = DBTypes.catalogAlbumMatchedClusterId album
+                , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
+                , catalogAlbumResponseScore = Nothing
+                , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
+                , catalogAlbumResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumUpdatedAt album)
+                }
 
     -- Delete catalog album
     deleteAlbumHandler :: Maybe Text -> Int64 -> Handler NoContent
@@ -422,3 +533,360 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       liftIO $ withConnection connPool $ \conn ->
         DB.deleteCatalogAlbum conn albumId
       pure NoContent
+
+    -- Get catalog albums with enhanced state information (replaces simple GET /albums)
+    albumOverviewHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler AlbumOverviewResponse
+    albumOverviewHandler authHeader maybePage maybeLimit maybeWanted maybeArtistId maybeSearch maybeSort maybeOrder maybeStateFilter maybeQualityFilter = do
+      _ <- requireAuth configVar jwtSecret authHeader
+
+      let page = fromMaybe 1 maybePage
+      let limit = fromMaybe 50 maybeLimit
+
+      -- Parse comma-separated filters
+      let maybeStates = fmap (map Text.strip . Text.splitOn ",") maybeStateFilter
+      let maybeQualities = fmap (map Text.strip . Text.splitOn ",") maybeQualityFilter
+
+      -- When filtering by state, we need to fetch extra results since filtering happens after computing state
+      -- Fetch 10x the limit to have enough results after filtering (rough heuristic)
+      let fetchLimit = if isJust maybeStateFilter then limit * 10 else limit
+      let offset = (page - 1) * limit
+
+      -- Query database for albums with joined data
+      (overviewRows, totalCount, statsData) <- liftIO $ withConnection connPool $ \conn -> do
+        rows <- DB.getCatalogAlbumsOverview conn fetchLimit offset Nothing maybeQualities maybeArtistId maybeSearch maybeSort maybeOrder
+        count <- DB.getCatalogAlbumsOverviewCount conn maybeQualities maybeArtistId maybeSearch
+        stats <- DB.getCatalogAlbumsOverviewStats conn
+        pure (rows, count, stats)
+
+      -- Convert rows to response objects and apply state filtering
+      let allResponses = map rowToResponse overviewRows
+      let filteredResponses = case maybeStates of
+            Nothing -> allResponses
+            Just stateTexts ->
+              let states = mapMaybe textToAlbumState stateTexts
+              in filter (\resp -> catalogAlbumOverviewState resp `elem` states) allResponses
+
+      -- Take only the requested page of results
+      let responses = take limit filteredResponses
+
+      -- Build pagination
+      let totalPages = (totalCount + limit - 1) `div` limit
+      let pagination = AlbumOverviewPagination
+            { albumOverviewPaginationTotal = totalCount
+            , albumOverviewPaginationPage = page
+            , albumOverviewPaginationLimit = limit
+            , albumOverviewPaginationPages = totalPages
+            }
+
+      -- Build stats
+      let stats = AlbumOverviewStats
+            { albumOverviewStatsByState = []  -- TODO: Compute from data
+            , albumOverviewStatsByQuality = statsData
+            }
+
+      pure AlbumOverviewResponse
+        { albumOverviewResponsePagination = pagination
+        , albumOverviewResponseStats = stats
+        , albumOverviewResponseAlbums = responses
+        }
+
+    -- Helper function to convert a database row to a response object
+    rowToResponse :: DB.CatalogAlbumOverviewRow -> CatalogAlbumOverviewResponse
+    rowToResponse row =
+      let state = computeAlbumState
+            (DB.caorQualityProfileId row)
+            (DB.caorQualityProfileCutoff row)
+            (DB.caorCurrentQuality row)
+            (DB.caorMatchedClusterId row)
+            (DB.caorActiveDownloadId row)
+            (DB.caorActiveDownloadStatus row)
+
+          activeDownload = case DB.caorActiveDownloadId row of
+            Nothing -> Nothing
+            Just downloadId -> Just $ ActiveDownloadInfo
+              { activeDownloadId = downloadId
+              , activeDownloadStatus = fromMaybe "unknown" (DB.caorActiveDownloadStatus row)
+              , activeDownloadProgress = fromMaybe 0.0 (DB.caorActiveDownloadProgress row)
+              , activeDownloadQuality = DB.caorActiveDownloadQuality row
+              , activeDownloadTitle = fromMaybe "" (DB.caorActiveDownloadTitle row)
+              , activeDownloadSizeBytes = DB.caorActiveDownloadSizeBytes row
+              , activeDownloadStartedAt = DB.caorActiveDownloadStartedAt row
+              , activeDownloadErrorMessage = DB.caorActiveDownloadErrorMessage row
+              }
+
+      in CatalogAlbumOverviewResponse
+        { catalogAlbumOverviewId = DB.caorAlbumId row
+        , catalogAlbumOverviewReleaseGroupMBID = DB.caorReleaseGroupMBID row
+        , catalogAlbumOverviewTitle = DB.caorTitle row
+        , catalogAlbumOverviewArtistId = DB.caorArtistId row
+        , catalogAlbumOverviewArtistMBID = DB.caorArtistMBID row
+        , catalogAlbumOverviewArtistName = DB.caorArtistName row
+        , catalogAlbumOverviewType = DB.caorAlbumType row
+        , catalogAlbumOverviewFirstReleaseDate = DB.caorFirstReleaseDate row
+        , catalogAlbumOverviewCoverUrl = DB.caorCoverUrl row
+        , catalogAlbumOverviewCoverThumbnailUrl = DB.caorCoverThumbnailUrl row
+        , catalogAlbumOverviewState = state
+        , catalogAlbumOverviewWanted = DB.caorWanted row
+        , catalogAlbumOverviewHasCluster = isJust (DB.caorMatchedClusterId row)
+        , catalogAlbumOverviewCurrentQuality = DB.caorCurrentQuality row
+        , catalogAlbumOverviewQualityProfileId = DB.caorQualityProfileId row
+        , catalogAlbumOverviewQualityProfileName = DB.caorQualityProfileName row
+        , catalogAlbumOverviewActiveDownload = activeDownload
+        , catalogAlbumOverviewDownloadCount = DB.caorDownloadCount row
+        , catalogAlbumOverviewLastDownloadAt = DB.caorLastDownloadAt row
+        , catalogAlbumOverviewCreatedAt = DB.caorCreatedAt row
+        , catalogAlbumOverviewUpdatedAt = DB.caorUpdatedAt row
+        , catalogAlbumOverviewImportedAt = DB.caorImportedAt row
+        }
+
+    -- Helper function to compute album state from database fields
+    -- Derives "wanted" status from: has profile && (no cluster || quality < cutoff)
+    computeAlbumState :: Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Int64 -> Maybe Int64 -> Maybe Text -> AlbumState
+    computeAlbumState maybeProfileId maybeCutoff maybeCurrentQuality maybeClusterId maybeActiveDownloadId maybeDownloadStatus =
+      let
+        -- Derive wanted status: has profile AND (not in library OR quality needs upgrade)
+        isWanted = case maybeProfileId of
+          Nothing -> False  -- No profile = not monitoring ("Existing" quality)
+          Just _ -> case maybeClusterId of
+            Nothing -> True  -- Has profile but not in library yet = wanted
+            Just _ -> case (maybeCurrentQuality, maybeCutoff) of
+              (Just currentQ, Just cutoffQ) ->
+                -- In library: wanted if current < cutoff
+                textToQuality currentQ < textToQuality cutoffQ
+              _ -> False  -- Missing quality info, assume satisfied
+      in
+      case (isWanted, maybeClusterId, maybeActiveDownloadId, maybeDownloadStatus) of
+        -- Not wanted, no cluster -> NotWanted
+        (False, Nothing, _, _) -> NotWanted
+
+        -- Not wanted, has cluster -> InLibrary (Finished)
+        (False, Just _, _, _) -> InLibrary
+
+        -- Wanted, no cluster, no download -> Wanted (ready for search)
+        (True, Nothing, Nothing, _) -> Wanted
+
+        -- Wanted, no cluster, has active download
+        (True, Nothing, Just _, Just status)
+          | status == "queued" -> Searching
+          | status == "downloading" -> Downloading
+          | status == "processing" -> Downloading
+          | status == "failed" -> Failed
+          | status == "identification_failed" -> IdentificationFailed
+          | otherwise -> Wanted
+
+        (True, Nothing, Just _, Nothing) -> Downloading  -- Default if no status
+
+        -- Wanted, has cluster, no download -> Monitored (in library, monitoring for upgrades)
+        (True, Just _, Nothing, _) -> Monitored
+
+        -- Wanted, has cluster, has active download -> Upgrading
+        (True, Just _, Just _, _) -> Upgrading
+
+    -- Helper function to convert AlbumState to Text (for potential future use)
+    albumStateToText :: AlbumState -> Text
+    albumStateToText state = case state of
+      NotWanted -> "not_wanted"
+      Wanted -> "wanted"
+      Searching -> "searching"
+      Downloading -> "downloading"
+      Failed -> "failed"
+      IdentificationFailed -> "identification_failed"
+      InLibrary -> "in_library"
+      Monitored -> "monitored"
+      Upgrading -> "upgrading"
+
+    -- Helper function to parse AlbumState from Text
+    textToAlbumState :: Text -> Maybe AlbumState
+    textToAlbumState txt = case Text.toLower txt of
+      "notwanted" -> Just NotWanted
+      "not_wanted" -> Just NotWanted
+      "wanted" -> Just Wanted
+      "searching" -> Just Searching
+      "downloading" -> Just Downloading
+      "failed" -> Just Failed
+      "identificationfailed" -> Just IdentificationFailed
+      "identification_failed" -> Just IdentificationFailed
+      "inlibrary" -> Just InLibrary
+      "in_library" -> Just InLibrary
+      "monitored" -> Just Monitored
+      "upgrading" -> Just Upgrading
+      _ -> Nothing
+
+    -- Bulk operations on catalog albums
+    bulkActionHandler :: Maybe Text -> BulkAlbumActionRequest -> Handler NoContent
+    bulkActionHandler authHeader req = do
+      _ <- requireAuth configVar jwtSecret authHeader
+
+      let albumIds = bulkAlbumActionAlbumIds req
+      let action = bulkAlbumActionAction req
+
+      case action of
+        SetQualityProfile profileId -> do
+          -- Update quality profile for all albums
+          liftIO $ withConnection connPool $ \conn ->
+            forM_ albumIds $ \albumId ->
+              DB.updateCatalogAlbum conn albumId (Just (Just profileId))
+
+        SetWanted wanted -> do
+          -- Update wanted status for all albums
+          liftIO $ withConnection connPool $ \conn ->
+            forM_ albumIds $ \albumId ->
+              DB.updateCatalogAlbum conn albumId Nothing
+
+          -- If setting to wanted, emit WantedAlbumAdded events for each
+          when wanted $ do
+            albums <- liftIO $ withConnection connPool $ \conn ->
+              DB.getCatalogAlbums conn Nothing
+            let targetAlbums = filter (\a -> DBTypes.catalogAlbumId a `elem` map Just albumIds) albums
+            forM_ targetAlbums $ \album -> do
+              case DBTypes.catalogAlbumId album of
+                Nothing -> pure ()
+                Just albumId -> do
+                  liftIO $ EventBus.publishAndLog bus le "api.catalog.bulk" $ Events.WantedAlbumAdded
+                    { Events.wantedCatalogAlbumId = albumId
+                    , Events.wantedReleaseGroupId = DBTypes.catalogAlbumReleaseGroupMBID album
+                    , Events.wantedAlbumTitle = DBTypes.catalogAlbumTitle album
+                    , Events.wantedArtistName = DBTypes.catalogAlbumArtistName album
+                    }
+
+        TriggerSearch -> do
+          -- Emit WantedAlbumAdded events to trigger searches
+          albums <- liftIO $ withConnection connPool $ \conn ->
+            DB.getCatalogAlbums conn Nothing
+          let targetAlbums = filter (\a -> DBTypes.catalogAlbumId a `elem` map Just albumIds) albums
+          forM_ targetAlbums $ \album -> do
+            case DBTypes.catalogAlbumId album of
+              Nothing -> pure ()
+              Just albumId -> do
+                liftIO $ EventBus.publishAndLog bus le "api.catalog.bulk" $ Events.WantedAlbumAdded
+                  { Events.wantedCatalogAlbumId = albumId
+                  , Events.wantedReleaseGroupId = DBTypes.catalogAlbumReleaseGroupMBID album
+                  , Events.wantedAlbumTitle = DBTypes.catalogAlbumTitle album
+                  , Events.wantedArtistName = DBTypes.catalogAlbumArtistName album
+                  }
+
+        DeleteFromCatalog -> do
+          -- Delete albums from catalog
+          liftIO $ withConnection connPool $ \conn ->
+            forM_ albumIds $ \albumId ->
+              DB.deleteCatalogAlbum conn albumId
+
+      pure NoContent
+
+    -- Search for available releases from indexers for a specific album
+    searchAlbumReleasesHandler :: Maybe Text -> Int64 -> Handler AlbumReleasesResponse
+    searchAlbumReleasesHandler authHeader albumId = do
+      _ <- requireAuth configVar jwtSecret authHeader
+
+      -- Get the album from the database
+      maybeAlbum <- liftIO $ withConnection connPool $ \conn -> do
+        albums <- DB.getCatalogAlbums conn Nothing
+        pure $ find (\a -> DBTypes.catalogAlbumId a == Just albumId) albums
+
+      case maybeAlbum of
+        Nothing -> throw404 $ "Album not found: " <> show albumId
+        Just album -> do
+          let albumTitle = DBTypes.catalogAlbumTitle album
+          let artistName = DBTypes.catalogAlbumArtistName album
+
+          -- Read current config to get indexers
+          config <- liftIO $ STM.atomically $ STM.readTVar configVar
+          let indexerCfg = Cfg.indexers config
+          let enabledIndexers = filter Cfg.indexerEnabled (Cfg.indexerList indexerCfg)
+
+          when (null enabledIndexers) $ do
+            throw400 "No enabled indexers configured"
+
+          -- Build search query
+          let searchQuery = SearchQuery
+                { sqArtist = Just artistName
+                , sqAlbum = Just albumTitle
+                , sqYear = Nothing
+                , sqQuery = Nothing
+                , sqCategories = [3000, 3010, 3020]  -- Audio categories
+                , sqLimit = 50
+                , sqOffset = 0
+                }
+
+          -- Search all indexers concurrently with 30s timeout
+          startTime <- liftIO getCurrentTime
+
+          searchResult <- liftIO $ race
+            (threadDelay (30 * 1000000))  -- 30 seconds timeout
+            (searchAllIndexers enabledIndexers searchQuery)
+
+          endTime <- liftIO getCurrentTime
+          let searchDuration = realToFrac $ diffUTCTime endTime startTime :: Double
+
+          case searchResult of
+            Left () -> do
+              -- Timeout occurred
+              throw500 "Search timed out after 30 seconds"
+
+            Right results -> do
+              -- Convert results to response format
+              let releases = concatMap convertIndexerResult results
+
+              -- Compute wanted status using Core.Catalog logic
+              maybeProfile <- liftIO $ withConnection connPool $ \conn ->
+                case DBTypes.catalogAlbumQualityProfileId album of
+                  Nothing -> pure Nothing
+                  Just profileId -> DB.getQualityProfile conn profileId
+
+              let albumContext = Core.AlbumContext
+                    { Core.acQualityProfile = maybeProfile
+                    , Core.acCurrentQuality = DBTypes.catalogAlbumCurrentQuality album >>= textToQuality
+                    , Core.acInLibrary = isJust (DBTypes.catalogAlbumMatchedClusterId album)
+                    , Core.acActiveDownloadStatus = Nothing
+                    }
+                  wanted = Core.isAlbumWanted albumContext
+
+              pure AlbumReleasesResponse
+                { albumReleasesAlbum = CatalogAlbumResponse
+                    { catalogAlbumResponseId = DBTypes.catalogAlbumId album
+                    , catalogAlbumResponseReleaseGroupMBID = DBTypes.catalogAlbumReleaseGroupMBID album
+                    , catalogAlbumResponseTitle = albumTitle
+                    , catalogAlbumResponseArtistMBID = DBTypes.catalogAlbumArtistMBID album
+                    , catalogAlbumResponseArtistName = artistName
+                    , catalogAlbumResponseType = DBTypes.catalogAlbumType album
+                    , catalogAlbumResponseFirstReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
+                    , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
+                    , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
+                    , catalogAlbumResponseWanted = wanted
+                    , catalogAlbumResponseMatchedClusterId = DBTypes.catalogAlbumMatchedClusterId album
+                    , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
+                    , catalogAlbumResponseScore = Nothing
+                    , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
+                    , catalogAlbumResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumUpdatedAt album)
+                    }
+                , albumReleasesReleases = releases
+                , albumReleasesSearchTime = searchDuration
+                }
+
+    -- Search all indexers concurrently
+    searchAllIndexers :: [Cfg.Indexer] -> SearchQuery -> IO [IndexerResult]
+    searchAllIndexers indexers query = do
+      let httpClient = srHttpClient registry
+      results <- mapConcurrently (\indexer -> searchIndexer httpClient indexer query) indexers
+      pure $ rights results
+
+    -- Convert IndexerResult to list of ReleaseResponse
+    convertIndexerResult :: IndexerResult -> [ReleaseResponse]
+    convertIndexerResult indexerResult =
+      map (releaseInfoToResponse (irIndexerName indexerResult)) (irReleases indexerResult)
+
+    -- Convert ReleaseInfo to ReleaseResponse
+    releaseInfoToResponse :: Text -> ReleaseInfo -> ReleaseResponse
+    releaseInfoToResponse source release = ReleaseResponse
+      { releaseResponseTitle = riTitle release
+      , releaseResponseSource = source
+      , releaseResponseQuality = qualityToText (riQuality release)
+      , releaseResponseSize = fmap fromIntegral (riSize release)
+      , releaseResponseSeeders = riSeeders release
+      , releaseResponsePeers = riPeers release
+      , releaseResponseDownloadType = case riDownloadType release of
+          NZB -> "nzb"
+          Torrent -> "torrent"
+      , releaseResponseDownloadUrl = riDownloadUrl release
+      , releaseResponsePublishDate = fmap show (riPublishDate release)
+      }

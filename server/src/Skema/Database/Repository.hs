@@ -44,6 +44,7 @@ module Skema.Database.Repository
   , getClusterById
   , getAllClusters
   , getClusterWithTracks
+  , computeClusterQuality
     -- * Stats operations
   , getLibraryStats
     -- * Scan history
@@ -85,9 +86,12 @@ module Skema.Database.Repository
   , getCatalogAlbums
   , getCatalogAlbumsByArtistId
   , getCatalogAlbumByReleaseGroupMBID
-  , updateCatalogAlbumWanted
   , updateCatalogAlbum
   , deleteCatalogAlbum
+  , getCatalogAlbumsOverview
+  , getCatalogAlbumsOverviewCount
+  , getCatalogAlbumsOverviewStats
+  , CatalogAlbumOverviewRow(..)
     -- * Quality profile operations
   , insertQualityProfile
   , updateQualityProfile
@@ -133,6 +137,7 @@ import Skema.Database.Repository.Clusters
   , getClusterById
   , getAllClusters
   , getClusterWithTracks
+  , computeClusterQuality
   )
 
 -- Re-export diff operations
@@ -212,7 +217,10 @@ import Skema.Database.Repository.Catalog
   , getCatalogAlbums
   , getCatalogAlbumsByArtistId
   , getCatalogAlbumByReleaseGroupMBID
-  , updateCatalogAlbumWanted
   , updateCatalogAlbum
   , deleteCatalogAlbum
+  , getCatalogAlbumsOverview
+  , getCatalogAlbumsOverviewCount
+  , getCatalogAlbumsOverviewStats
+  , CatalogAlbumOverviewRow(..)
   )

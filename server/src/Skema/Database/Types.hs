@@ -260,6 +260,7 @@ data CatalogArtistRecord = CatalogArtistRecord
   } deriving (Show, Eq, Generic)
 
 -- | Catalog album record.
+-- NOTE: "wanted" status is NOT stored - it's computed from quality_profile_id + current_quality + matched_cluster_id
 data CatalogAlbumRecord = CatalogAlbumRecord
   { catalogAlbumId :: Maybe Int64
   , catalogAlbumReleaseGroupMBID :: Text
@@ -271,8 +272,6 @@ data CatalogAlbumRecord = CatalogAlbumRecord
   , catalogAlbumFirstReleaseDate :: Maybe Text
   , catalogAlbumCoverUrl :: Maybe Text
   , catalogAlbumCoverThumbnailUrl :: Maybe Text
-  , catalogAlbumWanted :: Bool
-  , catalogAlbumUserUnwanted :: Bool
   , catalogAlbumMatchedClusterId :: Maybe Int64
   , catalogAlbumQualityProfileId :: Maybe Int64
   , catalogAlbumCurrentQuality :: Maybe Text
@@ -564,13 +563,8 @@ instance SQLite.FromRow CatalogAlbumRecord where
   fromRow = CatalogAlbumRecord
     <$> SQLite.field <*> SQLite.field <*> SQLite.field <*> SQLite.field
     <*> SQLite.field <*> SQLite.field <*> SQLite.field <*> SQLite.field
-    <*> SQLite.field <*> SQLite.field <*> (toBool <$> SQLite.field)
-    <*> (toBool <$> SQLite.field) <*> SQLite.field <*> SQLite.field
+    <*> SQLite.field <*> SQLite.field <*> SQLite.field <*> SQLite.field
     <*> SQLite.field <*> SQLite.field <*> SQLite.field
-    where
-      toBool :: Int -> Bool
-      toBool 0 = False
-      toBool _ = True
 
 instance SQLite.FromRow DownloadRecord where
   fromRow = do
