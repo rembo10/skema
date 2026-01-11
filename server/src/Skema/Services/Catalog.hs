@@ -154,7 +154,6 @@ handleCatalogArtistFollowed CatalogDeps{..} artistMBID artistName = do
                             , catalogAlbumArtistName = artistName
                             , catalogAlbumType = albumType
                             , catalogAlbumFirstReleaseDate = firstReleaseDate
-                            , catalogAlbumWanted = False
                             }
 
 -- | Handle a catalog artist refresh request.
@@ -261,7 +260,6 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                             , catalogAlbumArtistName = artistName
                             , catalogAlbumType = albumType
                             , catalogAlbumFirstReleaseDate = firstReleaseDate
-                            , catalogAlbumWanted = False
                             }
 
                 newCount <- liftIO $ Data.IORef.readIORef newAlbumsCount

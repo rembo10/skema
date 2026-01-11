@@ -19,6 +19,9 @@ import Skema.Events.Types (Event(..), EventEnvelope(..), envelopeEvent)
 import Skema.Config.Types (Config(..), NotificationConfig(..), NotificationProvider(..))
 import Skema.Notifications.Types (Notification(..), NotificationSender(..))
 import Skema.Notifications.Pushover (newPushoverClient)
+import Skema.Database.Connection (withConnection)
+import qualified Skema.Database.Repository as DB
+import qualified Skema.Database.Types as DBTypes
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
@@ -39,11 +42,11 @@ startNotificationService deps = do
   async $ forever $ do
     envelope <- STM.atomically $ readTChan chan
     case envelopeEvent envelope of
-      CatalogAlbumAdded{..} | catalogAlbumWanted -> do
+      WantedAlbumAdded{..} -> do
         -- Process asynchronously to avoid blocking event loop
         _ <- async $ do
-          result <- try $ handleCatalogAlbumAdded deps catalogAlbumReleaseGroupMBID catalogAlbumTitle catalogAlbumArtistName catalogAlbumFirstReleaseDate
-          logResult deps result "CatalogAlbumAdded"
+          result <- try $ handleWantedAlbumAdded deps wantedReleaseGroupId wantedAlbumTitle wantedArtistName
+          logResult deps result "WantedAlbumAdded"
         pure ()
 
       DownloadImported{..} -> do
@@ -64,34 +67,43 @@ logResult deps result eventType = do
         $(logTM) ErrorS $ logStr $ ("Exception handling " <> eventType <> " event: " <> show e :: Text)
     Right () -> pure ()
 
--- | Handle a catalog album added event (only for wanted albums with future release dates).
-handleCatalogAlbumAdded :: NotificationDeps -> Text -> Text -> Text -> Maybe Text -> IO ()
-handleCatalogAlbumAdded deps catalogAlbumReleaseGroupMBID albumTitle artistName maybeReleaseDate = do
+-- | Handle a wanted album added event (sends notifications for upcoming wanted albums).
+handleWantedAlbumAdded :: NotificationDeps -> Text -> Text -> Text -> IO ()
+handleWantedAlbumAdded deps releaseGroupId albumTitle artistName = do
   config <- STM.atomically $ STM.readTVar (notifConfigVar deps)
   let notifConfig = notifications config
 
   when (notificationEnabled notifConfig && notificationOnAlbumFound notifConfig) $ do
-    -- Check if the release date is in the future
-    now <- getCurrentTime
-    let isUpcoming = case maybeReleaseDate of
-          Nothing -> False  -- No release date, not upcoming
-          Just releaseDateStr ->
-            case parseTimeM True defaultTimeLocale "%Y-%m-%d" (toString releaseDateStr) :: Maybe UTCTime of
-              Nothing -> False  -- Invalid date format
-              Just releaseDate -> releaseDate > now  -- Future release
+    -- Fetch album details from database to get release date
+    maybeAlbum <- withConnection (notifDbPool deps) $ \conn ->
+      DB.getCatalogAlbumByReleaseGroupMBID conn releaseGroupId
 
-    when isUpcoming $ do
-      let mbUrl = "https://musicbrainz.org/release-group/" <> catalogAlbumReleaseGroupMBID
-      let releaseDateText = maybe "Unknown date" identity maybeReleaseDate
-      let message = "<b>" <> artistName <> "</b>\n"
-                 <> albumTitle <> "\n"
-                 <> "Release Date: " <> releaseDateText
-      let notification = Notification
-            { notificationTitle = "🎵 Upcoming Album"
-            , notificationMessage = message
-            , notificationUrl = Just mbUrl
-            }
-      sendToAllProviders deps notification
+    case maybeAlbum of
+      Nothing -> pure ()  -- Album not found, skip
+      Just album -> do
+        let maybeReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
+
+        -- Check if the release date is in the future
+        now <- getCurrentTime
+        let isUpcoming = case maybeReleaseDate of
+              Nothing -> False  -- No release date, not upcoming
+              Just releaseDateStr ->
+                case parseTimeM True defaultTimeLocale "%Y-%m-%d" (toString releaseDateStr) :: Maybe UTCTime of
+                  Nothing -> False  -- Invalid date format
+                  Just releaseDate -> releaseDate > now  -- Future release
+
+        when isUpcoming $ do
+          let mbUrl = "https://musicbrainz.org/release-group/" <> releaseGroupId
+          let releaseDateText = maybe "Unknown date" identity maybeReleaseDate
+          let message = "<b>" <> artistName <> "</b>\n"
+                     <> albumTitle <> "\n"
+                     <> "Release Date: " <> releaseDateText
+          let notification = Notification
+                { notificationTitle = "🎵 Upcoming Album"
+                , notificationMessage = message
+                , notificationUrl = Just mbUrl
+                }
+          sendToAllProviders deps notification
 
 -- | Handle a download imported event.
 handleDownloadImported :: NotificationDeps -> Text -> IO ()

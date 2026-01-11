@@ -21,11 +21,13 @@ import Skema.Services.Acquisition (startAcquisitionService)
 import Skema.Services.Image (startImageService)
 import Skema.Services.Thumbnailer (startThumbnailerService)
 import Skema.Services.Download (startDownloadService)
+import Skema.Services.Download.RSSMonitor (runRSSMonitor)
 import Skema.Services.Importer (startImporterService)
 import Skema.Services.Stats (startStatsService)
 import Skema.Services.SourceEvaluator (startSourceEvaluatorService)
 import Skema.Services.MetadataWriter (startMetadataWriterService)
 import Skema.Services.Notifications (startNotificationService)
+import Skema.Services.TrashCleanup (startTrashCleanupService)
 import Skema.Events.Bus (EventBus, subscribe, publishAndLog)
 import Skema.Events.Types (Event(..), EventEnvelope(..))
 import Skema.Database.Connection (ConnectionPool)
@@ -243,6 +245,10 @@ startAllServices le bus pool config cacheDir configPath = do
     liftIO $ registerAsync asyncRegistry "Download.Search" downloadSearchHandle
     liftIO $ registerAsync asyncRegistry "Download.Monitor" downloadMonitorHandle
 
+    $(logTM) InfoS $ logStr ("Starting RSS Monitor service..." :: Text)
+    rssMonitorHandle <- liftIO $ async $ runRSSMonitor le bus pool httpClient config
+    liftIO $ registerAsync asyncRegistry "Download.RSSMonitor" rssMonitorHandle
+
     $(logTM) InfoS $ logStr ("Starting Importer service..." :: Text)
     let importerDeps = ImporterDeps
           { impEventBus = scEventBus ctx
@@ -291,6 +297,11 @@ startAllServices le bus pool config cacheDir configPath = do
     sourceEvaluatorHandle <- liftIO $ startSourceEvaluatorService sourceEvaluatorDeps
     liftIO $ registerAsync asyncRegistry "SourceEvaluator" sourceEvaluatorHandle
 
+    -- Start TrashCleanup service (periodically removes old files from trash)
+    $(logTM) InfoS $ logStr ("Starting TrashCleanup service..." :: Text)
+    trashCleanupHandle <- liftIO $ startTrashCleanupService (scLogEnv ctx) (scConfigVar ctx)
+    liftIO $ registerAsync asyncRegistry "TrashCleanup" trashCleanupHandle
+
     -- Start Notification service (sends notifications via Pushover, etc.)
     $(logTM) InfoS $ logStr ("Starting Notification service..." :: Text)
     let notificationDeps = NotificationDeps
@@ -298,6 +309,7 @@ startAllServices le bus pool config cacheDir configPath = do
           , notifConfigVar = scConfigVar ctx
           , notifHttpManager = getManager (scHttpClient ctx)
           , notifLogEnv = scLogEnv ctx
+          , notifDbPool = scDbPool ctx
           }
     notificationHandle <- liftIO $ startNotificationService notificationDeps
     liftIO $ registerAsync asyncRegistry "Notification" notificationHandle

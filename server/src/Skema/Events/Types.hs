@@ -109,7 +109,6 @@ data Event
       , catalogAlbumArtistName :: Text
       , catalogAlbumType :: Maybe Text
       , catalogAlbumFirstReleaseDate :: Maybe Text
-      , catalogAlbumWanted :: Bool
       }
   | ArtistImageFetched
       { artistImageId :: Int64
@@ -426,7 +425,6 @@ eventToJSON = \case
     , "artist_name" .= catalogAlbumArtistName
     , "album_type" .= catalogAlbumType
     , "first_release_date" .= catalogAlbumFirstReleaseDate
-    , "wanted" .= catalogAlbumWanted
     ]
   ArtistImageFetched{..} -> object
     [ "artist_id" .= artistImageId

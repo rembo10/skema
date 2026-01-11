@@ -185,4 +185,5 @@ data NotificationDeps = NotificationDeps
   , notifConfigVar :: TVar Config
   , notifHttpManager :: Manager
   , notifLogEnv :: LogEnv
+  , notifDbPool :: ConnectionPool
   }
