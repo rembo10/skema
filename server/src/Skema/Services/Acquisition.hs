@@ -20,7 +20,7 @@ import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
 import Skema.Database.Repository
-import Skema.Database.Types (CatalogAlbumRecord(..), AcquisitionSourceRecord(..), SourceType(..), AlbumStatus(..))
+import Skema.Database.Types (CatalogAlbumRecord(..), AcquisitionSourceRecord(..), SourceType(..))
 import qualified Skema.Database.Types as DB
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM

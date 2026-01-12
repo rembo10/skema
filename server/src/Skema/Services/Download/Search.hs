@@ -19,13 +19,12 @@ import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
 import Skema.Database.Repository
-import Skema.Database.Repository.Quality (getEffectiveQualityProfile)
 import Skema.HTTP.Client (HttpClient)
 import Skema.Indexer.Search (rankResultsWithContext)
 import Skema.Indexer.Client (searchIndexer)
 import Skema.Indexer.Types
 import Skema.Config.Types (Config(..), Indexer(..), IndexerConfig(..))
-import Skema.Domain.Quality (Quality, QualityProfile, meetsProfile, isBetterQuality, textToQuality)
+import Skema.Domain.Quality (meetsProfile, isBetterQuality, textToQuality)
 import Database.SQLite.Simple (Only(..))
 import Control.Concurrent.Async (async, race, mapConcurrently)
 import qualified Control.Concurrent.STM as STM

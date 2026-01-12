@@ -5,7 +5,6 @@ module Skema.FileSystem.Utils
   ( moveFile
   ) where
 
-import Relude
 import qualified System.Directory as Dir
 import System.IO.Error (IOError, ioeGetErrorType)
 import GHC.IO.Exception (IOErrorType(..))

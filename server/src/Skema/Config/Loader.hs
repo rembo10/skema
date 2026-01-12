@@ -12,7 +12,7 @@ module Skema.Config.Loader
 import Skema.Config.Types (Config, serverPassword, hashPassword, isHashedPassword)
 import Skema.Config.EnvOverrides (applyEnvOverrides)
 import Skema.Config.Validation (validateConfig)
-import Skema.Config.Safe (safeWriteConfig, createBackup)
+import Skema.Config.Safe (safeWriteConfig)
 import Skema.Config.Migrations (migrateConfig, needsMigration)
 import Data.Yaml (decodeFileEither, prettyPrintParseException)
 import System.OsPath (OsPath)

@@ -13,7 +13,6 @@ import Data.Aeson (FromJSON(..), ToJSON(..), (.:), (.:?), (.=), withObject, obje
 import qualified Data.Aeson as Aeson
 import qualified Data.Text as T
 import GHC.Generics ()
-import Network.HTTP.Types.URI (urlEncode)
 
 import Skema.DownloadClient.Types
 import Skema.HTTP.Client (HttpClient, postJSON)
@@ -133,7 +132,7 @@ instance DownloadClientAPI NZBGetClient where
         addToTop = False
         addPaused = False
         dupeKey = ""
-        dupeScore = 0
+        dupeScore = (0 :: Int)
         dupeMode = "SCORE"
         params =
           [ Aeson.String name  -- NZBFilename
@@ -172,7 +171,7 @@ instance DownloadClientAPI NZBGetClient where
         case groupsResult of
           Right groupsResp | Just groups <- rpcResult groupsResp -> do
             case find (\g -> T.pack (show $ nzbGroupId g) == downloadId) groups of
-              Just group -> pure $ Right $ groupToDownloadInfo group
+              Just nzbGroup -> pure $ Right $ groupToDownloadInfo nzbGroup
               Nothing -> do
                 -- Not in queue, check history
                 histResult <- try $ makeRPCRequest client "history" [Aeson.Bool False] :: IO (Either SomeException (NZBRPCResponse [NZBHistoryItem]))
@@ -281,7 +280,6 @@ groupToDownloadInfo NZBGroup{..} =
         _ -> DSQueued
       sizeBytes = Just $ fromIntegral nzbGroupFileSizeMB * 1024 * 1024
       downloadedBytes = Just $ fromIntegral nzbGroupDownloadedSizeMB * 1024 * 1024
-      remainingBytes = fromIntegral nzbGroupRemainingSizeMB * 1024 * 1024
       progress = if nzbGroupFileSizeMB > 0
                    then fromIntegral (nzbGroupFileSizeMB - nzbGroupRemainingSizeMB) / fromIntegral nzbGroupFileSizeMB
                    else 0.0

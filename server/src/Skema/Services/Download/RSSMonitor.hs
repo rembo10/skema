@@ -19,26 +19,21 @@ module Skema.Services.Download.RSSMonitor
   ) where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (try, SomeException)
-import Control.Monad (forever, forM_, when, unless)
-import Data.Int (Int64)
-import Data.Maybe (isNothing, fromMaybe, isJust, mapMaybe, listToMaybe)
-import Data.Text (Text)
-import Data.Time (UTCTime, getCurrentTime, diffUTCTime, NominalDiffTime)
+import Control.Exception (try)
+import Data.Time (UTCTime, getCurrentTime, diffUTCTime)
 import qualified Data.Text as T
 import qualified Data.List as List
 import Database.SQLite.Simple (Only(..))
 import Katip
 
-import Skema.Config.Types (Config(..), Indexer(..), IndexerConfig(..), DownloadConfig(..))
+import Skema.Config.Types (Config(..), Indexer(..), IndexerConfig(..))
 import Skema.Database.Connection (ConnectionPool, withConnection, queryRows, executeQuery)
-import Skema.Events.Types (Event(..))
 import Skema.Events.Bus (EventBus)
 import Skema.HTTP.Client (HttpClient)
-import Skema.Indexer.Types (SearchResult(..), IndexerResult(..), IndexerError(..), SearchQuery(..), ReleaseInfo(..))
+import Skema.Indexer.Types (IndexerResult(..), IndexerError(..), SearchQuery(..), ReleaseInfo(..))
 import qualified Skema.Indexer.Client as IndexerClient
 import qualified Database.SQLite.Simple as SQLite
-import Skema.Domain.Quality (Quality, QualityProfile, textToQuality, meetsProfile, isBetterQuality, parseQualityFromTitle, selectBestQuality)
+import Skema.Domain.Quality (Quality, QualityProfile, textToQuality, meetsProfile, isBetterQuality)
 import qualified Skema.Domain.Quality as Qual
 import Skema.Database.Repository.Quality (getEffectiveQualityProfile)
 import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
@@ -88,7 +83,7 @@ getIndexerState pool indexer = withConnection pool $ \conn -> do
 
 -- | Update RSS state for an indexer
 updateIndexerState :: ConnectionPool -> IndexerRSSState -> IO ()
-updateIndexerState pool state = withConnection pool $ \conn -> do
+updateIndexerState pool rssState = withConnection pool $ \conn -> do
   now <- getCurrentTime
   executeQuery conn
     "UPDATE indexer_rss_state SET \
@@ -101,15 +96,15 @@ updateIndexerState pool state = withConnection pool $ \conn -> do
     \  consecutive_failures = ?, \
     \  updated_at = ? \
     \WHERE url = ?"
-    ( irsName state
-    , irsLastSeenGuid state
-    , irsLastCheckAt state
-    , irsLastSuccessfulCheckAt state
-    , irsSupportsRSSPagination state
-    , irsCapabilitiesDetectedAt state
-    , irsConsecutiveFailures state
+    ( irsName rssState
+    , irsLastSeenGuid rssState
+    , irsLastCheckAt rssState
+    , irsLastSuccessfulCheckAt rssState
+    , irsSupportsRSSPagination rssState
+    , irsCapabilitiesDetectedAt rssState
+    , irsConsecutiveFailures rssState
     , now
-    , irsUrl state
+    , irsUrl rssState
     )
 
 -- | Get RSS monitoring settings
@@ -192,10 +187,10 @@ getWantedAlbums pool = withConnection pool $ \conn -> do
 
 -- | Resync RSS feed on startup (find last GUID or fetch recent)
 resyncRSSFeed :: HttpClient -> Indexer -> IndexerRSSState -> Int -> IO (Either Text [ReleaseInfo])
-resyncRSSFeed httpClient indexer state thresholdHours = do
+resyncRSSFeed httpClient indexer rssState thresholdHours = do
   now <- getCurrentTime
 
-  case irsLastCheckAt state of
+  case irsLastCheckAt rssState of
     Nothing -> do
       -- First run, just get recent RSS
       result <- fetchRSSFeed httpClient indexer 100 0
@@ -207,7 +202,7 @@ resyncRSSFeed httpClient indexer state thresholdHours = do
     Just lastCheck -> do
       let downtimeHours = floor $ diffUTCTime now lastCheck / 3600
 
-      if downtimeHours > fromIntegral thresholdHours
+      if downtimeHours > (fromIntegral thresholdHours :: Integer)
         then pure $ Left "Downtime exceeded threshold, needs explicit search"
         else do
           -- Try to find last GUID in recent feed
@@ -215,7 +210,7 @@ resyncRSSFeed httpClient indexer state thresholdHours = do
           case result of
             Right [indexerResult] -> do
               let releases = irReleases indexerResult
-              case irsLastSeenGuid state of
+              case irsLastSeenGuid rssState of
                 Nothing -> pure $ Right releases
                 Just lastGuid -> do
                   -- Find index of last GUID
@@ -259,7 +254,7 @@ matchesAndMeetsQuality release album =
 -- | Process RSS releases and match against wanted albums with quality filtering.
 -- When multiple releases match the same album, select the one that best fits the quality profile.
 processRSSReleases :: ConnectionPool -> [ReleaseInfo] -> [WantedAlbumInfo] -> IO [(ReleaseInfo, WantedAlbumInfo)]
-processRSSReleases pool releases wantedAlbums = do
+processRSSReleases _pool releases wantedAlbums = do
   -- Match each release against each wanted album, filtering by quality
   let allMatches = [(release, album) | release <- releases, album <- wantedAlbums, matchesAndMeetsQuality release album]
 
@@ -327,20 +322,20 @@ runRSSMonitor le bus pool httpClient config = do
 
               case maybeState of
                 Nothing -> $(logTM) WarningS $ logStr $ "Failed to get state for indexer: " <> indexerName indexer
-                Just state -> do
+                Just indexerState -> do
                   -- Check if we need to detect capabilities
-                  updatedState <- if isNothing (irsSupportsRSSPagination state)
+                  updatedState <- if isNothing (irsSupportsRSSPagination indexerState)
                     then do
                       $(logTM) InfoS $ logStr $ "Detecting capabilities for: " <> indexerName indexer
                       supportsPagination <- liftIO $ detectIndexerCapabilities httpClient indexer
                       now <- liftIO getCurrentTime
-                      let newState = state
+                      let newState = indexerState
                             { irsSupportsRSSPagination = supportsPagination
                             , irsCapabilitiesDetectedAt = Just now
                             }
                       liftIO $ updateIndexerState pool newState
                       pure newState
-                    else pure state
+                    else pure indexerState
 
                   -- Fetch RSS feed and match against wanted albums
                   syncResult <- liftIO $ resyncRSSFeed httpClient indexer updatedState (rssSyncMaxThresholdHours rssSettings)

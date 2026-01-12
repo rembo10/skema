@@ -25,7 +25,7 @@ import qualified System.OsPath as OP
 import Servant hiding (SourceIO)
 import Servant.Types.SourceT (SourceT(..), StepT(..))
 import Katip
-import Data.Aeson ((.:), withObject, toJSON, Object, Value(..))
+import Data.Aeson ((.:), withObject, toJSON, Value(..))
 import Data.Aeson.Types (parseMaybe)
 import qualified Data.Aeson.KeyMap as KM
 import Control.Concurrent.STM (readTChan)

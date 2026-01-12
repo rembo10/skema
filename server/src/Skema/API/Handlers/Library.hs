@@ -55,6 +55,7 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
                 EventBus.publishAndLog bus le "library-task" $
                   Events.LibraryScanRequested
                     { Events.scanPath = toText libPathText
+                    , Events.forceRescan = False
                     }
 
                 -- For now, just complete the task immediately

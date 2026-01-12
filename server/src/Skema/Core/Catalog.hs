@@ -34,7 +34,6 @@ import Skema.Domain.Quality
   , QualityProfile
   , meetsProfile
   , isBetterQuality
-  , meetsOrExceedsCutoff
   , needsUpgrade
   )
 

@@ -5,7 +5,7 @@ module Skema.API.Handlers.Catalog
   ( catalogServer
   ) where
 
-import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), CatalogTaskRequest(..), CatalogAlbumOverviewRequest(..), CatalogAlbumOverviewResponse(..), AlbumOverviewPagination(..), AlbumOverviewStats(..), AlbumOverviewResponse(..), BulkAlbumActionRequest(..), BulkAlbumAction(..), AlbumState(..), ActiveDownloadInfo(..), AlbumReleasesResponse(..), ReleaseResponse(..))
+import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), CatalogTaskRequest(..), CatalogAlbumOverviewResponse(..), AlbumOverviewPagination(..), AlbumOverviewStats(..), AlbumOverviewResponse(..), BulkAlbumActionRequest(..), BulkAlbumAction(..), AlbumState(..), ActiveDownloadInfo(..), AlbumReleasesResponse(..), ReleaseResponse(..))
 import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
 import Skema.Core.TaskManager (TaskManager)
 import qualified Skema.Core.TaskManager as TM
@@ -27,14 +27,11 @@ import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
 import Skema.Indexer.Client (searchIndexer)
-import Skema.Indexer.Types (SearchQuery(..), ReleaseInfo(..), IndexerResult(..), SearchResult(..), DownloadType(..))
-import Skema.Domain.Quality (qualityToText, textToQuality, qfCutoffQuality)
+import Skema.Indexer.Types (SearchQuery(..), ReleaseInfo(..), IndexerResult(..), DownloadType(..))
+import Skema.Domain.Quality (qualityToText, textToQuality)
 import qualified Skema.Domain.Quality as Qual
-import Skema.HTTP.Client (HttpClient(..))
 import Control.Concurrent.Async (async, mapConcurrently, race)
 import Control.Concurrent (threadDelay)
-import Control.Exception (try, SomeException)
-import Data.Either (partitionEithers, rights)
 import Data.Aeson (toJSON, object, (.=))
 import Servant
 import Katip
@@ -280,46 +277,6 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         DB.deleteCatalogArtist conn artistId
       pure NoContent
 
-    -- Get catalog albums
-    getAlbumsHandler :: Maybe Text -> Maybe Bool -> Maybe Int64 -> Handler [CatalogAlbumResponse]
-    getAlbumsHandler authHeader maybeWanted maybeArtistId = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn -> do
-        albums <- case maybeArtistId of
-          Nothing -> DB.getCatalogAlbums conn
-          Just artistId -> DB.getCatalogAlbumsByArtistId conn artistId
-        forM albums $ \album -> do
-          -- Compute wanted status using Core.Catalog logic
-          maybeProfile <- case DBTypes.catalogAlbumQualityProfileId album of
-            Nothing -> pure Nothing
-            Just profileId -> DB.getQualityProfile conn profileId
-
-          let albumContext = Core.AlbumContext
-                { Core.acQualityProfile = maybeProfile
-                , Core.acCurrentQuality = DBTypes.catalogAlbumCurrentQuality album >>= textToQuality
-                , Core.acInLibrary = isJust (DBTypes.catalogAlbumMatchedClusterId album)
-                , Core.acActiveDownloadStatus = Nothing  -- No download info in this handler
-                }
-              wanted = Core.isAlbumWanted albumContext
-
-          pure $ CatalogAlbumResponse
-            { catalogAlbumResponseId = DBTypes.catalogAlbumId album
-            , catalogAlbumResponseReleaseGroupMBID = DBTypes.catalogAlbumReleaseGroupMBID album
-            , catalogAlbumResponseTitle = DBTypes.catalogAlbumTitle album
-            , catalogAlbumResponseArtistMBID = DBTypes.catalogAlbumArtistMBID album
-            , catalogAlbumResponseArtistName = DBTypes.catalogAlbumArtistName album
-            , catalogAlbumResponseType = DBTypes.catalogAlbumType album
-            , catalogAlbumResponseFirstReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
-            , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
-            , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
-            , catalogAlbumResponseWanted = wanted
-            , catalogAlbumResponseMatchedClusterId = DBTypes.catalogAlbumMatchedClusterId album
-            , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
-            , catalogAlbumResponseScore = Nothing  -- No score in database records
-            , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
-            , catalogAlbumResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumUpdatedAt album)
-            }
-
     -- Create/upsert catalog album
     createAlbumHandler :: Maybe Text -> CreateCatalogAlbumRequest -> Handler CatalogAlbumResponse
     createAlbumHandler authHeader req = do
@@ -536,7 +493,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
     -- Get catalog albums with enhanced state information (replaces simple GET /albums)
     albumOverviewHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler AlbumOverviewResponse
-    albumOverviewHandler authHeader maybePage maybeLimit maybeWanted maybeArtistId maybeSearch maybeSort maybeOrder maybeStateFilter maybeQualityFilter = do
+    albumOverviewHandler authHeader maybePage maybeLimit _maybeWanted maybeArtistId maybeSearch maybeSort maybeOrder maybeStateFilter maybeQualityFilter = do
       _ <- requireAuth configVar jwtSecret authHeader
 
       let page = fromMaybe 1 maybePage
@@ -593,7 +550,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
     -- Helper function to convert a database row to a response object
     rowToResponse :: DB.CatalogAlbumOverviewRow -> CatalogAlbumOverviewResponse
     rowToResponse row =
-      let state = computeAlbumState
+      let albumState = computeAlbumState
             (DB.caorQualityProfileId row)
             (DB.caorQualityProfileCutoff row)
             (DB.caorCurrentQuality row)
@@ -625,7 +582,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         , catalogAlbumOverviewFirstReleaseDate = DB.caorFirstReleaseDate row
         , catalogAlbumOverviewCoverUrl = DB.caorCoverUrl row
         , catalogAlbumOverviewCoverThumbnailUrl = DB.caorCoverThumbnailUrl row
-        , catalogAlbumOverviewState = state
+        , catalogAlbumOverviewState = albumState
         , catalogAlbumOverviewWanted = DB.caorWanted row
         , catalogAlbumOverviewHasCluster = isJust (DB.caorMatchedClusterId row)
         , catalogAlbumOverviewCurrentQuality = DB.caorCurrentQuality row
@@ -681,19 +638,6 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
         -- Wanted, has cluster, has active download -> Upgrading
         (True, Just _, Just _, _) -> Upgrading
-
-    -- Helper function to convert AlbumState to Text (for potential future use)
-    albumStateToText :: AlbumState -> Text
-    albumStateToText state = case state of
-      NotWanted -> "not_wanted"
-      Wanted -> "wanted"
-      Searching -> "searching"
-      Downloading -> "downloading"
-      Failed -> "failed"
-      IdentificationFailed -> "identification_failed"
-      InLibrary -> "in_library"
-      Monitored -> "monitored"
-      Upgrading -> "upgrading"
 
     -- Helper function to parse AlbumState from Text
     textToAlbumState :: Text -> Maybe AlbumState

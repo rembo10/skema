@@ -21,7 +21,6 @@ import Skema.Events.Types (Event(..))
 import Skema.Database.Connection
 import Skema.Database.Repository (getEnabledAcquisitionRules, upsertCatalogArtist, upsertCatalogAlbum)
 import Skema.Database.Types (AcquisitionSourceRecord(..), SourceType(..))
-import qualified Skema.Database.Types as DB
 import Skema.Services.Filters
   ( SourceFilters(..)
   , MetacriticFilters(..)
@@ -213,7 +212,7 @@ matchesPitchforkFilters PitchforkFilters{..} album =
 -- | Match an album to MusicBrainz and add it to the wanted list.
 -- Returns True if successfully added, False otherwise.
 matchAndAddAlbum :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> AcquisitionSourceRecord -> Text -> Text -> IO Bool
-matchAndAddAlbum pool bus le mbClient source artistName albumTitle = do
+matchAndAddAlbum pool bus le mbClient _source artistName albumTitle = do
   -- Search MusicBrainz for the release group
   let query = "artist:\"" <> artistName <> "\" AND releasegroup:\"" <> albumTitle <> "\""
   searchResult <- searchReleaseGroups mbClient query (Just 5) Nothing

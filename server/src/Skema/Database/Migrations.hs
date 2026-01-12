@@ -14,7 +14,6 @@ import Skema.Database.Types (sourceTypeToText, SourceType(..))
 import Katip
 import Database.SQLite.Simple (Only(..))
 import qualified Database.SQLite.Simple as SQLite
-import Control.Exception (catch)
 
 -- | Run all pending migrations.
 runMigrations :: LogEnv -> ConnectionPool -> IO ()

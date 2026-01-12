@@ -15,7 +15,6 @@ import Skema.Database.Connection
 import Skema.Database.Types
 import Skema.Database.Utils (insertReturningId)
 import qualified Skema.Database.Utils as Utils
-import Data.Time (getCurrentTime)
 import Database.SQLite.Simple (Only(..))
 import qualified Database.SQLite.Simple as SQLite
 

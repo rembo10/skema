@@ -22,7 +22,7 @@ module Skema.MusicBrainz.Client
 
 import Skema.MusicBrainz.Types
 import Skema.HTTP.Client (HttpClient, HttpError, getJSON, getJSONWithBasicAuth, prettyHttpError)
-import Skema.Config.Types (MusicBrainzConfig, MusicBrainzServer(..), getMusicBrainzServerUrl, mbServer, mbUsername, mbPassword)
+import Skema.Config.Types (MusicBrainzConfig, getMusicBrainzServerUrl, mbUsername, mbPassword)
 import Data.Aeson (FromJSON)
 import qualified Data.Text as T
 import Network.HTTP.Types.URI (urlEncode)

@@ -218,9 +218,6 @@ detectQualityFromAudio metadata =
       bitsPerSample = Monatone.bitsPerSample audioProps
       sampleRate = Monatone.sampleRate audioProps
 
-      -- Check if this is lossless format
-      isLossless = fmt `elem` [Monatone.FLAC, Monatone.M4A]  -- M4A might be ALAC
-
       -- Check if this is hi-res (24-bit or high sample rate)
       isHiRes = case (bitsPerSample, sampleRate) of
         (Just bits, _) | bits >= 24 -> True

@@ -691,6 +691,9 @@ defaultDownloadConfig = DownloadConfig
   , downloadAutoImport = True
   , downloadMinSeeders = Just 1
   , downloadMaxSize = Nothing
+  , downloadReplaceLibraryFiles = False
+  , downloadUseTrash = True
+  , downloadTrashRetentionDays = 7
   }
 
 -- | Default indexer configuration with Bullet preconfigured.

@@ -41,7 +41,7 @@ startTrashCleanupService le configVar = async $ do
           -- Sleep for 1 day
           liftIO $ threadDelay (24 * 60 * 60 * 1000000)
 
-        Just libPath | not (downloadUseTrash downloadCfg) -> do
+        Just _libPath | not (downloadUseTrash downloadCfg) -> do
           $(logTM) DebugS "Trash is disabled, skipping cleanup"
           -- Sleep for 1 day
           liftIO $ threadDelay (24 * 60 * 60 * 1000000)

@@ -23,8 +23,7 @@ import Skema.Database.Types
 import Skema.Database.Utils (insertReturningId)
 import Skema.Database.Repository.Tracks (stringToOsPath)
 import Skema.MusicBrainz.Types (MBRelease(..), MBID(..), unMBID)
-import Skema.Services.Common (metadataRecordToMonatone)
-import Skema.Domain.Quality (Quality(..), detectQualityFromAudio, qualityToText, textToQuality)
+import Skema.Domain.Quality (Quality(..), textToQuality)
 import System.OsPath (OsPath)
 import Data.Time (getCurrentTime)
 import Data.List (minimum)
@@ -225,11 +224,11 @@ getClusterWithTracks conn cid = do
 -- | Compute the quality of a cluster from its tracks' stored quality values.
 -- Returns the lowest quality found across all tracks (representative of the album).
 computeClusterQuality :: SQLite.Connection -> Int64 -> IO (Maybe Quality)
-computeClusterQuality conn clusterId = do
+computeClusterQuality conn clusterIdArg = do
   -- Read quality values directly from library_tracks table
   qualityTexts <- queryRows conn
     "SELECT quality FROM library_tracks WHERE cluster_id = ? AND quality IS NOT NULL"
-    (Only clusterId) :: IO [Only (Maybe Text)]
+    (Only clusterIdArg) :: IO [Only (Maybe Text)]
 
   let qualities = mapMaybe (\(Only maybeQText) -> maybeQText >>= textToQuality) qualityTexts
 
