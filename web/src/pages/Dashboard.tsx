@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
-import { FileAudio, HardDrive, Clock, Disc, Mic, AlertTriangle } from 'lucide-react';
+import { FileAudio, HardDrive, Clock, Disc, Mic, AlertTriangle, RefreshCw, RotateCcw } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAppStore } from '../store';
 import type { LibraryStats } from '../types/api';
@@ -42,6 +42,7 @@ export default function Dashboard() {
 
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
+  const [forceScanning, setForceScanning] = useState(false);
 
   // Load stats and artists on mount
   useEffect(() => {
@@ -88,6 +89,24 @@ export default function Dashboard() {
       toast.error(errorMessage);
     } finally {
       setScanning(false);
+    }
+  }, []);
+
+  const startForceScan = useCallback(async () => {
+    setForceScanning(true);
+    try {
+      const result = await api.forceScanLibrary();
+      if (result.success) {
+        toast.success('Force library re-scan started');
+      } else {
+        toast.error(result.message || 'Failed to start force re-scan');
+      }
+    } catch (error) {
+      console.error('Failed to start force scan:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to start force re-scan';
+      toast.error(errorMessage);
+    } finally {
+      setForceScanning(false);
     }
   }, []);
 
@@ -237,6 +256,42 @@ export default function Dashboard() {
 
       {/* Recently followed artists */}
       <RecentlyFollowedArtists />
+
+      {/* Actions */}
+      <div className="card p-6">
+        <h2 className="text-lg font-semibold text-dark-text mb-4">Actions</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button
+            onClick={startScan}
+            disabled={!stats?.library_path || scanning}
+            className="flex items-center gap-3 p-4 rounded-lg border border-dark-border bg-dark-bg-subtle hover:bg-dark-bg-elevated hover:border-dark-border-bright transition-all disabled:opacity-50 disabled:cursor-not-allowed text-left"
+            title={!stats?.library_path ? 'Configure library path in settings first' : ''}
+          >
+            <div className="w-10 h-10 bg-dark-accent/10 rounded-lg flex items-center justify-center border border-dark-accent/30 flex-shrink-0">
+              <RefreshCw className={`w-5 h-5 text-dark-accent ${scanning ? 'animate-spin' : ''}`} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-dark-text">Scan Library</p>
+              <p className="text-sm text-dark-text-secondary">Detect new, modified, and deleted files</p>
+            </div>
+          </button>
+
+          <button
+            onClick={startForceScan}
+            disabled={!stats?.library_path || forceScanning}
+            className="flex items-center gap-3 p-4 rounded-lg border border-dark-border bg-dark-bg-subtle hover:bg-dark-bg-elevated hover:border-dark-border-bright transition-all disabled:opacity-50 disabled:cursor-not-allowed text-left"
+            title={!stats?.library_path ? 'Configure library path in settings first' : ''}
+          >
+            <div className="w-10 h-10 bg-dark-info/10 rounded-lg flex items-center justify-center border border-dark-info/30 flex-shrink-0">
+              <RotateCcw className={`w-5 h-5 text-dark-info ${forceScanning ? 'animate-spin' : ''}`} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-dark-text">Force Re-scan</p>
+              <p className="text-sm text-dark-text-secondary">Re-read metadata from all files</p>
+            </div>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

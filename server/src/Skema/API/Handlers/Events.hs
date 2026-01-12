@@ -25,8 +25,9 @@ import qualified System.OsPath as OP
 import Servant hiding (SourceIO)
 import Servant.Types.SourceT (SourceT(..), StepT(..))
 import Katip
-import Data.Aeson ((.:), withObject, toJSON)
+import Data.Aeson ((.:), withObject, toJSON, Object, Value(..))
 import Data.Aeson.Types (parseMaybe)
+import qualified Data.Aeson.KeyMap as KM
 import Control.Concurrent.STM (readTChan)
 import qualified Control.Concurrent.STM as STM
 
@@ -72,15 +73,25 @@ eventsServer le bus _serverCfg jwtSecret connPool libPath configVar =
             Just libOsPath -> do
               libPathText <- liftIO $ OP.decodeUtf libOsPath
 
+              -- Parse force_rescan flag from event data (defaults to False)
+              let forceRescan = case eventRequestData req of
+                    Just (Object obj) -> case KM.lookup "force_rescan" obj of
+                      Just (Bool b) -> b
+                      _ -> False
+                    _ -> False
+
               -- Emit library scan requested event
               liftIO $ EventBus.publishAndLog bus le "api" $
                 Events.LibraryScanRequested
                   { Events.scanPath = toText libPathText
+                  , Events.forceRescan = forceRescan
                   }
 
               pure $ EventResponse
                 { eventResponseSuccess = True
-                , eventResponseMessage = "Library scan requested"
+                , eventResponseMessage = if forceRescan
+                    then "Force library re-scan requested"
+                    else "Library scan requested"
                 }
 
         "ArtistDiscographyRequested" -> do

@@ -11,7 +11,7 @@ module Skema.Services.Scanner
 import Skema.Services.Dependencies (ScannerDeps(..))
 import Skema.Events.Bus
 import Skema.Events.Types
-import Skema.Core.Library (FileSystemDiff(..))
+import Skema.Core.Library (FileSystemDiff(..), LibrarySnapshot(..))
 import Skema.FileSystem.Scanner
 import Monatone.Common (parseMetadata)
 import Skema.Database.Connection
@@ -46,7 +46,7 @@ startScannerService deps = do
       LibraryScanRequested{..} -> do
         -- Process each scan request asynchronously with error handling
         _ <- async $ do
-          result <- try $ handleScanRequest deps scanPath
+          result <- try $ handleScanRequest deps scanPath forceRescan
           case result of
             Left (e :: SomeException) -> do
               let le = scanLogEnv deps
@@ -57,8 +57,8 @@ startScannerService deps = do
       _ -> pure ()  -- Ignore other events
 
 -- | Handle a library scan request.
-handleScanRequest :: ScannerDeps -> Text -> IO ()
-handleScanRequest ScannerDeps{..} scanPathText = do
+handleScanRequest :: ScannerDeps -> Text -> Bool -> IO ()
+handleScanRequest ScannerDeps{..} scanPathText forceRescan = do
   let le = scanLogEnv
   let pool = scanDbPool
   let bus = scanEventBus
@@ -66,7 +66,9 @@ handleScanRequest ScannerDeps{..} scanPathText = do
   let initialNamespace = "services.scanner"
 
   runKatipContextT le initialContext initialNamespace $ do
-    $(logTM) InfoS $ logStr ("Starting file system scan" :: Text)
+    if forceRescan
+      then $(logTM) InfoS $ logStr ("Starting FORCE re-scan (treating all files as new)" :: Text)
+      else $(logTM) InfoS $ logStr ("Starting file system scan" :: Text)
 
     -- Convert scan path to OsPath
     scanPath <- liftIO $ OP.encodeUtf (toString scanPathText)
@@ -77,8 +79,12 @@ handleScanRequest ScannerDeps{..} scanPathText = do
       then do
         $(logTM) ErrorS $ logStr ("Library directory not available" :: Text)
       else do
-        -- Load snapshot from database
-        dbSnapshot <- liftIO $ withConnection pool getLibrarySnapshot
+        -- Load snapshot from database (or use empty snapshot if force rescan)
+        dbSnapshot <- if forceRescan
+          then do
+            $(logTM) InfoS $ logStr ("Using empty snapshot for force re-scan" :: Text)
+            pure $ LibrarySnapshot mempty  -- Empty snapshot means all files will be treated as added
+          else liftIO $ withConnection pool getLibrarySnapshot
 
         -- Scan for changes
         diff <- liftIO $ scanDirectoryForChanges scanPath dbSnapshot

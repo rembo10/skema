@@ -236,6 +236,11 @@ export const api = {
     return this.submitEvent('LibraryScanRequested');
   },
 
+  // Force re-scan library (treats all files as new)
+  async forceScanLibrary(): Promise<{ success: boolean; message: string }> {
+    return this.submitEvent('LibraryScanRequested', { force_rescan: true });
+  },
+
   // Metadata diffs
   async getAllDiffs(): Promise<MetadataDiff[]> {
     return fetchApi<MetadataDiff[]>('/diffs');

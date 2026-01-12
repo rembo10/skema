@@ -26,6 +26,7 @@ data Event
   -- Library scan events
   = LibraryScanRequested
       { scanPath :: Text
+      , forceRescan :: Bool  -- If True, ignore previous snapshot and treat as initial scan
       }
   | FileSystemDiffGenerated
       { filesAdded :: Int
@@ -346,6 +347,7 @@ eventToJSON :: Event -> Value
 eventToJSON = \case
   LibraryScanRequested{..} -> object
     [ "scan_path" .= scanPath
+    , "force_rescan" .= forceRescan
     ]
   FileSystemDiffGenerated{..} -> object
     [ "files_added" .= filesAdded
