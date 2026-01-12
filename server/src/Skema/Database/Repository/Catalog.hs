@@ -278,7 +278,18 @@ getCatalogAlbumsOverview conn limit offset _maybeStates maybeQualities maybeArti
         \  ca.first_release_date, \
         \  ca.album_cover_url, \
         \  ca.album_cover_thumbnail_url, \
-        \  ca.wanted, \
+        \  CASE \
+        \    WHEN ca.quality_profile_id IS NULL THEN 0 \
+        \    WHEN ca.matched_cluster_id IS NULL THEN 1 \
+        \    WHEN ca.current_quality IS NULL THEN 1 \
+        \    WHEN qp.cutoff_quality IS NULL THEN 0 \
+        \    ELSE CASE \
+        \      WHEN ca.current_quality = 'FLAC' AND qp.cutoff_quality IN ('MP3', 'V0', 'FLAC') THEN 0 \
+        \      WHEN ca.current_quality = 'V0' AND qp.cutoff_quality IN ('MP3', 'V0') THEN 0 \
+        \      WHEN ca.current_quality = 'MP3' AND qp.cutoff_quality = 'MP3' THEN 0 \
+        \      ELSE 1 \
+        \    END \
+        \  END AS wanted, \
         \  ca.matched_cluster_id, \
         \  ca.current_quality, \
         \  ca.quality_profile_id, \
