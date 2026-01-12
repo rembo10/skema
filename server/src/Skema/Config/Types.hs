@@ -43,6 +43,7 @@ module Skema.Config.Types
   ) where
 
 import Data.Aeson (FromJSON (..), ToJSON (..), withObject, (.:), (.:?), (.!=), object, (.=), Value(..))
+import qualified Data.Aeson.KeyMap as KM
 import Skema.Config.Schema (Default(..), Mergeable(..))
 import System.OsPath (OsPath)
 import qualified System.OsPath as OP
@@ -414,11 +415,8 @@ data MusicBrainzConfig = MusicBrainzConfig
 
 instance FromJSON MusicBrainzConfig where
   parseJSON = withObject "MusicBrainzConfig" $ \o -> do
-    serverStr <- o .:? "server" .!= "official"
-    serverVal <- case serverStr of
-      "official" -> pure OfficialMusicBrainz
-      "headphones_vip" -> pure HeadphonesVIP
-      _ -> fail $ "Unknown MusicBrainz server: " <> serverStr
+    -- Use MusicBrainzServer's FromJSON instance to properly handle all server types
+    serverVal <- parseJSON (Object o)
     username <- o .:? "username"
     password <- o .:? "password"
     albumTypes <- o .:? "album_types" .!= ["Album"]
@@ -426,15 +424,20 @@ instance FromJSON MusicBrainzConfig where
     pure $ MusicBrainzConfig serverVal username password albumTypes excludeSecondaryTypes
 
 instance ToJSON MusicBrainzConfig where
-  toJSON (MusicBrainzConfig serverVal username password albumTypes excludeSecondaryTypes) = object
-    [ "server" .= case serverVal of
-        OfficialMusicBrainz -> "official" :: Text
-        HeadphonesVIP -> "headphones_vip"
-    , "username" .= username
-    , "password" .= password
-    , "album_types" .= albumTypes
-    , "exclude_secondary_types" .= excludeSecondaryTypes
-    ]
+  toJSON (MusicBrainzConfig serverVal username password albumTypes excludeSecondaryTypes) =
+    -- Use MusicBrainzServer's ToJSON instance to properly serialize all server types
+    case toJSON serverVal of
+      Object serverObj -> Object $ serverObj
+        & KM.insert "username" (toJSON username)
+        & KM.insert "password" (toJSON password)
+        & KM.insert "album_types" (toJSON albumTypes)
+        & KM.insert "exclude_secondary_types" (toJSON excludeSecondaryTypes)
+      _ -> object  -- Fallback (shouldn't happen)
+        [ "username" .= username
+        , "password" .= password
+        , "album_types" .= albumTypes
+        , "exclude_secondary_types" .= excludeSecondaryTypes
+        ]
 
 -- | Indexer configuration (Newznab/Torznab).
 data Indexer = Indexer
