@@ -120,10 +120,22 @@ export default function ArtistDetail() {
 
     try {
       const newWantedStatus = !album.wanted;
-      await api.updateCatalogAlbum(album.id, newWantedStatus);
+      // Toggle wanted by setting/clearing quality profile
+      // If wanting: use album's profile, or artist's profile, or default profile
+      // If unwanting: set to null
+      let profileToUse: number | null = null;
+      if (newWantedStatus) {
+        profileToUse = album.quality_profile_id || artist?.quality_profile_id || defaultProfile?.id || null;
+        if (!profileToUse) {
+          toast.error('No quality profile available. Please set a default quality profile first.');
+          return;
+        }
+      }
+
+      await api.updateCatalogAlbum(album.id, profileToUse);
 
       // Update global store
-      updateCatalogAlbum(album.id, { wanted: newWantedStatus });
+      updateCatalogAlbum(album.id, { wanted: newWantedStatus, quality_profile_id: profileToUse });
 
       toast.success(newWantedStatus ? `Added ${album.title} to wanted list` : `Removed ${album.title} from wanted list`);
     } catch (error) {
@@ -137,7 +149,7 @@ export default function ArtistDetail() {
 
     try {
       const newProfileId = profileId === '' ? null : parseInt(profileId, 10);
-      const updatedAlbum = await api.updateCatalogAlbum(album.id, album.wanted, newProfileId);
+      const updatedAlbum = await api.updateCatalogAlbum(album.id, newProfileId);
 
       // Update global store
       updateCatalogAlbum(album.id, { quality_profile_id: updatedAlbum.quality_profile_id });

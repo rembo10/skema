@@ -254,19 +254,9 @@ export default function Downloads() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-dark-text mb-2">Downloads</h1>
-          <p className="text-dark-text-secondary">
-            Monitor and manage your downloads
-          </p>
-        </div>
-      </div>
-
+    <div className="space-y-6 animate-fade-in">
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-dark-border">
+      <div className="flex gap-2 border-b border-dark-border mb-6">
         <button
           onClick={() => setSelectedTab('active')}
           className={`px-4 py-2 font-medium transition-all ${
@@ -287,6 +277,14 @@ export default function Downloads() {
         >
           History {historyDownloads.length > 0 && `(${historyDownloads.length})`}
         </button>
+      </div>
+
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold text-dark-text">Downloads</h1>
+        <p className="text-dark-text-secondary mt-2">
+          Monitor and manage your downloads
+        </p>
       </div>
 
       {/* Downloads list */}

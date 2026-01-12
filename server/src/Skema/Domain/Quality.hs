@@ -17,6 +17,7 @@ module Skema.Domain.Quality
     -- * Parsing
   , parseQuality
   , parseQualityFromTitle
+  , detectQualityFromAudio
     -- * Profile Operations
   , meetsProfile
   , needsUpgrade
@@ -38,6 +39,7 @@ import GHC.Generics ()
 import qualified Data.Text as T
 import Data.Aeson (ToJSON(..), FromJSON(..), object, (.=), withObject, (.:), withText)
 import qualified Data.Aeson as Aeson
+import qualified Monatone.Metadata as Monatone
 
 -- | Audio quality levels, in rough order of file size/quality.
 data Quality
@@ -205,6 +207,42 @@ parseQuality text =
          | isV2 -> Just VBR2
          | is192 -> Just MP3_192
          | otherwise -> Nothing
+
+-- | Detect quality from audio file metadata (codec, bitrate, bit depth, sample rate).
+-- This is used to determine the quality of files already in the library.
+detectQualityFromAudio :: Monatone.Metadata -> Quality
+detectQualityFromAudio metadata =
+  let audioProps = Monatone.audioProperties metadata
+      fmt = Monatone.format metadata
+      bitrate = Monatone.bitrate audioProps
+      bitsPerSample = Monatone.bitsPerSample audioProps
+      sampleRate = Monatone.sampleRate audioProps
+
+      -- Check if this is lossless format
+      isLossless = fmt `elem` [Monatone.FLAC, Monatone.M4A]  -- M4A might be ALAC
+
+      -- Check if this is hi-res (24-bit or high sample rate)
+      isHiRes = case (bitsPerSample, sampleRate) of
+        (Just bits, _) | bits >= 24 -> True
+        (_, Just rate) | rate >= 88200 -> True  -- 88.2kHz, 96kHz, 192kHz, etc.
+        _ -> False
+
+  in case fmt of
+       -- Lossless formats
+       Monatone.FLAC | isHiRes -> HiResLossless
+                     | otherwise -> Lossless
+       Monatone.M4A | isHiRes -> HiResLossless  -- Assume ALAC for now
+                    | otherwise -> Lossless
+
+       -- Lossy formats (MP3, OGG, Opus)
+       _ -> case bitrate of
+         Just br
+           | br >= 310 -> MP3_320  -- 310+ kbps -> MP3 320
+           | br >= 245 -> VBR0     -- 245-309 kbps -> VBR V0 (~245 kbps average)
+           | br >= 225 -> MP3_256  -- 225-244 kbps -> MP3 256
+           | br >= 180 -> VBR2     -- 180-224 kbps -> VBR V2 (~190 kbps average)
+           | br >= 160 -> MP3_192  -- 160-179 kbps -> MP3 192
+         _ -> Unknown
 
 -- | Check if a quality meets the profile requirements.
 meetsProfile :: Quality -> QualityProfile -> Bool

@@ -370,6 +370,42 @@ export interface Download {
   library_path: string | null;
 }
 
+// Album releases search types
+export interface AlbumRelease {
+  title: string;
+  source: string;
+  quality: string;
+  size: number | null;
+  seeders: number | null;
+  peers: number | null;
+  download_type: 'nzb' | 'torrent';
+  download_url: string;
+  publish_date: string | null;
+}
+
+export interface AlbumReleasesResponse {
+  album: CatalogAlbum;
+  releases: AlbumRelease[];
+  search_time: number;
+}
+
+export interface QueueDownloadRequest {
+  catalog_album_id: number;
+  indexer_name: string;
+  url: string;
+  title: string;
+  size_bytes: number | null;
+  quality: string | null;
+  format: string | null;
+  seeders: number | null;
+}
+
+export interface QueueDownloadResponse {
+  id: number;
+  success: boolean;
+  message: string | null;
+}
+
 // Filesystem types
 export interface FilesystemEntry {
   name: string;
@@ -417,4 +453,99 @@ export interface UpdateQualityProfileRequest {
   quality_preferences: QualityPreference[];
   cutoff_quality: Quality;
   upgrade_automatically: boolean;
+}
+
+// ============================================================================
+// ENHANCED CATALOG ALBUM OVERVIEW
+// ============================================================================
+
+export type AlbumState =
+  | 'NotWanted'
+  | 'Wanted'
+  | 'Searching'
+  | 'Downloading'
+  | 'Failed'
+  | 'IdentificationFailed'
+  | 'InLibrary'
+  | 'Monitored'
+  | 'Upgrading';
+
+export interface ActiveDownloadInfo {
+  id: number;
+  status: string;
+  progress: number; // 0.0 to 1.0
+  quality: string | null;
+  title: string;
+  size_bytes: number | null;
+  started_at: string | null;
+  error_message: string | null;
+}
+
+export interface CatalogAlbumOverview {
+  id: number;
+  release_group_mbid: string;
+  title: string;
+  artist_id: number | null;
+  artist_mbid: string;
+  artist_name: string;
+  type: string | null;
+  first_release_date: string | null;
+  cover_url: string | null;
+  cover_thumbnail_url: string | null;
+  // State information
+  state: AlbumState;
+  wanted: boolean;
+  has_cluster: boolean;
+  current_quality: string | null;
+  quality_profile_id: number | null;
+  quality_profile_name: string | null;
+  // Download information
+  active_download: ActiveDownloadInfo | null;
+  download_count: number;
+  last_download_at: string | null;
+  // Timestamps
+  created_at: string;
+  updated_at: string;
+  imported_at: string | null;
+}
+
+export interface AlbumOverviewRequest {
+  page?: number;
+  limit?: number;
+  state?: AlbumState[];
+  quality?: string[];
+  artist_id?: number;
+  search?: string;
+  sort?: 'title' | 'artist' | 'date' | 'quality' | 'state';
+  order?: 'asc' | 'desc';
+  wanted?: boolean;
+}
+
+export interface AlbumOverviewPagination {
+  total: number;
+  page: number;
+  limit: number;
+  pages: number;
+}
+
+export interface AlbumOverviewStats {
+  by_state: Array<[AlbumState, number]>;
+  by_quality: Array<[string, number]>;
+}
+
+export interface AlbumOverviewResponse {
+  pagination: AlbumOverviewPagination;
+  stats: AlbumOverviewStats;
+  albums: CatalogAlbumOverview[];
+}
+
+export type BulkAlbumAction =
+  | { tag: 'SetQualityProfile'; contents: number }
+  | { tag: 'SetWanted'; contents: boolean }
+  | { tag: 'TriggerSearch' }
+  | { tag: 'DeleteFromCatalog' };
+
+export interface BulkAlbumActionRequest {
+  album_ids: number[];
+  action: BulkAlbumAction;
 }

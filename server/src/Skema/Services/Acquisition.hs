@@ -15,7 +15,7 @@ module Skema.Services.Acquisition
   ) where
 
 import Skema.Services.Dependencies (AcquisitionDeps(..))
-import Skema.Services.Filters (shouldProcessArtistById, parseFilters, parseSourceFilters, RuleFilters(..), LibraryArtistsFilters(..), ReleaseStatusFilter(..), SourceFilters(..), FilterOperator(..))
+import Skema.Services.Filters (shouldProcessArtistById, parseSourceFilters, LibraryArtistsFilters(..), ReleaseStatusFilter(..), SourceFilters(..))
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
@@ -214,36 +214,20 @@ handleCatalogAlbumAdded AcquisitionDeps{..} releaseGroupMBID albumTitle artistMB
                               -- Evaluate source filters to determine if album should be wanted
                               now <- liftIO getCurrentTime
 
-                              -- Try new provider-specific filters first, fall back to legacy filters
+                              -- Evaluate provider-specific filters
                               let shouldWant = case parseSourceFilters LibraryArtists (sourceFilters source) of
                                     Just (LibraryArtistsSourceFilters filters) ->
                                       evaluateLibraryArtistsAlbumFilters filters now album
-                                    _ ->
-                                      -- Fallback to legacy filters for backward compatibility
-                                      case parseFilters (sourceFilters source) of
-                                        Nothing -> False  -- No filters configured, don't mark as wanted
-                                        Just filters -> evaluateAlbumFilters filters now album
+                                    _ -> False  -- No valid filters configured
 
                               when shouldWant $ do
                                 $(logTM) InfoS $ logStr $ ("Album matches acquisition source, marking as wanted: " <> albumTitle :: Text)
 
-                                -- Update album as wanted
+                                -- Emit WantedAlbumAdded event
                                 case DB.catalogAlbumId album of
                                   Just albumId -> do
-                                    _ <- liftIO $ withConnection pool $ \conn ->
-                                      -- NOTE: "wanted" is no longer stored - it's derived from quality profile
-                                      -- Albums get wanted status from their quality_profile_id
-                                      -- For now, do nothing here (quality profile will determine wanted status)
-                                      pure ()
-
-                                    -- Also insert into wanted_albums for backward compatibility
-                                    case (sourceId source, DB.catalogArtistName <$> Just artist) of
-                                      (Just sid, Just artistName) -> do
-                                        let status = Wanted  -- TODO: Check if upcoming
-                                        _ <- liftIO $ withConnection pool $ \conn ->
-                                          insertWantedAlbum conn releaseGroupMBID albumTitle artistMBID artistName status sid (DB.catalogAlbumFirstReleaseDate album)
-
-                                        -- Emit event for observability
+                                    case DB.catalogArtistName <$> Just artist of
+                                      Just artistName -> do
                                         liftIO $ publishAndLog bus le "acquisition" $ WantedAlbumAdded
                                           { wantedCatalogAlbumId = albumId
                                           , wantedReleaseGroupId = releaseGroupMBID
@@ -252,41 +236,7 @@ handleCatalogAlbumAdded AcquisitionDeps{..} releaseGroupMBID albumTitle artistMB
                                           }
                                       _ -> pure ()
                                   Nothing -> do
-                                    $(logTM) WarningS $ logStr $ ("Album has no ID, cannot update: " <> albumTitle :: Text)
-
--- | Evaluate source filters against a catalog album to determine if it should be wanted (legacy).
-evaluateAlbumFilters :: RuleFilters -> UTCTime -> CatalogAlbumRecord -> Bool
-evaluateAlbumFilters filters now album =
-  -- Check if album type matches filter
-  let albumTypeMatch = case filtersAlbumTypes filters of
-        Nothing -> True  -- No album type filter specified, accept all types
-        Just types -> case DB.catalogAlbumType album of
-          Just albumType -> albumType `elem` types
-          Nothing -> True  -- If no type, include by default
-
-      -- Check if release status matches filter
-      isUpcoming = case DB.catalogAlbumFirstReleaseDate album of
-        Nothing -> False  -- No release date, not upcoming
-        Just dateStr ->
-          -- Compare ISO 8601 date strings (YYYY-MM-DD format)
-          let today = T.take 10 (T.pack (show now))
-          in dateStr > today
-
-      releaseStatusMatch = case filtersReleaseStatus filters of
-        Nothing -> True  -- No release status filter specified, accept all statuses
-        Just statuses ->
-          let isReleased = not isUpcoming
-          in ("upcoming" `elem` statuses && isUpcoming) ||
-             ("released" `elem` statuses && isReleased)
-
-      -- Reviews and genres are not available in catalog, so we accept all for now
-      reviewsMatch = True  -- TODO: Implement when we have review data in catalog
-      genresMatch = True   -- TODO: Implement when we have genre data in catalog
-
-  -- Combine all checks based on the configured operator
-  in case filtersOperator filters of
-       AND -> albumTypeMatch && releaseStatusMatch && reviewsMatch && genresMatch
-       OR -> albumTypeMatch || releaseStatusMatch || reviewsMatch || genresMatch
+                                    $(logTM) WarningS $ logStr $ ("Album has no ID, cannot emit event: " <> albumTitle :: Text)
 
 -- | Evaluate LibraryArtistsFilters against a catalog album to determine if it should be wanted.
 -- This is the new ID-based filter evaluation for LibraryArtists sources.

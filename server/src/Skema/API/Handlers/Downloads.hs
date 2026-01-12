@@ -5,7 +5,7 @@ module Skema.API.Handlers.Downloads
   ( downloadsServer
   ) where
 
-import Skema.API.Types.Downloads (DownloadsAPI, DownloadResponse(..), QueueDownloadRequest, QueueDownloadResponse(..), DownloadTaskRequest(..))
+import Skema.API.Types.Downloads (DownloadsAPI, DownloadResponse(..), QueueDownloadRequest(..), QueueDownloadResponse(..), DownloadTaskRequest(..))
 import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
 import Skema.Core.TaskManager (TaskManager)
 import qualified Skema.Core.TaskManager as TM
@@ -20,8 +20,13 @@ import qualified Skema.Config.Types as Cfg
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
+import Skema.Services.Registry (ServiceRegistry(..))
+import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
+import Skema.Indexer.Types (ReleaseInfo(..), DownloadType(..))
+import Skema.Domain.Quality (textToQuality)
 import Control.Concurrent.Async (async)
 import Data.Aeson (toJSON, object, (.=))
+import Data.Time (getCurrentTime)
 import Servant
 import Katip
 import Database.SQLite.Simple (Only(..))
@@ -37,8 +42,8 @@ throw500 :: Text -> Handler a
 throw500 = throwJsonError err500
 
 -- | Downloads API handlers.
-downloadsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> TaskManager -> ConnectionPool -> STM.TVar (Map.Map Int64 (Double, Text)) -> TVar Cfg.Config -> Server DownloadsAPI
-downloadsServer le bus _serverCfg jwtSecret tm connPool progressMap configVar = \maybeAuthHeader ->
+downloadsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> STM.TVar (Map.Map Int64 (Double, Text)) -> TVar Cfg.Config -> Server DownloadsAPI
+downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap configVar = \maybeAuthHeader ->
   taskHandler maybeAuthHeader
   :<|> getAllDownloadsHandler maybeAuthHeader
   :<|> getDownloadHandler maybeAuthHeader
@@ -131,15 +136,75 @@ downloadsServer le bus _serverCfg jwtSecret tm connPool progressMap configVar = 
             Nothing -> response
 
     queueDownloadHandler :: Maybe Text -> QueueDownloadRequest -> Handler QueueDownloadResponse
-    queueDownloadHandler authHeader _req = do
+    queueDownloadHandler authHeader req = do
       _ <- requireAuth configVar jwtSecret authHeader
-      -- TODO: Implement download queueing
-      -- This requires:
-      -- 1. Select appropriate download client from config
-      -- 2. Call download client's addDownload method
-      -- 3. Store download record in database
-      -- 4. Emit DownloadQueued event
-      throw500 "Download queueing not yet implemented"
+
+      -- Read current config from TVar
+      config <- liftIO $ STM.atomically $ STM.readTVar configVar
+
+      let catalogAlbumId = queueDownloadCatalogAlbumId req
+          indexerName = queueDownloadIndexerName req
+          downloadUrl = queueDownloadUrl req
+          title = queueDownloadTitle req
+          sizeBytes = queueDownloadSizeBytes req
+          qualityText = queueDownloadQuality req
+          format = queueDownloadFormat req
+          seeders = queueDownloadSeeders req
+
+      -- Parse quality from text
+      let quality = case qualityText of
+            Just qt -> case textToQuality qt of
+              Just q -> q
+              Nothing -> error $ "Invalid quality: " <> show qt
+            Nothing -> error "Quality is required"
+
+      -- Determine download type from format
+      let downloadType = case format of
+            Just "NZB" -> NZB
+            Just "TORRENT" -> Torrent
+            _ -> error $ "Invalid download format: " <> show format
+
+      -- Create ReleaseInfo from request
+      now <- liftIO getCurrentTime
+      let release = ReleaseInfo
+            { riTitle = title
+            , riGuid = Nothing
+            , riDownloadUrl = downloadUrl
+            , riInfoUrl = Nothing
+            , riSize = fmap fromIntegral sizeBytes
+            , riPublishDate = Just now
+            , riCategory = Nothing
+            , riSeeders = seeders
+            , riPeers = Nothing
+            , riGrabs = Nothing
+            , riDownloadType = downloadType
+            , riQuality = quality
+            }
+
+      -- Create submission context
+      let submissionCtx = DownloadSubmissionContext
+            { dscEventBus = bus
+            , dscLogEnv = le
+            , dscDbPool = connPool
+            , dscHttpClient = srHttpClient registry
+            , dscDownloadConfig = Cfg.download config
+            , dscIndexerName = indexerName
+            }
+
+      -- Submit download
+      maybeDownloadId <- liftIO $ submitDownload submissionCtx release catalogAlbumId
+
+      case maybeDownloadId of
+        Just downloadId -> pure $ QueueDownloadResponse
+          { queueDownloadResponseId = downloadId
+          , queueDownloadResponseSuccess = True
+          , queueDownloadResponseMessage = Just "Download queued successfully"
+          }
+        Nothing -> pure $ QueueDownloadResponse
+          { queueDownloadResponseId = 0
+          , queueDownloadResponseSuccess = False
+          , queueDownloadResponseMessage = Just "Failed to queue download - check logs for details"
+          }
 
     deleteDownloadHandler :: Maybe Text -> Int64 -> Handler NoContent
     deleteDownloadHandler authHeader downloadId = do

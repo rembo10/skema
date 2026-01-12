@@ -13,24 +13,27 @@ module Skema.Services.Download.Search
   ) where
 
 import Skema.Services.Dependencies (DownloadDeps(..))
-import Skema.Services.Download.Client (createClientInstance)
 import Skema.Services.Download.Scoring (scoreRelease)
+import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
 import Skema.Database.Repository
+import Skema.Database.Repository.Quality (getEffectiveQualityProfile)
 import Skema.HTTP.Client (HttpClient)
 import Skema.Indexer.Search (rankResultsWithContext)
 import Skema.Indexer.Client (searchIndexer)
 import Skema.Indexer.Types
-import Skema.Config.Types (Config(..), Indexer(..), IndexerConfig(..), DownloadClient(..), DownloadConfig(..), downloadClientTypeName)
-import Skema.DownloadClient.Types (DownloadClientAPI(..), AddDownloadRequest(..), AddDownloadResult(..))
+import Skema.Config.Types (Config(..), Indexer(..), IndexerConfig(..))
+import Skema.Domain.Quality (Quality, QualityProfile, meetsProfile, isBetterQuality, textToQuality)
+import Database.SQLite.Simple (Only(..))
 import Control.Concurrent.Async (async, race, mapConcurrently)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Concurrent (threadDelay)
 import Control.Exception (try)
 import Data.Time (getCurrentTime, diffUTCTime)
+import qualified Data.Map.Strict as M
 import Katip
 
 -- ============================================================================
@@ -138,14 +141,50 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
 
             Right searchResults -> do
               -- Got results from indexers
-              let allReleases = concat $ map irReleases $ srResults searchResults
+              -- Pair each release with its source indexer name
+              let releasesWithSource = concat $ map (\ir -> map (\r -> (irIndexerName ir, r)) (irReleases ir)) (srResults searchResults)
+                  allReleases = map snd releasesWithSource
                   totalResults = length allReleases
 
               $(logTM) InfoS $ logStr $ ("Found " <> show totalResults <> " total releases across all indexers" :: Text)
 
-              -- Rank results by quality (with album title context for better matching)
-              let rankedReleases = rankResultsWithContext (Just albumTitle) allReleases
+              -- Get quality profile and current quality for filtering
+              qualityProfile <- liftIO $ getEffectiveQualityProfile pool catalogAlbumId
+
+              -- Get current quality from catalog album
+              currentQuality <- liftIO $ withConnection pool $ \conn -> do
+                results <- queryRows conn
+                  "SELECT current_quality FROM catalog_albums WHERE id = ?"
+                  (Only catalogAlbumId) :: IO [Only (Maybe Text)]
+                case results of
+                  [Only maybeQualText] -> pure $ maybeQualText >>= textToQuality
+                  _ -> pure Nothing
+
+              -- Filter releases by quality profile (keep indexer name paired)
+              let qualifyingReleasesWithSource = case qualityProfile of
+                    Nothing -> releasesWithSource  -- No profile = accept all
+                    Just profile -> filter (\(_, release) ->
+                      let releaseQuality = riQuality release
+                          meetsRequirement = meetsProfile releaseQuality profile
+                          isUpgrade = case currentQuality of
+                            Nothing -> True  -- No current quality, any quality is an upgrade
+                            Just currentQual -> isBetterQuality profile releaseQuality currentQual
+                      in meetsRequirement && isUpgrade
+                      ) releasesWithSource
+
+              let qualifiedCount = length qualifyingReleasesWithSource
+
+              when (qualifiedCount < totalResults) $ do
+                $(logTM) InfoS $ logStr $ ("Filtered to " <> show qualifiedCount <> " releases that meet quality requirements" :: Text)
+
+              -- Rank qualified results by quality (with album title context for better matching)
+              -- Keep track of indexer names with a Map using download URL as key
+              let qualifyingReleases = map snd qualifyingReleasesWithSource
+                  indexerMap = M.fromList $ map (\(name, r) -> (riDownloadUrl r, name)) qualifyingReleasesWithSource
+                  rankedReleases = rankResultsWithContext (Just albumTitle) qualifyingReleases
                   bestRelease = listToMaybe rankedReleases
+                  -- Find the indexer name for the best release using its download URL
+                  bestIndexerName = bestRelease >>= \r -> M.lookup (riDownloadUrl r) indexerMap
 
               -- Calculate best score
               let bestScore = case bestRelease of
@@ -154,7 +193,7 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
 
               -- Emit search completed event
               liftIO $ publishAndLog bus le "download" $ AlbumSearchCompleted
-                { searchTotalResults = totalResults
+                { searchTotalResults = qualifiedCount  -- Use qualified count instead of total
                 , searchBestScore = bestScore
                 , searchDuration = searchDuration
                 }
@@ -165,111 +204,29 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
                   $(logTM) WarningS $ logStr ("No releases found for album" :: Text)
 
                 Just release -> do
-                  $(logTM) InfoS $ logStr $ ("Best release: " <> riTitle release :: Text)
+                  let indexerName = fromMaybe "unknown" bestIndexerName
+                  $(logTM) InfoS $ logStr $ ("Best release: " <> riTitle release <> " from " <> indexerName :: Text)
 
                   -- Emit best release selected event
                   liftIO $ publishAndLog bus le "download" $ BestReleaseSelected
                     { selectedTitle = riTitle release
-                    , selectedIndexer = "unknown"  -- TODO: track indexer name with release
+                    , selectedIndexer = indexerName
                     , selectedScore = scoreRelease release
                     , selectedSeeders = riSeeders release
                     }
 
-                  -- Pick appropriate download client based on download type
-                  let maybeClient = case riDownloadType release of
-                        NZB -> downloadNzbClient downloadConfig
-                        Torrent -> downloadTorrentClient downloadConfig
+                  -- Submit download using shared submission module
+                  let submissionCtx = DownloadSubmissionContext
+                        { dscEventBus = bus
+                        , dscLogEnv = le
+                        , dscDbPool = pool
+                        , dscHttpClient = httpClient
+                        , dscDownloadConfig = downloadConfig
+                        , dscIndexerName = indexerName
+                        }
 
-                  case maybeClient of
-                    Nothing -> do
-                      let clientType = case riDownloadType release of
-                            NZB -> "NZB" :: Text
-                            Torrent -> "Torrent"
-                      $(logTM) ErrorS $ logStr $ ("No " <> clientType <> " download client configured, cannot queue download" :: Text)
-
-                    Just client | not (dcEnabled client) -> do
-                      $(logTM) ErrorS $ logStr $ ("Download client " <> downloadClientTypeName (dcType client) <> " is disabled" :: Text)
-
-                    Just client -> do
-                      $(logTM) InfoS $ logStr $ ("Submitting download to client: " <> downloadClientTypeName (dcType client) :: Text)
-                      $(logTM) InfoS $ logStr $ ("Category: " <> fromMaybe "<none>" (dcCategory client) :: Text)
-
-                      -- Create download client instance
-                      clientInstance <- liftIO $ createClientInstance httpClient client
-
-                      -- Submit to download client
-                      addResult <- liftIO $ addDownload clientInstance (AddDownloadRequest
-                        { adrUrl = riDownloadUrl release
-                        , adrTitle = riTitle release
-                        , adrCategory = dcCategory client  -- Use category from config
-                        , adrPriority = Nothing  -- Priority not needed (only one client per type)
-                        })
-
-                      case addResult of
-                        Left err -> do
-                          $(logTM) ErrorS $ logStr $ ("Failed to add download to client: " <> err :: Text)
-
-                          -- Insert failed download record
-                          now <- liftIO getCurrentTime
-                          downloadId <- liftIO $ withConnection pool $ \conn ->
-                            insertDownload conn
-                              (Just catalogAlbumId)  -- catalog_album_id from event
-                              "unknown"  -- indexer name
-                              (riDownloadUrl release)
-                              (downloadClientTypeName (dcType client))
-                              Nothing  -- no client_id since it failed
-                              "failed"
-                              Nothing  -- download_path
-                              (riTitle release)
-                              (riSize release)
-                              Nothing  -- quality
-                              (case riDownloadType release of
-                                 NZB -> Just "NZB"
-                                 Torrent -> Just "Torrent")
-                              (riSeeders release)
-                              0.0  -- progress
-                              (Just err)  -- error_message
-                              now
-
-                          -- Emit download failed event
-                          liftIO $ publishAndLog bus le "download" $ DownloadFailed
-                            { downloadId = downloadId
-                            , downloadTitle = riTitle release
-                            , downloadError = Just err
-                            }
-
-                        Right addResultData -> do
-                          $(logTM) InfoS $ logStr $ ("Download added to client with ID: " <> adrClientId addResultData :: Text)
-
-                          -- Insert download record into database with client_id
-                          now <- liftIO getCurrentTime
-                          downloadId <- liftIO $ withConnection pool $ \conn ->
-                            insertDownload conn
-                              (Just catalogAlbumId)  -- catalog_album_id from event
-                              "unknown"  -- indexer name
-                              (riDownloadUrl release)
-                              (downloadClientTypeName (dcType client))
-                              (Just $ adrClientId addResultData)  -- client_id from download client
-                              "downloading"
-                              Nothing  -- download_path
-                              (riTitle release)
-                              (riSize release)
-                              Nothing  -- quality
-                              (case riDownloadType release of
-                                 NZB -> Just "NZB"
-                                 Torrent -> Just "Torrent")
-                              (riSeeders release)
-                              0.0  -- progress
-                              Nothing  -- error_message
-                              now
-
-                          -- Emit download started event
-                          liftIO $ publishAndLog bus le "download" $ DownloadStarted
-                            { downloadId = downloadId
-                            , downloadTitle = riTitle release
-                            }
-
-                          $(logTM) InfoS $ logStr $ ("Download started with DB ID: " <> show downloadId :: Text)
+                  _ <- liftIO $ submitDownload submissionCtx release catalogAlbumId
+                  pure ()
 
 -- | Search all indexers and emit events for each completion.
 searchAllIndexersWithTracking :: EventBus -> LogEnv -> HttpClient -> IndexerConfig -> Text -> Text -> IO SearchResult

@@ -272,7 +272,8 @@ function DiffsView({
   return (
     <div>
       {/* Sticky bulk actions panel */}
-      <div className="sticky top-0 z-10 mb-4 card p-4 flex items-center justify-between">
+      <div className="sticky top-0 z-10 pt-4 pb-4 mb-4 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 bg-dark-bg">
+        <div className="card p-4 flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <label className="flex items-center cursor-pointer">
             <input
@@ -301,6 +302,7 @@ function DiffsView({
         >
           {applying ? 'Applying...' : `Apply Selected (${selectedDiffIds.size})`}
         </button>
+        </div>
       </div>
 
       {/* Grouped diffs */}

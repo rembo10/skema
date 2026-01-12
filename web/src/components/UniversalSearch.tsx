@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../lib/api';
-import { CatalogArtist, CatalogAlbum } from '../types/api';
+import { CatalogArtist, CatalogAlbum, QualityProfile } from '../types/api';
 import { toast } from 'react-hot-toast';
 import { X } from 'lucide-react';
 
@@ -11,8 +11,22 @@ export default function UniversalSearch() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [defaultProfile, setDefaultProfile] = useState<QualityProfile | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Load default quality profile
+  useEffect(() => {
+    const loadDefaultProfile = async () => {
+      try {
+        const profile = await api.getDefaultQualityProfile();
+        setDefaultProfile(profile);
+      } catch (error) {
+        console.error('Failed to load default quality profile:', error);
+      }
+    };
+    loadDefaultProfile();
+  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -94,9 +108,34 @@ export default function UniversalSearch() {
 
       if (album.id) {
         // Update existing album
-        await api.updateCatalogAlbum(album.id, newWantedState);
+        // If wanting: use album's profile or default profile
+        // If unwanting: set to null
+        let profileToUse: number | null = null;
+        if (newWantedState) {
+          profileToUse = album.quality_profile_id || defaultProfile?.id || null;
+          if (!profileToUse) {
+            toast.error('No quality profile available. Please set a default quality profile first.');
+            return;
+          }
+        }
+        await api.updateCatalogAlbum(album.id, profileToUse);
+
+        // Update local state
+        setAlbums((prev) =>
+          prev.map((a) =>
+            a.release_group_mbid === album.release_group_mbid
+              ? { ...a, wanted: newWantedState, quality_profile_id: profileToUse, id: album.id || a.id }
+              : a
+          )
+        );
       } else {
         // Create new album in catalog
+        const profileToUse = album.quality_profile_id || defaultProfile?.id || null;
+        if (newWantedState && !profileToUse) {
+          toast.error('No quality profile available. Please set a default quality profile first.');
+          return;
+        }
+
         await api.createCatalogAlbum({
           release_group_mbid: album.release_group_mbid,
           title: album.title,
@@ -105,24 +144,25 @@ export default function UniversalSearch() {
           type: album.type || undefined,
           first_release_date: album.first_release_date || undefined,
           wanted: newWantedState,
+          quality_profile_id: newWantedState ? profileToUse : undefined,
         });
-      }
 
-      // Update local state
-      setAlbums((prev) =>
-        prev.map((a) =>
-          a.release_group_mbid === album.release_group_mbid
-            ? { ...a, wanted: newWantedState, id: album.id || a.id }
-            : a
-        )
-      );
+        // Update local state
+        setAlbums((prev) =>
+          prev.map((a) =>
+            a.release_group_mbid === album.release_group_mbid
+              ? { ...a, wanted: newWantedState, id: album.id || a.id }
+              : a
+          )
+        );
+      }
 
       toast.success(newWantedState ? `Added ${album.title} to wanted` : `Removed ${album.title} from wanted`);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update album';
       toast.error(message);
     }
-  }, []);
+  }, [defaultProfile]);
 
   return (
     <div ref={dropdownRef} className="relative w-full max-w-2xl">

@@ -70,6 +70,14 @@ columnExists conn tableName columnName = do
     () :: IO [(Int, Text, Text, Int, Maybe Text, Int)]
   pure $ any (\(_, name, _, _, _, _) -> name == columnName) results
 
+-- | Check if a table exists
+tableExists :: SQLite.Connection -> Text -> IO Bool
+tableExists conn tableName = do
+  results <- queryRows conn
+    "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
+    (Only tableName) :: IO [Only Text]
+  pure $ not (null results)
+
 -- | Record that a migration has been applied
 recordMigration :: SQLite.Connection -> Text -> IO ()
 recordMigration conn name =
@@ -271,6 +279,24 @@ runIncrementalMigrations le conn = do
         recordMigration conn "002_quality_profiles_and_catalog"
       $(logTM) InfoS "Completed migration: 002_quality_profiles_and_catalog"
 
+    -- Migration 003: Remove legacy wanted_albums and tracked_artists tables
+    applied003 <- liftIO $ migrationApplied conn "003_remove_legacy_wanted_tracked_tables"
+    unless applied003 $ do
+      $(logTM) InfoS "Running migration: 003_remove_legacy_wanted_tracked_tables"
+      liftIO $ do
+        -- Drop wanted_albums table if it exists
+        wantedExists <- tableExists conn "wanted_albums"
+        when wantedExists $ do
+          executeQuery_ conn "DROP TABLE wanted_albums"
+
+        -- Drop tracked_artists table if it exists
+        trackedExists <- tableExists conn "tracked_artists"
+        when trackedExists $ do
+          executeQuery_ conn "DROP TABLE tracked_artists"
+
+        recordMigration conn "003_remove_legacy_wanted_tracked_tables"
+      $(logTM) InfoS "Completed migration: 003_remove_legacy_wanted_tracked_tables"
+
 
 -- | Create the complete database schema.
 createSchema :: SQLite.Connection -> IO ()
@@ -429,48 +455,6 @@ createSchema conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_acquisition_rules_enabled ON acquisition_rules(enabled)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_acquisition_rules_rule_type ON acquisition_rules(rule_type)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_acquisition_rules_artist_mbid ON acquisition_rules(artist_mbid)"
-
-  -- Create tracked_artists table (legacy, still needed for old data)
-  executeQuery_ conn
-    "CREATE TABLE IF NOT EXISTS tracked_artists ( \
-    \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
-    \  artist_mbid TEXT NOT NULL UNIQUE, \
-    \  artist_name TEXT NOT NULL, \
-    \  image_url TEXT, \
-    \  thumbnail_url TEXT, \
-    \  added_by_rule_id INTEGER NOT NULL REFERENCES acquisition_rules(id) ON DELETE CASCADE, \
-    \  source_cluster_id INTEGER REFERENCES clusters(id) ON DELETE SET NULL, \
-    \  last_checked_at TIMESTAMP, \
-    \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
-    \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
-    \)"
-
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_tracked_artists_artist_mbid ON tracked_artists(artist_mbid)"
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_tracked_artists_added_by_rule_id ON tracked_artists(added_by_rule_id)"
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_tracked_artists_source_cluster_id ON tracked_artists(source_cluster_id)"
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_tracked_artists_last_checked_at ON tracked_artists(last_checked_at)"
-
-  -- Create wanted_albums table (legacy)
-  executeQuery_ conn
-    "CREATE TABLE IF NOT EXISTS wanted_albums ( \
-    \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
-    \  release_group_mbid TEXT NOT NULL UNIQUE, \
-    \  title TEXT NOT NULL, \
-    \  artist_mbid TEXT NOT NULL, \
-    \  artist_name TEXT NOT NULL, \
-    \  status TEXT NOT NULL DEFAULT 'wanted', \
-    \  added_by_rule_id INTEGER NOT NULL REFERENCES acquisition_rules(id) ON DELETE CASCADE, \
-    \  first_release_date TEXT, \
-    \  matched_cluster_id INTEGER REFERENCES clusters(id) ON DELETE SET NULL, \
-    \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
-    \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
-    \)"
-
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_wanted_albums_release_group_mbid ON wanted_albums(release_group_mbid)"
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_wanted_albums_artist_mbid ON wanted_albums(artist_mbid)"
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_wanted_albums_status ON wanted_albums(status)"
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_wanted_albums_added_by_rule_id ON wanted_albums(added_by_rule_id)"
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_wanted_albums_matched_cluster_id ON wanted_albums(matched_cluster_id)"
 
   -- Create catalog_artists table with all fields
   executeQuery_ conn

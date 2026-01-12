@@ -1,4 +1,4 @@
-import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, CatalogAlbum, Download, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task } from '../types/api';
+import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, CatalogAlbum, Download, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task, AlbumOverviewRequest, AlbumOverviewResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse } from '../types/api';
 
 // Auto-detect base path from where the app is loaded
 // This allows the app to work at any subpath (e.g., /skema, /music, etc.)
@@ -467,7 +467,22 @@ export const api = {
 
   async getWantedAlbums(): Promise<WantedAlbum[]> {
     // Wanted albums are now part of catalog albums with wanted=true filter
-    return fetchApi<WantedAlbum[]>('/catalog/albums?wanted=true');
+    // Backend now returns AlbumOverviewResponse, extract albums array
+    const response = await fetchApi<AlbumOverviewResponse>('/catalog/albums?wanted=true');
+    // Convert CatalogAlbumOverview to WantedAlbum format
+    return response.albums.map(album => ({
+      id: album.id,
+      release_group_mbid: album.release_group_mbid,
+      title: album.title,
+      artist_mbid: album.artist_mbid,
+      artist_name: album.artist_name,
+      status: album.state.toLowerCase() as 'wanted' | 'monitoring' | 'acquired' | 'ignored',
+      added_by_source_id: album.artist_id || 0, // We don't have added_by_source_id in overview, use 0 as fallback
+      first_release_date: album.first_release_date,
+      matched_cluster_id: album.has_cluster ? 1 : null,
+      created_at: album.created_at,
+      updated_at: album.updated_at,
+    }));
   },
 
   // Catalog (universal search)
@@ -537,7 +552,26 @@ export const api = {
     if (wanted !== undefined) params.append('wanted', String(wanted));
     if (artistId !== undefined) params.append('artistId', String(artistId));
     const queryString = params.toString() ? `?${params.toString()}` : '';
-    return fetchApi<CatalogAlbum[]>(`/catalog/albums${queryString}`);
+    // Backend now returns AlbumOverviewResponse, extract albums array
+    const response = await fetchApi<AlbumOverviewResponse>(`/catalog/albums${queryString}`);
+    // Convert CatalogAlbumOverview to CatalogAlbum (use only the fields that exist in both)
+    return response.albums.map(album => ({
+      id: album.id,
+      release_group_mbid: album.release_group_mbid,
+      title: album.title,
+      artist_mbid: album.artist_mbid,
+      artist_name: album.artist_name,
+      type: album.type,
+      first_release_date: album.first_release_date,
+      cover_url: album.cover_url,
+      cover_thumbnail_url: album.cover_thumbnail_url,
+      wanted: album.wanted,
+      quality_profile_id: album.quality_profile_id,
+      matched_cluster_id: album.has_cluster ? 1 : null, // Approximate - we don't have the actual ID
+      score: null,
+      created_at: album.created_at,
+      updated_at: album.updated_at,
+    }));
   },
 
   async createCatalogAlbum(album: {
@@ -555,8 +589,8 @@ export const api = {
     });
   },
 
-  async updateCatalogAlbum(albumId: number, wanted: boolean, qualityProfileId?: number | null): Promise<CatalogAlbum> {
-    const body: { wanted: boolean; quality_profile_id?: number | null } = { wanted };
+  async updateCatalogAlbum(albumId: number, qualityProfileId?: number | null): Promise<CatalogAlbum> {
+    const body: { quality_profile_id?: number | null } = {};
     if (qualityProfileId !== undefined) {
       body.quality_profile_id = qualityProfileId;
     }
@@ -569,6 +603,39 @@ export const api = {
   async deleteCatalogAlbum(albumId: number): Promise<void> {
     return fetchApi<void>(`/catalog/albums/${albumId}`, {
       method: 'DELETE',
+    });
+  },
+
+  async getAlbumOverview(request: AlbumOverviewRequest): Promise<AlbumOverviewResponse> {
+    const params = new URLSearchParams();
+    if (request.page !== undefined) params.append('page', request.page.toString());
+    if (request.limit !== undefined) params.append('limit', request.limit.toString());
+    if (request.wanted !== undefined) params.append('wanted', request.wanted.toString());
+    if (request.artist_id !== undefined) params.append('artistId', request.artist_id.toString());
+    if (request.search) params.append('search', request.search);
+    if (request.sort) params.append('sort', request.sort);
+    if (request.order) params.append('order', request.order);
+    if (request.state && request.state.length > 0) params.append('state', request.state.join(','));
+    if (request.quality && request.quality.length > 0) params.append('quality', request.quality.join(','));
+
+    const queryString = params.toString();
+    const url = queryString ? `/catalog/albums?${queryString}` : '/catalog/albums';
+
+    return fetchApi<AlbumOverviewResponse>(url, {
+      method: 'GET',
+    });
+  },
+
+  async bulkAlbumAction(request: BulkAlbumActionRequest): Promise<void> {
+    return fetchApi<void>('/catalog/albums/bulk-action', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  async getAlbumReleases(albumId: number): Promise<AlbumReleasesResponse> {
+    return fetchApi<AlbumReleasesResponse>(`/catalog/albums/${albumId}/releases`, {
+      method: 'GET',
     });
   },
 
@@ -596,6 +663,13 @@ export const api = {
   async deleteDownload(downloadId: number): Promise<void> {
     return fetchApi<void>(`/downloads/${downloadId}`, {
       method: 'DELETE',
+    });
+  },
+
+  async queueDownload(request: QueueDownloadRequest): Promise<QueueDownloadResponse> {
+    return fetchApi<QueueDownloadResponse>('/downloads/queue', {
+      method: 'POST',
+      body: JSON.stringify(request),
     });
   },
 

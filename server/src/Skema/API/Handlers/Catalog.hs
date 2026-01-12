@@ -286,8 +286,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       _ <- requireAuth configVar jwtSecret authHeader
       liftIO $ withConnection connPool $ \conn -> do
         albums <- case maybeArtistId of
-          Nothing -> DB.getCatalogAlbums conn maybeWanted
-          Just artistId -> DB.getCatalogAlbumsByArtistId conn artistId maybeWanted
+          Nothing -> DB.getCatalogAlbums conn
+          Just artistId -> DB.getCatalogAlbumsByArtistId conn artistId
         forM albums $ \album -> do
           -- Compute wanted status using Core.Catalog logic
           maybeProfile <- case DBTypes.catalogAlbumQualityProfileId album of
@@ -408,7 +408,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
       -- Fetch the album BEFORE updating to get current status
       maybeAlbumBefore <- liftIO $ withConnection connPool $ \conn -> do
-        albums <- DB.getCatalogAlbums conn Nothing
+        albums <- DB.getCatalogAlbums conn
         pure $ find (\a -> DBTypes.catalogAlbumId a == Just albumId) albums
 
       case maybeAlbumBefore of
@@ -488,7 +488,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
           -- Fetch the updated album
           maybeAlbum <- liftIO $ withConnection connPool $ \conn -> do
-            albums <- DB.getCatalogAlbums conn Nothing
+            albums <- DB.getCatalogAlbums conn
             pure $ find (\a -> DBTypes.catalogAlbumId a == Just albumId) albums
 
           case maybeAlbum of
@@ -736,7 +736,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           -- If setting to wanted, emit WantedAlbumAdded events for each
           when wanted $ do
             albums <- liftIO $ withConnection connPool $ \conn ->
-              DB.getCatalogAlbums conn Nothing
+              DB.getCatalogAlbums conn
             let targetAlbums = filter (\a -> DBTypes.catalogAlbumId a `elem` map Just albumIds) albums
             forM_ targetAlbums $ \album -> do
               case DBTypes.catalogAlbumId album of
@@ -752,7 +752,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         TriggerSearch -> do
           -- Emit WantedAlbumAdded events to trigger searches
           albums <- liftIO $ withConnection connPool $ \conn ->
-            DB.getCatalogAlbums conn Nothing
+            DB.getCatalogAlbums conn
           let targetAlbums = filter (\a -> DBTypes.catalogAlbumId a `elem` map Just albumIds) albums
           forM_ targetAlbums $ \album -> do
             case DBTypes.catalogAlbumId album of
@@ -780,7 +780,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
       -- Get the album from the database
       maybeAlbum <- liftIO $ withConnection connPool $ \conn -> do
-        albums <- DB.getCatalogAlbums conn Nothing
+        albums <- DB.getCatalogAlbums conn
         pure $ find (\a -> DBTypes.catalogAlbumId a == Just albumId) albums
 
       case maybeAlbum of

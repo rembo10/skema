@@ -60,21 +60,6 @@ module Skema.Database.Repository
   , updateAcquisitionRule
   , deleteAcquisitionRule
   , getDefaultLibraryArtistsRule
-    -- * Tracked artist operations
-  , insertTrackedArtist
-  , getTrackedArtistByMBID
-  , getAllTrackedArtists
-  , getRecentTrackedArtists
-  , updateTrackedArtistLastChecked
-  , deleteTrackedArtist
-    -- * Wanted album operations
-  , insertWantedAlbum
-  , getWantedAlbumByReleaseGroupMBID
-  , getAllWantedAlbums
-  , getWantedAlbumsByStatus
-  , updateWantedAlbumStatus
-  , linkWantedAlbumToCluster
-  , deleteWantedAlbum
     -- * Catalog operations
   , upsertCatalogArtist
   , getCatalogArtists
@@ -163,19 +148,6 @@ import Skema.Database.Repository.Acquisition
   , updateAcquisitionRule
   , deleteAcquisitionRule
   , getDefaultLibraryArtistsRule
-  , insertTrackedArtist
-  , getTrackedArtistByMBID
-  , getAllTrackedArtists
-  , getRecentTrackedArtists
-  , updateTrackedArtistLastChecked
-  , deleteTrackedArtist
-  , insertWantedAlbum
-  , getWantedAlbumByReleaseGroupMBID
-  , getAllWantedAlbums
-  , getWantedAlbumsByStatus
-  , updateWantedAlbumStatus
-  , linkWantedAlbumToCluster
-  , deleteWantedAlbum
   )
 
 -- Re-export download operations

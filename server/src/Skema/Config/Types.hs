@@ -116,6 +116,8 @@ data LibraryConfig = LibraryConfig
     -- ^ Template for album directory paths (e.g., "{album_artist}/{year} - {album}/")
   , libraryFileFormat :: Text
     -- ^ Template for track filenames (e.g., "{if:multidisc|{disc:02}-}{track:02} - {title}.{ext}")
+  , libraryAutoUpgradeExistingAlbums :: Bool
+    -- ^ When discovering albums already in library, automatically set their quality profile to default (enable monitoring/upgrading)
   } deriving (Show, Eq, Generic)
 
 instance FromJSON LibraryConfig where
@@ -129,6 +131,7 @@ instance FromJSON LibraryConfig where
     normalizeFeaturingTo <- o .:? "normalize_featuring_to" .!= "feat."
     pathFormat <- o .:? "path_format" .!= "{album_artist}/{album} [{year}]"
     fileFormat <- o .:? "file_format" .!= "{track:02} {artist} - {album} {year} - {title}.{ext}"
+    autoUpgradeExisting <- o .:? "auto_upgrade_existing_albums" .!= False
     -- Convert String to OsPath using unsafePerformIO
     -- This is safe because we're converting a constant string from config
     -- Also expand tilde and environment variables in the path
@@ -137,10 +140,10 @@ instance FromJSON LibraryConfig where
           Just (pathStr :: String) -> Just $ unsafePerformIO $ do
             expanded <- PathExpansion.expandPathIO (toText pathStr)
             OP.encodeUtf (toString expanded)
-    pure $ LibraryConfig osPath watch autoScan interval scanOnStartup normalizeFeaturing normalizeFeaturingTo pathFormat fileFormat
+    pure $ LibraryConfig osPath watch autoScan interval scanOnStartup normalizeFeaturing normalizeFeaturingTo pathFormat fileFormat autoUpgradeExisting
 
 instance ToJSON LibraryConfig where
-  toJSON (LibraryConfig maybePath watch autoScan interval scanOnStartup normalizeFeaturing normalizeFeaturingTo pathFormat fileFormat) =
+  toJSON (LibraryConfig maybePath watch autoScan interval scanOnStartup normalizeFeaturing normalizeFeaturingTo pathFormat fileFormat autoUpgradeExisting) =
     -- Convert OsPath back to String for serialization
     let pathField = case maybePath of
           Nothing -> []
@@ -154,6 +157,7 @@ instance ToJSON LibraryConfig where
       , "normalize_featuring_to" .= normalizeFeaturingTo
       , "path_format" .= pathFormat
       , "file_format" .= fileFormat
+      , "auto_upgrade_existing_albums" .= autoUpgradeExisting
       ]
 
 -- | System configuration.
@@ -331,6 +335,12 @@ data DownloadConfig = DownloadConfig
     -- ^ Minimum seeders for torrents (Nothing = no minimum)
   , downloadMaxSize :: Maybe Int
     -- ^ Maximum download size in MB (Nothing = no limit)
+  , downloadReplaceLibraryFiles :: Bool
+    -- ^ Delete old library files when upgrading to better quality
+  , downloadUseTrash :: Bool
+    -- ^ Move deleted files to trash instead of permanently deleting them
+  , downloadTrashRetentionDays :: Int
+    -- ^ Number of days to keep files in trash before permanent deletion (default: 30)
   } deriving (Show, Eq, Generic)
 
 instance FromJSON DownloadConfig where
@@ -342,12 +352,15 @@ instance FromJSON DownloadConfig where
     autoImport <- o .:? "auto_import" .!= True
     minSeeders <- o .:? "min_seeders"
     maxSize <- o .:? "max_size_mb"
+    replaceFiles <- o .:? "replace_library_files" .!= False
+    useTrash <- o .:? "use_trash" .!= True
+    trashRetentionDays <- o .:? "trash_retention_days" .!= 30
     -- Expand tilde and env vars in directory
     let expandedDir = unsafePerformIO $ PathExpansion.expandPathIO dir
-    pure $ DownloadConfig nzbClient torrentClient expandedDir checkInterval autoImport minSeeders maxSize
+    pure $ DownloadConfig nzbClient torrentClient expandedDir checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays
 
 instance ToJSON DownloadConfig where
-  toJSON (DownloadConfig nzbClient torrentClient dir checkInterval autoImport minSeeders maxSize) = object
+  toJSON (DownloadConfig nzbClient torrentClient dir checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays) = object
     [ "nzb_client" .= nzbClient
     , "torrent_client" .= torrentClient
     , "directory" .= dir
@@ -355,6 +368,9 @@ instance ToJSON DownloadConfig where
     , "auto_import" .= autoImport
     , "min_seeders" .= minSeeders
     , "max_size_mb" .= maxSize
+    , "replace_library_files" .= replaceFiles
+    , "use_trash" .= useTrash
+    , "trash_retention_days" .= trashRetentionDays
     ]
 
 -- | MusicBrainz server selection.
@@ -639,6 +655,7 @@ defaultLibraryConfig = LibraryConfig
   , libraryNormalizeFeaturingTo = "feat."
   , libraryPathFormat = "{album_artist}/{album} [{year}]"
   , libraryFileFormat = "{track:02} {artist} - {album} {year} - {title}.{ext}"
+  , libraryAutoUpgradeExistingAlbums = False
   }
 
 -- | Default system configuration.

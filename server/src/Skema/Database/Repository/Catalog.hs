@@ -128,20 +128,16 @@ upsertCatalogAlbum conn releaseGroupMBID title artistId artistMBID artistName al
     \RETURNING id"
     (releaseGroupMBID, title, artistId, artistMBID, artistName, albumType, firstReleaseDate, matchedClusterId)
 
--- | Get catalog albums (no filtering - wanted status is computed, not stored).
--- Use getCatalogAlbumsByArtistId to filter by artist.
-getCatalogAlbums :: SQLite.Connection -> Maybe Bool -> IO [CatalogAlbumRecord]
-getCatalogAlbums conn _ =
-  -- NOTE: maybeWanted parameter is kept for backwards compatibility but ignored
-  -- "wanted" status is now computed from quality_profile_id + current_quality, not stored
+-- | Get all catalog albums.
+getCatalogAlbums :: SQLite.Connection -> IO [CatalogAlbumRecord]
+getCatalogAlbums conn =
   queryRows_ conn
     "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, matched_cluster_id, quality_profile_id, current_quality, created_at, updated_at \
     \FROM catalog_albums ORDER BY created_at DESC"
 
--- | Get catalog albums by internal artist ID (no wanted filtering - it's computed).
-getCatalogAlbumsByArtistId :: SQLite.Connection -> Int64 -> Maybe Bool -> IO [CatalogAlbumRecord]
-getCatalogAlbumsByArtistId conn artistId _ =
-  -- NOTE: maybeWanted parameter is kept for backwards compatibility but ignored
+-- | Get catalog albums by internal artist ID.
+getCatalogAlbumsByArtistId :: SQLite.Connection -> Int64 -> IO [CatalogAlbumRecord]
+getCatalogAlbumsByArtistId conn artistId =
   queryRows conn
     "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, matched_cluster_id, quality_profile_id, current_quality, created_at, updated_at \
     \FROM catalog_albums WHERE artist_id = ? ORDER BY first_release_date DESC"

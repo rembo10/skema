@@ -31,7 +31,8 @@ module Skema.Database.Repository.Tracks
 import Skema.Database.Connection
 import Skema.Database.Types
 import Skema.Core.Library (LibrarySnapshot(..), FileInfo(..))
-import Monatone.Metadata (Metadata(..))
+import Skema.Domain.Quality (detectQualityFromAudio, qualityToText)
+import Monatone.Metadata (Metadata(..), AudioFormat(..))
 import qualified Monatone.Metadata as M
 import Control.Monad (foldM)
 import System.OsPath (OsPath)
@@ -68,6 +69,10 @@ data MetadataInsert = MetadataInsert
   , miMBReleaseId :: Maybe Text
   , miMBReleaseGroupId :: Maybe Text
   , miMBArtistId :: Maybe Text
+  , miFormat :: Maybe Text
+  , miBitrate :: Maybe Int
+  , miSampleRate :: Maybe Int
+  , miBitsPerSample :: Maybe Int
   }
 
 -- | SQLite ToRow instance for MetadataInsert
@@ -92,9 +97,21 @@ instance SQLite.ToRow MetadataInsert where
             , SQLite.toField (miMBReleaseId m)
             , SQLite.toField (miMBReleaseGroupId m)
             , SQLite.toField (miMBArtistId m)
+            , SQLite.toField (miFormat m)
+            , SQLite.toField (miBitrate m)
+            , SQLite.toField (miSampleRate m)
+            , SQLite.toField (miBitsPerSample m)
             ]
 
 -- * Helper functions
+
+-- | Convert AudioFormat to Text for database storage.
+audioFormatToText :: AudioFormat -> Text
+audioFormatToText FLAC = "flac"
+audioFormatToText OGG = "ogg"
+audioFormatToText Opus = "opus"
+audioFormatToText MP3 = "mp3"
+audioFormatToText M4A = "m4a"
 
 -- | Convert OsPath to String for database storage.
 osPathToString :: OsPath -> IO String
@@ -103,6 +120,7 @@ osPathToString = OP.decodeUtf
 -- | Convert String to OsPath from database.
 stringToOsPath :: String -> IO OsPath
 stringToOsPath = OP.encodeUtf
+
 
 -- * Track operations
 
@@ -220,16 +238,21 @@ upsertTrackWithMetadata conn path meta = do
   fSize <- getFileSize path
   modTime <- getModificationTime path
 
+  -- Compute quality from audio metadata
+  let quality = detectQualityFromAudio meta
+      qualityText = qualityToText quality
+
   -- Upsert track record using INSERT OR REPLACE (SQLite)
   -- This handles both insert and update in one query
   executeQuery conn
-    "INSERT INTO library_tracks (path, size, modified_at, added_at, updated_at) \
-    \VALUES (?, ?, ?, ?, ?) \
+    "INSERT INTO library_tracks (path, size, modified_at, added_at, updated_at, quality) \
+    \VALUES (?, ?, ?, ?, ?, ?) \
     \ON CONFLICT(path) DO UPDATE SET \
     \  size = excluded.size, \
     \  modified_at = excluded.modified_at, \
+    \  quality = excluded.quality, \
     \  updated_at = CURRENT_TIMESTAMP"
-    (pathStr :: String, fSize, modTime, now, now)
+    (pathStr :: String, fSize, modTime, now, now, qualityText)
 
   -- Get track ID
   results <- queryRows conn
@@ -242,6 +265,7 @@ upsertTrackWithMetadata conn path meta = do
 
   -- Upsert metadata with MB IDs using custom ToRow instance
   let mbIds = M.musicBrainzIds meta
+      audioProps = M.audioProperties meta
   let metadataInsert = MetadataInsert
         { miTrackId = tid
         , miTitle = M.title meta
@@ -251,7 +275,7 @@ upsertTrackWithMetadata conn path meta = do
         , miTrackNumber = M.trackNumber meta
         , miDiscNumber = M.discNumber meta
         , miYear = M.year meta
-        , miDurationSeconds = fmap (\ms -> (fromIntegral ms :: Double) / 1000.0) (M.duration (M.audioProperties meta))
+        , miDurationSeconds = fmap (\ms -> (fromIntegral ms :: Double) / 1000.0) (M.duration audioProps)
         , miGenre = M.genre meta
         , miDate = M.date meta
         , miBarcode = M.barcode meta
@@ -263,11 +287,15 @@ upsertTrackWithMetadata conn path meta = do
         , miMBReleaseId = M.mbReleaseId mbIds
         , miMBReleaseGroupId = M.mbReleaseGroupId mbIds
         , miMBArtistId = M.mbArtistId mbIds
+        , miFormat = Just (audioFormatToText $ M.format meta)
+        , miBitrate = M.bitrate audioProps
+        , miSampleRate = M.sampleRate audioProps
+        , miBitsPerSample = M.bitsPerSample audioProps
         }
 
   executeQuery conn
-    "INSERT INTO library_track_metadata (track_id, title, artist, album, album_artist, track_number, disc_number, year, duration_seconds, genre, date, barcode, catalog_number, label, country, mb_recording_id, mb_track_id, mb_release_id, mb_release_group_id, mb_artist_id) \
-    \VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+    "INSERT INTO library_track_metadata (track_id, title, artist, album, album_artist, track_number, disc_number, year, duration_seconds, genre, date, barcode, catalog_number, label, country, mb_recording_id, mb_track_id, mb_release_id, mb_release_group_id, mb_artist_id, format, bitrate, sample_rate, bits_per_sample) \
+    \VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
     \ON CONFLICT(track_id) DO UPDATE SET \
     \  title = excluded.title, \
     \  artist = excluded.artist, \
@@ -288,6 +316,10 @@ upsertTrackWithMetadata conn path meta = do
     \  mb_release_id = excluded.mb_release_id, \
     \  mb_release_group_id = excluded.mb_release_group_id, \
     \  mb_artist_id = excluded.mb_artist_id, \
+    \  format = excluded.format, \
+    \  bitrate = excluded.bitrate, \
+    \  sample_rate = excluded.sample_rate, \
+    \  bits_per_sample = excluded.bits_per_sample, \
     \  updated_at = CURRENT_TIMESTAMP"
     metadataInsert
 

@@ -50,7 +50,8 @@ export default function WantedAlbums() {
     if (!album.id) return;
 
     try {
-      await api.updateCatalogAlbum(album.id, false);
+      // Set quality_profile_id = null to unwant (remove from monitoring)
+      await api.updateCatalogAlbum(album.id, null);
 
       // Update global store
       updateCatalogAlbum(album.id, { wanted: false });
@@ -67,7 +68,7 @@ export default function WantedAlbums() {
 
     try {
       const newProfileId = profileId === '' ? null : parseInt(profileId, 10);
-      const updatedAlbum = await api.updateCatalogAlbum(album.id, album.wanted, newProfileId);
+      const updatedAlbum = await api.updateCatalogAlbum(album.id, newProfileId);
 
       // Update global store
       updateCatalogAlbum(album.id, { quality_profile_id: updatedAlbum.quality_profile_id });

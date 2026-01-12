@@ -29,14 +29,16 @@ import Skema.Database.Repository
 import Skema.Database.Types (DownloadRecord(..), CatalogAlbumRecord(..))
 import qualified Skema.Database.Types as DB
 import Skema.Database.Utils (downloadStatusToText)
+import Skema.Domain.Quality (qualityToText, meetsOrExceedsCutoff)
 import Skema.FileSystem.PathFormatter (PathContext(..), formatPath)
 import Skema.FileSystem.Utils (moveFile)
+import Skema.FileSystem.Trash (moveToTrash)
 import Skema.Core.Metadata (scanAndParseMetadata, groupParsedFiles, MetadataResult(..), GroupedFiles(..))
 import Skema.MusicBrainz.Identify (identifyFileGroup)
 import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), IdentificationResult(..), MBRelease(..), MBID(..), unMBID, mbSearchReleases, TrackMatch(..), MBTrack(..), mbReleaseTracks)
 import Skema.MusicBrainz.Client (MBClientEnv, searchReleases)
 import Skema.Domain.Identification (IdentifyConfig(..), buildSearchQuery)
-import Skema.Config.Types (Config(..), LibraryConfig(..))
+import Skema.Config.Types (Config(..), LibraryConfig(..), DownloadConfig(..), download)
 import qualified Monatone.Metadata as M
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
@@ -110,21 +112,21 @@ handleDownloadCompleted ImporterDeps{..} downloadId = do
       Nothing -> do
         $(logTM) ErrorS $ logStr $ ("Download not found: " <> show downloadId :: Text)
 
-      Just download -> do
-        case DB.downloadPath download of
+      Just downloadRec -> do
+        case DB.downloadPath downloadRec of
           Nothing -> do
-            $(logTM) ErrorS $ logStr $ ("Completed download has no path: " <> DB.downloadTitle download :: Text)
+            $(logTM) ErrorS $ logStr $ ("Completed download has no path: " <> DB.downloadTitle downloadRec :: Text)
             liftIO $ markDownloadAsFailed pool downloadId "No download path"
 
           Just downloadPathText | T.null (T.strip downloadPathText) -> do
-            $(logTM) ErrorS $ logStr $ ("Download has empty path: " <> DB.downloadTitle download :: Text)
+            $(logTM) ErrorS $ logStr $ ("Download has empty path: " <> DB.downloadTitle downloadRec :: Text)
             liftIO $ markDownloadAsFailed pool downloadId "Download path is empty"
 
           Just _downloadPathText -> do
-            $(logTM) InfoS $ logStr $ ("Importing download: " <> DB.downloadTitle download :: Text)
+            $(logTM) InfoS $ logStr $ ("Importing download: " <> DB.downloadTitle downloadRec :: Text)
 
             -- Get catalog album
-            let catalogAlbumId = DB.downloadCatalogAlbumId download
+            let catalogAlbumId = DB.downloadCatalogAlbumId downloadRec
             catalogAlbums <- liftIO $ withConnection pool $ \conn ->
               getCatalogAlbumById conn catalogAlbumId
 
@@ -135,7 +137,7 @@ handleDownloadCompleted ImporterDeps{..} downloadId = do
 
               Just catalogAlbum -> do
                 -- Import the download
-                importResult <- liftIO $ try $ importDownload config le bus pool impMBClient download catalogAlbum
+                importResult <- liftIO $ try $ importDownload config le bus pool impMBClient downloadRec catalogAlbum
                 case importResult of
                   Left (e :: SomeException) -> do
                     let errorMsg = case fromException e of
@@ -148,8 +150,8 @@ handleDownloadCompleted ImporterDeps{..} downloadId = do
 
 -- | Import a download into the library.
 importDownload :: Config -> LogEnv -> EventBus -> ConnectionPool -> MBClientEnv -> DownloadRecord -> CatalogAlbumRecord -> IO ()
-importDownload config le bus pool mbClientEnv download catalogAlbum = do
-  let downloadPathText = fromMaybe "" (DB.downloadPath download)
+importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
+  let downloadPathText = fromMaybe "" (DB.downloadPath downloadRec)
 
   runKatipContextT le () "importer" $ do
     -- 1. Parse download path to OsPath
@@ -251,7 +253,7 @@ importDownload config le bus pool mbClientEnv download catalogAlbum = do
             $(logTM) ErrorS $ logStr $ ("Album: " <> albumName <>
                                         ", Artist: " <> artistName :: Text)
             let errorMsg = "MusicBrainz identification failed: " <> show err
-            liftIO $ markDownloadAsIdentificationFailure pool (fromMaybe 0 (DB.downloadId download)) errorMsg
+            liftIO $ markDownloadAsIdentificationFailure pool (fromMaybe 0 (DB.downloadId downloadRec)) errorMsg
             $(logTM) InfoS $ logStr ("Download marked as identification_failure - can be retried later" :: Text)
 
           Right (candidateCount, Nothing, _) -> do
@@ -260,7 +262,7 @@ importDownload config le bus pool mbClientEnv download catalogAlbum = do
             $(logTM) InfoS $ logStr $ ("MusicBrainz returned " <> show candidateCount <> " search results" :: Text)
             $(logTM) ErrorS $ logStr ("Album not found in MusicBrainz database or no candidates could be fetched" :: Text)
             let errorMsg = "No MusicBrainz match found (" <> show candidateCount <> " candidates searched). The release may not be in MusicBrainz database, or no candidate details could be fetched."
-            liftIO $ markDownloadAsIdentificationFailure pool (fromMaybe 0 (DB.downloadId download)) errorMsg
+            liftIO $ markDownloadAsIdentificationFailure pool (fromMaybe 0 (DB.downloadId downloadRec)) errorMsg
             $(logTM) InfoS $ logStr ("Download marked as identification_failure - can be retried later" :: Text)
 
           Right (candidateCount, Just match, minConfidence) -> do
@@ -318,7 +320,7 @@ importDownload config le bus pool mbClientEnv download catalogAlbum = do
                 $(logTM) InfoS $ logStr ("Suggestion: Lower the confidence threshold in config or check if track titles/counts match" :: Text)
                 let errorMsg = "Best match confidence (" <> show (round (confidence * 100) :: Integer) <>
                                "%) is below threshold (" <> show (round (minConfidence * 100) :: Integer) <> "%)."
-                liftIO $ markDownloadAsIdentificationFailure pool (fromMaybe 0 (DB.downloadId download)) errorMsg
+                liftIO $ markDownloadAsIdentificationFailure pool (fromMaybe 0 (DB.downloadId downloadRec)) errorMsg
                 $(logTM) InfoS $ logStr ("Download marked as identification_failure - can be retried later" :: Text)
               else do
                 -- Confidence meets threshold, proceed with import
@@ -372,7 +374,54 @@ importDownload config le bus pool mbClientEnv download catalogAlbum = do
 
                 $(logTM) InfoS $ logStr $ ("Created cluster with ID: " <> show clusterId :: Text)
 
-                -- 10. Move files to library and create track records with formatted filenames
+                -- 10. Delete old files if this is an upgrade and replace_library_files is enabled
+                let downloadCfg = download config
+                when (downloadReplaceLibraryFiles downloadCfg) $ do
+                  -- Check if this catalog album already has a matched cluster (indicating an upgrade)
+                  case catalogAlbumMatchedClusterId catalogAlbum of
+                    Just existingClusterId -> do
+                      $(logTM) InfoS $ logStr $ ("Upgrading album - removing old files from cluster " <> show existingClusterId :: Text)
+
+                      -- Get all tracks from the existing cluster
+                      existingTracks <- liftIO $ withConnection pool $ \conn ->
+                        queryRows conn
+                          "SELECT file_path FROM library_tracks WHERE cluster_id = ?"
+                          (Only existingClusterId) :: IO [Only Text]
+
+                      -- Delete or trash each old file based on config
+                      forM_ existingTracks $ \(Only trackPathText) -> do
+                        trackPath <- liftIO $ OP.encodeUtf (toString trackPathText)
+                        trackPathStr <- liftIO $ OP.decodeUtf trackPath
+                        fileExists <- liftIO $ Dir.doesFileExist trackPathStr
+                        when fileExists $ do
+                          if downloadUseTrash downloadCfg
+                            then do
+                              $(logTM) InfoS $ logStr $ ("Moving old file to trash: " <> trackPathText :: Text)
+                              liftIO $ moveToTrash libraryBasePath trackPath
+                            else do
+                              $(logTM) InfoS $ logStr $ ("Permanently deleting old file: " <> trackPathText :: Text)
+                              liftIO $ Dir.removeFile trackPathStr
+
+                      -- Delete track records for old cluster
+                      liftIO $ withConnection pool $ \conn ->
+                        executeQuery conn
+                          "DELETE FROM library_tracks WHERE cluster_id = ?"
+                          (Only existingClusterId)
+
+                      -- Delete the old cluster
+                      liftIO $ withConnection pool $ \conn ->
+                        executeQuery conn
+                          "DELETE FROM clusters WHERE id = ?"
+                          (Only existingClusterId)
+
+                      if downloadUseTrash downloadCfg
+                        then $(logTM) InfoS $ logStr $ ("Old files moved to trash (will be deleted after " <> show (downloadTrashRetentionDays downloadCfg) <> " days)" :: Text)
+                        else $(logTM) InfoS $ logStr ("Old files permanently deleted" :: Text)
+
+                    Nothing -> do
+                      $(logTM) DebugS $ logStr ("Not an upgrade - this is the first download for this album" :: Text)
+
+                -- 11. Move files to library and create track records with formatted filenames
                 $(logTM) InfoS $ logStr ("Moving files to library..." :: Text)
 
                 -- Create target directory
@@ -380,7 +429,7 @@ importDownload config le bus pool mbClientEnv download catalogAlbum = do
                   targetDirStr <- OP.decodeUtf targetDir
                   Dir.createDirectoryIfMissing True targetDirStr
 
-                -- 11. Move each file with formatted filename and create track records
+                -- 12. Move each file with formatted filename and create track records
                 -- Build a map from file paths to MusicBrainz tracks
                 let trackMatchMap = Map.fromList [(tmFilePath tm, tmTrack tm) | tm <- rmTrackMatches match]
 
@@ -425,29 +474,62 @@ importDownload config le bus pool mbClientEnv download catalogAlbum = do
                 liftIO $ withConnection pool $ \conn ->
                   updateTrackCluster conn clusterId validTrackIds
 
-                -- 12. Link download to cluster and set library path
+                -- 13. Link download to cluster and set library path
                 liftIO $ withConnection pool $ \conn ->
                   executeQuery conn
                     "UPDATE downloads SET matched_cluster_id = ?, library_path = ? WHERE id = ?"
-                    (clusterId, dirPath, DB.downloadId download)
+                    (clusterId, dirPath, DB.downloadId downloadRec)
 
-                -- 13. Link catalog_album to cluster (if not already linked)
+                -- 14. Compute cluster quality from audio metadata and link catalog_album to cluster (if not already linked)
+                maybeQuality <- liftIO $ withConnection pool $ \conn ->
+                  computeClusterQuality conn clusterId
+                let qualityText = fmap qualityToText maybeQuality
+
                 liftIO $ withConnection pool $ \conn ->
                   executeQuery conn
-                    "UPDATE catalog_albums SET matched_cluster_id = ? WHERE id = ? AND matched_cluster_id IS NULL"
-                    (clusterId, DB.catalogAlbumId catalogAlbum)
+                    "UPDATE catalog_albums SET matched_cluster_id = ?, current_quality = ? WHERE id = ? AND matched_cluster_id IS NULL"
+                    (clusterId, qualityText, DB.catalogAlbumId catalogAlbum)
 
-                -- 14. Mark download as imported
+                -- 14a. Check if imported quality meets cutoff - if yes, set wanted=false (album is "Finished")
+                shouldStopMonitoring <- liftIO $ withConnection pool $ \conn -> do
+                  case maybeQuality of
+                    Nothing -> pure False  -- Unknown quality, keep monitoring
+                    Just importedQuality -> do
+                      -- Get album's quality profile (or default)
+                      let profileId = DB.catalogAlbumQualityProfileId catalogAlbum
+                      maybeProfile <- case profileId of
+                        Just pid -> getQualityProfile conn pid
+                        Nothing -> do
+                          -- Use default profile
+                          maybeDefaultId <- getDefaultQualityProfileId conn
+                          case maybeDefaultId of
+                            Just defaultId -> getQualityProfile conn defaultId
+                            Nothing -> pure Nothing
+
+                      -- Check if quality meets or exceeds cutoff
+                      case maybeProfile of
+                        Nothing -> pure False  -- No profile, keep monitoring
+                        Just profile -> pure $ meetsOrExceedsCutoff importedQuality profile
+
+                -- Update wanted status if quality meets cutoff
+                when shouldStopMonitoring $ do
+                  $(logTM) InfoS $ logStr ("Imported quality meets cutoff - setting album to Finished status" :: Text)
+                  liftIO $ withConnection pool $ \conn ->
+                    executeQuery conn
+                      "UPDATE catalog_albums SET wanted = ? WHERE id = ?"
+                      (False :: Bool, DB.catalogAlbumId catalogAlbum)
+
+                -- 15. Mark download as imported
                 now <- liftIO getCurrentTime
                 liftIO $ withConnection pool $ \conn ->
                   executeQuery conn
                     "UPDATE downloads SET status = ?, imported_at = ? WHERE id = ?"
-                    (downloadStatusToText DB.DownloadImported, now, DB.downloadId download)
+                    (downloadStatusToText DB.DownloadImported, now, DB.downloadId downloadRec)
 
-                -- 15. Emit DownloadImported event
+                -- 16. Emit DownloadImported event
                 liftIO $ publishAndLog bus le "importer" $ DownloadImported
-                  { downloadId = fromMaybe 0 (DB.downloadId download)
-                  , downloadTitle = DB.downloadTitle download
+                  { downloadId = fromMaybe 0 (DB.downloadId downloadRec)
+                  , downloadTitle = DB.downloadTitle downloadRec
                   }
 
                 $(logTM) InfoS $ logStr ("Import completed successfully" :: Text)

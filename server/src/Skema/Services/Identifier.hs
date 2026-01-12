@@ -14,11 +14,12 @@ import Skema.Services.Common (metadataRecordToMonatone)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getAllClusters, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster, getTrackedArtistByMBID, getCatalogAlbumByReleaseGroupMBID)
+import Skema.Database.Repository (getAllClusters, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster, getCatalogAlbumByReleaseGroupMBID, computeClusterQuality)
 import Skema.Database.Types (ClusterRecord(..), LibraryTrackMetadataRecord(..))
 import qualified Skema.Database.Types as DBTypes
 import Skema.MusicBrainz.Identify (identifyFileGroup)
 import Skema.Domain.Identification (IdentifyConfig(..), shouldRetryIdentification)
+import Skema.Domain.Quality (qualityToText)
 import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), TrackMatch(..), IdentificationResult(..), MBID(..), unMBID, MBRelease(..), MBTrack(..))
 import Skema.Config.Types (Config(..), LibraryConfig(..))
 import qualified Monatone.Metadata as M
@@ -171,11 +172,15 @@ handleClustersGenerated IdentifierDeps{..} groupsNeedingId = do
                             maybeCatalogAlbum <- getCatalogAlbumByReleaseGroupMBID conn releaseGroupMBID
                             case maybeCatalogAlbum of
                               Just catalogAlbum -> do
+                                -- Compute cluster quality from audio metadata
+                                maybeQuality <- computeClusterQuality conn cid
+                                let qualityText = fmap qualityToText maybeQuality
+
                                 -- Only update if not already linked
                                 updateTime <- getCurrentTime
                                 executeQuery conn
-                                  "UPDATE catalog_albums SET matched_cluster_id = ?, updated_at = ? WHERE id = ? AND matched_cluster_id IS NULL"
-                                  (cid, updateTime, DBTypes.catalogAlbumId catalogAlbum)
+                                  "UPDATE catalog_albums SET matched_cluster_id = ?, current_quality = ?, updated_at = ? WHERE id = ? AND matched_cluster_id IS NULL"
+                                  (cid, qualityText, updateTime, DBTypes.catalogAlbumId catalogAlbum)
                               Nothing -> pure ()  -- No catalog album exists for this release group
                           Nothing -> pure ()  -- No release group ID in the match
 
@@ -223,20 +228,13 @@ handleClustersGenerated IdentifierDeps{..} groupsNeedingId = do
                         , identifiedTrackCount = numTracks
                         }
 
-                      -- Emit LIBRARY_ARTIST_FOUND events for NEW artists only
+                      -- Emit LIBRARY_ARTIST_FOUND events for all artists
                       -- This handles collaborative albums (e.g., Jay-Z & Kanye West)
+                      -- The Acquisition service will handle deduplication
                       let artists = mbReleaseArtists release
 
-                      -- Filter to only new artists (not already tracked)
-                      newArtists <- withConnection pool $ \conn ->
-                        filterM (\(artistId, _) -> do
-                          let mbid = unMBID artistId
-                          maybeTracked <- getTrackedArtistByMBID conn mbid
-                          pure $ isNothing maybeTracked
-                        ) artists
-
-                      -- Emit event for each NEW artist
-                      forM_ newArtists $ \(artistId, artName) -> do
+                      -- Emit event for each artist
+                      forM_ artists $ \(artistId, artName) -> do
                         publishAndLog bus le "identifier" $ LibraryArtistFound
                           { foundArtistMBID = unMBID artistId
                           , foundArtistName = artName

@@ -15,6 +15,7 @@ module Skema.Database.Repository.Clusters
   , getAllClusters
   , getClusterWithTracks
   , emptyMetadataRecord
+  , computeClusterQuality
   ) where
 
 import Skema.Database.Connection
@@ -22,8 +23,11 @@ import Skema.Database.Types
 import Skema.Database.Utils (insertReturningId)
 import Skema.Database.Repository.Tracks (stringToOsPath)
 import Skema.MusicBrainz.Types (MBRelease(..), MBID(..), unMBID)
+import Skema.Services.Common (metadataRecordToMonatone)
+import Skema.Domain.Quality (Quality(..), detectQualityFromAudio, qualityToText, textToQuality)
 import System.OsPath (OsPath)
 import Data.Time (getCurrentTime)
+import Data.List (minimum)
 import Database.SQLite.Simple (Only(..))
 import qualified Database.SQLite.Simple as SQLite
 import qualified Data.Text as T
@@ -217,3 +221,20 @@ getClusterWithTracks conn cid = do
         pure (tid, path, metadata, mbRecId, mbRecTitle)
 
       pure $ Just (cluster, tracks)
+
+-- | Compute the quality of a cluster from its tracks' stored quality values.
+-- Returns the lowest quality found across all tracks (representative of the album).
+computeClusterQuality :: SQLite.Connection -> Int64 -> IO (Maybe Quality)
+computeClusterQuality conn clusterId = do
+  -- Read quality values directly from library_tracks table
+  qualityTexts <- queryRows conn
+    "SELECT quality FROM library_tracks WHERE cluster_id = ? AND quality IS NOT NULL"
+    (Only clusterId) :: IO [Only (Maybe Text)]
+
+  let qualities = mapMaybe (\(Only maybeQText) -> maybeQText >>= textToQuality) qualityTexts
+
+  -- Take the minimum quality (worst quality in the album)
+  -- Quality has Ord instance where Unknown < MP3_192 < ... < HiResLossless
+  case viaNonEmpty minimum qualities of
+    Nothing -> pure Nothing
+    Just quality -> pure $ Just quality

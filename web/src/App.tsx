@@ -9,7 +9,7 @@ import Tracks from './pages/Tracks';
 import Clusters from './pages/Clusters';
 import FollowedArtists from './pages/FollowedArtists';
 import ArtistDetail from './pages/ArtistDetail';
-import WantedAlbums from './pages/WantedAlbums';
+import Albums from './pages/Albums';
 import AcquisitionSources from './pages/AcquisitionSources';
 import Downloads from './pages/Downloads';
 import QualityProfiles from './pages/QualityProfiles';
@@ -294,7 +294,7 @@ function AppContent() {
               <Route path="/library/tracks" element={<ProtectedRoute><Tracks /></ProtectedRoute>} />
               <Route path="/artists" element={<ProtectedRoute><FollowedArtists /></ProtectedRoute>} />
               <Route path="/artists/:id" element={<ProtectedRoute><ArtistDetail /></ProtectedRoute>} />
-              <Route path="/albums" element={<ProtectedRoute><WantedAlbums /></ProtectedRoute>} />
+              <Route path="/albums" element={<ProtectedRoute><Albums /></ProtectedRoute>} />
               <Route path="/sources" element={<ProtectedRoute><AcquisitionSources /></ProtectedRoute>} />
               <Route path="/downloads" element={<ProtectedRoute><Downloads /></ProtectedRoute>} />
               <Route path="/quality" element={<ProtectedRoute><QualityProfiles /></ProtectedRoute>} />

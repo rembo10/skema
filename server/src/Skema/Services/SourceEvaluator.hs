@@ -16,10 +16,12 @@ module Skema.Services.SourceEvaluator
   ) where
 
 import Skema.Services.Dependencies (SourceEvaluatorDeps(..))
-import Skema.Events.Bus
+import Skema.Events.Bus (EventBus, publishAndLog)
+import Skema.Events.Types (Event(..))
 import Skema.Database.Connection
-import Skema.Database.Repository (getEnabledAcquisitionRules, insertWantedAlbum)
-import Skema.Database.Types (AcquisitionSourceRecord(..), SourceType(..), AlbumStatus(..))
+import Skema.Database.Repository (getEnabledAcquisitionRules, upsertCatalogArtist, upsertCatalogAlbum)
+import Skema.Database.Types (AcquisitionSourceRecord(..), SourceType(..))
+import qualified Skema.Database.Types as DB
 import Skema.Services.Filters
   ( SourceFilters(..)
   , MetacriticFilters(..)
@@ -94,7 +96,7 @@ runEvaluation SourceEvaluatorDeps{..} = do
     -- Evaluate each source
     forM_ sources $ \source -> do
       $(logTM) InfoS $ logStr $ ("Evaluating source: " <> sourceName source :: Text)
-      result <- liftIO $ try $ evaluateSource pool bus mbClient source
+      result <- liftIO $ try $ evaluateSource pool bus le mbClient source
       case result of
         Left (e :: SomeException) -> do
           $(logTM) ErrorS $ logStr $
@@ -107,19 +109,19 @@ runEvaluation SourceEvaluatorDeps{..} = do
 
 -- | Evaluate a single acquisition source.
 -- Returns the number of albums added to the wanted list.
-evaluateSource :: ConnectionPool -> EventBus -> MBClientEnv -> AcquisitionSourceRecord -> IO Int
-evaluateSource pool bus mbClient source = do
+evaluateSource :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> AcquisitionSourceRecord -> IO Int
+evaluateSource pool bus le mbClient source = do
   case sourceType source of
     LibraryArtists -> do
       -- Library Artists sources are event-driven, not periodically evaluated
       pure 0
 
-    Metacritic -> evaluateMetacriticSource pool bus mbClient source
-    Pitchfork -> evaluatePitchforkSource pool bus mbClient source
+    Metacritic -> evaluateMetacriticSource pool bus le mbClient source
+    Pitchfork -> evaluatePitchforkSource pool bus le mbClient source
 
 -- | Evaluate a Metacritic source.
-evaluateMetacriticSource :: ConnectionPool -> EventBus -> MBClientEnv -> AcquisitionSourceRecord -> IO Int
-evaluateMetacriticSource pool _bus mbClient source = do
+evaluateMetacriticSource :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> AcquisitionSourceRecord -> IO Int
+evaluateMetacriticSource pool bus le mbClient source = do
   -- Parse filters
   let filters = parseSourceFilters (sourceType source) (sourceFilters source)
 
@@ -146,15 +148,15 @@ evaluateMetacriticSource pool _bus mbClient source = do
 
       -- Match and add each album
       addedCount <- fmap length $ forM filteredAlbums $ \album -> do
-        matchAndAddAlbum pool mbClient source (mcArtistName album) (mcAlbumTitle album)
+        matchAndAddAlbum pool bus le mbClient source (mcArtistName album) (mcAlbumTitle album)
 
       pure addedCount
 
     _ -> pure 0  -- Wrong filter type
 
 -- | Evaluate a Pitchfork source.
-evaluatePitchforkSource :: ConnectionPool -> EventBus -> MBClientEnv -> AcquisitionSourceRecord -> IO Int
-evaluatePitchforkSource pool _bus mbClient source = do
+evaluatePitchforkSource :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> AcquisitionSourceRecord -> IO Int
+evaluatePitchforkSource pool bus le mbClient source = do
   -- Parse filters
   let filters = parseSourceFilters (sourceType source) (sourceFilters source)
 
@@ -181,7 +183,7 @@ evaluatePitchforkSource pool _bus mbClient source = do
 
       -- Match and add each album
       addedCount <- fmap length $ forM filteredAlbums $ \album -> do
-        matchAndAddAlbum pool mbClient source (pfArtistName album) (pfAlbumTitle album)
+        matchAndAddAlbum pool bus le mbClient source (pfArtistName album) (pfAlbumTitle album)
 
       pure addedCount
 
@@ -210,8 +212,8 @@ matchesPitchforkFilters PitchforkFilters{..} album =
 
 -- | Match an album to MusicBrainz and add it to the wanted list.
 -- Returns True if successfully added, False otherwise.
-matchAndAddAlbum :: ConnectionPool -> MBClientEnv -> AcquisitionSourceRecord -> Text -> Text -> IO Bool
-matchAndAddAlbum pool mbClient source artistName albumTitle = do
+matchAndAddAlbum :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> AcquisitionSourceRecord -> Text -> Text -> IO Bool
+matchAndAddAlbum pool bus le mbClient source artistName albumTitle = do
   -- Search MusicBrainz for the release group
   let query = "artist:\"" <> artistName <> "\" AND releasegroup:\"" <> albumTitle <> "\""
   searchResult <- searchReleaseGroups mbClient query (Just 5) Nothing
@@ -225,21 +227,33 @@ matchAndAddAlbum pool mbClient source artistName albumTitle = do
         Nothing -> pure False
 
         Just rg -> do
-          -- Get the source ID (should always exist for persisted sources)
-          case sourceId source of
-            Nothing -> pure False  -- Defensive: skip sources without ID
-            Just sid -> do
-              -- Add to wanted albums
-              withConnection pool $ \conn -> do
-                _ <- insertWantedAlbum
-                  conn
-                  (unMBID $ mbrgsReleaseGroupId rg)
-                  (mbrgsTitle rg)
-                  (case mbrgsArtistId rg of
-                    Just aid -> unMBID aid
-                    Nothing -> "")  -- Fallback if no artist MBID
-                  (mbrgsArtistName rg)
-                  Wanted
-                  sid
-                  (mbrgsFirstReleaseDate rg)
-                pure True
+          let releaseGroupMBID = unMBID $ mbrgsReleaseGroupId rg
+          let artistMBID = case mbrgsArtistId rg of
+                Just aid -> unMBID aid
+                Nothing -> ""  -- Fallback if no artist MBID
+
+          -- Upsert catalog artist and album (like Catalog service does)
+          withConnection pool $ \conn -> do
+            -- Upsert artist (returns artist ID directly)
+            artistId <- upsertCatalogArtist conn artistMBID (mbrgsArtistName rg) Nothing Nothing Nothing False Nothing Nothing Nothing
+
+            -- Upsert album
+            albumId <- upsertCatalogAlbum
+              conn
+              releaseGroupMBID
+              (mbrgsTitle rg)
+              artistId
+              artistMBID
+              (mbrgsArtistName rg)
+              (mbrgsType rg)
+              (mbrgsFirstReleaseDate rg)
+              Nothing
+
+            -- Emit WantedAlbumAdded event
+            publishAndLog bus le "source_evaluator" $ WantedAlbumAdded
+              { wantedCatalogAlbumId = albumId
+              , wantedReleaseGroupId = releaseGroupMBID
+              , wantedAlbumTitle = mbrgsTitle rg
+              , wantedArtistName = mbrgsArtistName rg
+              }
+            pure True

@@ -33,6 +33,7 @@ data SearchQuery = SearchQuery
 -- | Release information from indexer
 data ReleaseInfo = ReleaseInfo
   { riTitle :: Text
+  , riGuid :: Maybe Text    -- RSS GUID for tracking
   , riDownloadUrl :: Text
   , riInfoUrl :: Maybe Text
   , riSize :: Maybe Integer  -- bytes

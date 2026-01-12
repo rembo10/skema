@@ -49,6 +49,7 @@ data NewznabChannel = NewznabChannel
 
 data NewznabItem = NewznabItem
   { niTitle :: Text
+  , niGuid :: Maybe Text
   , niLink :: Text
   , niComments :: Maybe Text
   , niPubDate :: Maybe Text
@@ -102,6 +103,7 @@ instance FromJSON NewznabChannel where
 instance FromJSON NewznabItem where
   parseJSON = withObject "NewznabItem" $ \v -> do
     niTitle <- v .: "title"
+    niGuid <- v .:? "guid"
     niLink <- v .: "link"
     niComments <- v .:? "comments"
     niPubDate <- v .:? "pubDate"
@@ -148,7 +150,8 @@ parseXmlItem cursor = do
   link <- listToMaybe $ cursor $/ element "link" &/ content
 
   -- Optional fields
-  let comments = listToMaybe $ cursor $/ element "comments" &/ content
+  let guid = listToMaybe $ cursor $/ element "guid" &/ content
+      comments = listToMaybe $ cursor $/ element "comments" &/ content
       pubDate = listToMaybe $ cursor $/ element "pubDate" &/ content
       sizeText = listToMaybe $ cursor $/ element "size" &/ content
       size = sizeText >>= parseIntegerText
@@ -189,6 +192,7 @@ parseXmlItem cursor = do
 
   pure ReleaseInfo
     { riTitle = title
+    , riGuid = guid
     , riDownloadUrl = downloadUrl
     , riInfoUrl = comments
     , riSize = finalSize
@@ -431,6 +435,7 @@ parseItem NewznabItem{..} = do
 
   pure ReleaseInfo
     { riTitle = niTitle
+    , riGuid = niGuid
     , riDownloadUrl = downloadUrl
     , riInfoUrl = niComments
     , riSize = size
