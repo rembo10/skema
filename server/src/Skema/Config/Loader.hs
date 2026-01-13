@@ -92,5 +92,5 @@ hashPasswordIfNeeded cfg configPath = do
 -- This is a convenience wrapper for when you have a String path.
 loadConfigFromFile :: FilePath -> IO (Either Text Config)
 loadConfigFromFile pathStr = do
-  osPath <- OP.encodeUtf pathStr
+  osPath <- OP.encodeFS pathStr
   loadConfig osPath

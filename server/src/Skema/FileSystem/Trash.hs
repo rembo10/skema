@@ -24,7 +24,7 @@ import Control.Monad (foldM)
 -- Creates a .trash subdirectory in the library path.
 getTrashDirectory :: OsPath -> IO OsPath
 getTrashDirectory libraryPath = do
-  trashName <- OP.encodeUtf ".trash"
+  trashName <- OP.encodeFS ".trash"
   pure $ libraryPath </> trashName
 
 -- | Move a file to the trash directory with a timestamp.
@@ -64,7 +64,7 @@ moveToTrash libraryPath filePath = do
   let trashedFileName = cleanRelativePath <> "." <> toString timestamp
 
   -- Create target path in trash
-  trashedFileOsPath <- OP.encodeUtf trashedFileName
+  trashedFileOsPath <- OP.encodeFS trashedFileName
   let targetPath = trashDir </> trashedFileOsPath
 
   -- Ensure parent directory exists in trash
@@ -113,7 +113,7 @@ deleteOldFiles dirPath now maxAge count = do
     if isDir
       then do
         -- Recursively process subdirectory
-        entryOsPath <- OP.encodeUtf entryStr
+        entryOsPath <- OP.encodeFS entryStr
         deleteOldFiles entryOsPath now maxAge acc
       else do
         -- Check file age

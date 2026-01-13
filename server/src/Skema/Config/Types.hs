@@ -140,7 +140,7 @@ instance FromJSON LibraryConfig where
           Nothing -> Nothing
           Just (pathStr :: String) -> Just $ unsafePerformIO $ do
             expanded <- PathExpansion.expandPathIO (toText pathStr)
-            OP.encodeUtf (toString expanded)
+            OP.encodeFS (toString expanded)
     pure $ LibraryConfig osPath watch autoScan interval scanOnStartup normalizeFeaturing normalizeFeaturingTo pathFormat fileFormat autoUpgradeExisting
 
 instance ToJSON LibraryConfig where

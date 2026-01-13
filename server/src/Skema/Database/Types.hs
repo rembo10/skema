@@ -418,7 +418,7 @@ instance SQLite.FromRow LibraryTrackRecord where
     <*> SQLite.field
     where
       toOsPath :: String -> OsPath
-      toOsPath = unsafePerformIO . OP.encodeUtf
+      toOsPath = unsafePerformIO . OP.encodeFS
 
 instance SQLite.FromRow LibraryTrackMetadataRecord where
   fromRow = LibraryTrackMetadataRecord

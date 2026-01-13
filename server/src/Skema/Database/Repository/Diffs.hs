@@ -284,7 +284,7 @@ applyMetadataChanges pool diffIds = withConnection pool $ \conn -> do
         case viaNonEmpty head trackResult of
           Nothing -> pure $ Left $ "Track not found for ID: " <> show tid
           Just (Only pathStr) -> do
-            path <- OP.encodeUtf pathStr
+            path <- OP.encodeFS pathStr
 
             -- Build Monatone update using helper function
             let buildUpdate = foldl' (\acc (field, _, newVal) ->
@@ -375,7 +375,7 @@ revertMetadataChange pool cid = withConnection pool $ \conn -> do
       if isJust revertedAt
         then pure $ Left "Change already reverted"
         else do
-          path <- OP.encodeUtf pathStr
+          path <- OP.encodeFS pathStr
 
           -- Build Monatone update with old value using helper function
           let buildUpdate = applyFieldToUpdate fieldName oldValue MW.emptyUpdate

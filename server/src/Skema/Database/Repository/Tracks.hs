@@ -119,7 +119,7 @@ osPathToString = OP.decodeUtf
 
 -- | Convert String to OsPath from database.
 stringToOsPath :: String -> IO OsPath
-stringToOsPath = OP.encodeUtf
+stringToOsPath = OP.encodeFS
 
 
 -- * Track operations

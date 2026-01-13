@@ -55,7 +55,7 @@ instance EnvParseable Bool where
     _       -> Nothing
 
 instance EnvParseable OsPath where
-  parseEnvValue s = unsafePerformIO $ Just <$> OP.encodeUtf s
+  parseEnvValue s = unsafePerformIO $ Just <$> OP.encodeFS s
 
 instance {-# OVERLAPPABLE #-} EnvParseable a => EnvParseable (Maybe a) where
   parseEnvValue s = Just (parseEnvValue s)

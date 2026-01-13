@@ -71,7 +71,7 @@ handleScanRequest ScannerDeps{..} scanPathText forceRescan = do
       else $(logTM) InfoS $ logStr ("Starting file system scan" :: Text)
 
     -- Convert scan path to OsPath
-    scanPath <- liftIO $ OP.encodeUtf (toString scanPathText)
+    scanPath <- liftIO $ OP.encodeFS (toString scanPathText)
 
     -- Check if library is available
     libAvailable <- liftIO $ isLibraryAvailable scanPath

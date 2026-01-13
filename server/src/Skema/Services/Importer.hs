@@ -155,7 +155,7 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
 
   runKatipContextT le () "importer" $ do
     -- 1. Parse download path to OsPath
-    downloadPath <- liftIO $ OP.encodeUtf (toString downloadPathText)
+    downloadPath <- liftIO $ OP.encodeFS (toString downloadPathText)
     $(logTM) InfoS $ logStr $ ("Scanning download directory: " <> downloadPathText :: Text)
 
     -- 2. Scan and parse metadata from all files (shared with Scanner)
@@ -364,7 +364,7 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
                 -- Format directory path from template
                 let dirPath = formatPath (libraryPathFormat libConfig) pathContext
                 targetDir <- liftIO $ do
-                  dirOsPath <- OP.encodeUtf (toString dirPath)
+                  dirOsPath <- OP.encodeFS (toString dirPath)
                   pure $ libraryBasePath </> dirOsPath
 
                 $(logTM) InfoS $ logStr $ ("Target directory: " <> show targetDir :: Text)
@@ -390,7 +390,7 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
 
                       -- Delete or trash each old file based on config
                       forM_ existingTracks $ \(Only trackPathText) -> do
-                        trackPath <- liftIO $ OP.encodeUtf (toString trackPathText)
+                        trackPath <- liftIO $ OP.encodeFS (toString trackPathText)
                         trackPathStr <- liftIO $ OP.decodeUtf trackPath
                         fileExists <- liftIO $ Dir.doesFileExist trackPathStr
                         when fileExists $ do
@@ -457,7 +457,7 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
 
                   -- Format filename from template
                   let formattedFileName = formatPath (libraryFileFormat libConfig) trackContext
-                  formattedFileNameOsPath <- OP.encodeUtf (toString formattedFileName)
+                  formattedFileNameOsPath <- OP.encodeFS (toString formattedFileName)
                   let newPath = targetDir </> formattedFileNameOsPath
 
                   -- Move file to new path
