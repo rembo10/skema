@@ -39,12 +39,14 @@ createConnectionPool le config = do
   runKatipContextT le initialContext initialNamespace $ do
     $(logTM) InfoS $ logStr ("Connecting to SQLite database: " <> toText (dbPath config) :: Text)
 
-  newPool $ setNumStripes (Just 1) $ defaultPoolConfig
+  newPool $ defaultPoolConfig
     (do
       conn <- SQLite.open (dbPath config)
       -- Enable WAL mode for better concurrency
       SQLite.execute_ conn "PRAGMA journal_mode=WAL"
-      -- Set busy timeout
+      -- Enable synchronous=NORMAL for better performance with WAL
+      SQLite.execute_ conn "PRAGMA synchronous=NORMAL"
+      -- Set busy timeout (increased for high concurrency)
       SQLite.execute_ conn $ "PRAGMA busy_timeout=" <> show busyTimeoutMilliseconds
       -- Enable foreign keys
       SQLite.execute_ conn "PRAGMA foreign_keys=ON"
