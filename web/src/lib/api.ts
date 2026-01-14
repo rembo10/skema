@@ -1,4 +1,4 @@
-import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, CatalogAlbum, Download, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task, AlbumOverviewRequest, AlbumOverviewResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse } from '../types/api';
+import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, ArtistsResponse, CatalogAlbum, Download, DownloadsResponse, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task, AlbumOverviewRequest, AlbumOverviewResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse } from '../types/api';
 
 // Auto-detect base path from where the app is loaded
 // This allows the app to work at any subpath (e.g., /skema, /music, etc.)
@@ -246,8 +246,11 @@ export const api = {
     return fetchApi<MetadataDiff[]>('/diffs');
   },
 
-  async getGroupedDiffs(): Promise<GroupedDiff[]> {
-    return fetchApi<GroupedDiff[]>('/diffs/grouped');
+  async getGroupedDiffs(offset: number = 0, limit: number = 50): Promise<GroupedDiffsResponse> {
+    const params = new URLSearchParams();
+    params.append('offset', offset.toString());
+    params.append('limit', limit.toString());
+    return fetchApi<GroupedDiffsResponse>(`/diffs/grouped?${params.toString()}`);
   },
 
   async applyDiff(diffId: number): Promise<void> {
@@ -278,8 +281,11 @@ export const api = {
     });
   },
 
-  async getMetadataChanges(): Promise<MetadataChange[]> {
-    return fetchApi<MetadataChange[]>('/metadata-changes');
+  async getMetadataChanges(offset: number = 0, limit: number = 50): Promise<MetadataChangesResponse> {
+    const params = new URLSearchParams();
+    params.append('offset', offset.toString());
+    params.append('limit', limit.toString());
+    return fetchApi<MetadataChangesResponse>(`/metadata-changes?${params.toString()}`);
   },
 
   async revertMetadataChange(changeId: number): Promise<void> {
@@ -289,8 +295,22 @@ export const api = {
   },
 
   // Clusters
-  async getClusters(): Promise<Cluster[]> {
-    return fetchApi<Cluster[]>('/clusters');
+  async getClusters(
+    offset: number = 0,
+    limit: number = 50,
+    search?: string,
+    filter?: string,
+    sort?: string,
+    order?: string
+  ): Promise<ClustersResponse> {
+    const params = new URLSearchParams();
+    params.append('offset', offset.toString());
+    params.append('limit', limit.toString());
+    if (search) params.append('search', search);
+    if (filter) params.append('filter', filter);
+    if (sort) params.append('sort', sort);
+    if (order) params.append('order', order);
+    return fetchApi<ClustersResponse>(`/clusters?${params.toString()}`);
   },
 
   async getCluster(clusterId: number): Promise<{
@@ -390,8 +410,18 @@ export const api = {
     return fetchApi(`/clusters/${clusterId}`);
   },
 
-  async getAllTracks(): Promise<TrackWithCluster[]> {
-    return fetchApi<TrackWithCluster[]>('/library/tracks');
+  async getAllTracks(offset: number = 0, limit: number = 50, filter?: string): Promise<TracksResponse> {
+    const params = new URLSearchParams();
+    params.append('offset', offset.toString());
+    params.append('limit', limit.toString());
+    if (filter && filter !== 'all') {
+      params.append('filter', filter);
+    }
+    return fetchApi<TracksResponse>(`/library/tracks?${params.toString()}`);
+  },
+
+  async getTracksStats(): Promise<TracksStats> {
+    return fetchApi<TracksStats>('/library/tracks/stats');
   },
 
   async updateTrack(trackId: number, update: { cluster_id: number | null }): Promise<void> {
@@ -498,9 +528,12 @@ export const api = {
     });
   },
 
-  async getCatalogArtists(followed?: boolean): Promise<CatalogArtist[]> {
-    const params = followed !== undefined ? `?followed=${followed}` : '';
-    return fetchApi<CatalogArtist[]>(`/catalog/artists${params}`);
+  async getCatalogArtists(offset: number = 0, limit: number = 50, followed?: boolean): Promise<ArtistsResponse> {
+    const params = new URLSearchParams();
+    params.append('offset', offset.toString());
+    params.append('limit', limit.toString());
+    if (followed !== undefined) params.append('followed', followed.toString());
+    return fetchApi<ArtistsResponse>(`/catalog/artists?${params.toString()}`);
   },
 
   async createCatalogArtist(artist: {
@@ -613,7 +646,7 @@ export const api = {
 
   async getAlbumOverview(request: AlbumOverviewRequest): Promise<AlbumOverviewResponse> {
     const params = new URLSearchParams();
-    if (request.page !== undefined) params.append('page', request.page.toString());
+    if (request.offset !== undefined) params.append('offset', request.offset.toString());
     if (request.limit !== undefined) params.append('limit', request.limit.toString());
     if (request.wanted !== undefined) params.append('wanted', request.wanted.toString());
     if (request.artist_id !== undefined) params.append('artistId', request.artist_id.toString());
@@ -657,8 +690,11 @@ export const api = {
   },
 
   // Downloads
-  async getAllDownloads(): Promise<Download[]> {
-    return fetchApi<Download[]>('/downloads');
+  async getAllDownloads(offset: number = 0, limit: number = 50): Promise<DownloadsResponse> {
+    const params = new URLSearchParams();
+    params.append('offset', offset.toString());
+    params.append('limit', limit.toString());
+    return fetchApi<DownloadsResponse>(`/downloads?${params.toString()}`);
   },
 
   async getDownload(downloadId: number): Promise<Download> {

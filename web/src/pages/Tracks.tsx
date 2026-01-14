@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
-import { TrackWithCluster, Cluster } from '../types/api';
+import { TrackWithCluster, Cluster, TracksStats } from '../types/api';
 import { api } from '../lib/api';
 import toast from 'react-hot-toast';
-import { IdentificationNav } from '../components/IdentificationNav';
 import { RematchModal } from '../components/identification/RematchModal';
 import { TrackEditModal } from '../components/match-viz/TrackEditModal';
+import { PaginationControls } from '../components/PaginationControls';
+import { usePagination } from '../hooks/usePagination';
 import {
   Loader2,
   Search,
@@ -25,13 +26,17 @@ type SortField = 'album' | 'artist' | 'track_title' | 'confidence' | 'status';
 type SortDirection = 'asc' | 'desc';
 type FilterStatus = 'all' | 'matched' | 'unmatched' | 'locked';
 
+const ITEMS_PER_PAGE = 50;
+
 export default function Tracks() {
   const [tracks, setTracks] = useState<TrackWithCluster[]>([]);
+  const [stats, setStats] = useState<TracksStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortField, setSortField] = useState<SortField>('album');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
+  const pagination = usePagination(ITEMS_PER_PAGE);
   const [selectedCluster, setSelectedCluster] = useState<Cluster | null>(null);
   const [editingTrack, setEditingTrack] = useState<{
     id: number;
@@ -43,13 +48,18 @@ export default function Tracks() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [pagination.offset, filterStatus]);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const data = await api.getAllTracks();
-      setTracks(data);
+      const [tracksResponse, statsResponse] = await Promise.all([
+        api.getAllTracks(pagination.offset, ITEMS_PER_PAGE, filterStatus),
+        api.getTracksStats(),
+      ]);
+      setTracks(tracksResponse.tracks);
+      setStats(statsResponse);
+      pagination.setTotalCount(tracksResponse.pagination.total);
     } catch (error) {
       console.error('Failed to load data:', error);
       toast.error('Failed to load library data');
@@ -58,20 +68,11 @@ export default function Tracks() {
     }
   };
 
-  // Filter and sort
+  // Client-side search and sort (filter is now server-side)
   const filteredAndSortedRows = useMemo(() => {
     let filtered = tracks;
 
-    // Apply status filter
-    if (filterStatus === 'matched') {
-      filtered = filtered.filter(track => track.mb_release_id !== null);
-    } else if (filterStatus === 'unmatched') {
-      filtered = filtered.filter(track => track.mb_release_id === null);
-    } else if (filterStatus === 'locked') {
-      filtered = filtered.filter(track => track.match_locked);
-    }
-
-    // Apply search filter
+    // Apply search filter (client-side)
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(track =>
@@ -84,7 +85,7 @@ export default function Tracks() {
       );
     }
 
-    // Apply sorting
+    // Apply sorting (client-side)
     filtered.sort((a, b) => {
       let aVal: any;
       let bVal: any;
@@ -118,7 +119,12 @@ export default function Tracks() {
     });
 
     return filtered;
-  }, [tracks, searchQuery, sortField, sortDirection, filterStatus]);
+  }, [tracks, searchQuery, sortField, sortDirection]);
+
+  const handleFilterChange = (newFilter: FilterStatus) => {
+    setFilterStatus(newFilter);
+    pagination.resetOffset();
+  };
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -158,12 +164,13 @@ export default function Tracks() {
     };
   };
 
-  const stats = useMemo(() => {
-    const total = tracks.length;
+  // Stats for current page only
+  const pageStats = useMemo(() => {
+    const pageTotal = tracks.length;
     const matched = tracks.filter(t => t.mb_release_id).length;
-    const unmatched = total - matched;
+    const unmatched = pageTotal - matched;
     const locked = tracks.filter(t => t.match_locked).length;
-    return { total, matched, unmatched, locked };
+    return { matched, unmatched, locked };
   }, [tracks]);
 
   const handleToggleLock = async (clusterId: number, currentLocked: boolean) => {
@@ -189,18 +196,8 @@ export default function Tracks() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-12 h-12 text-dark-accent animate-spin" />
-      </div>
-    );
-  }
-
   return (
     <div className="h-full flex flex-col animate-fade-in">
-      <IdentificationNav />
-
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-dark-text">Tracks</h1>
@@ -210,24 +207,26 @@ export default function Tracks() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <div className="card p-4">
-          <div className="text-2xl font-bold text-dark-text">{stats.total}</div>
-          <div className="text-sm text-dark-text-secondary">Total Tracks</div>
+      {stats && (
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="card p-4">
+            <div className="text-2xl font-bold text-dark-text">{stats.total}</div>
+            <div className="text-sm text-dark-text-secondary">Total Tracks</div>
+          </div>
+          <div className="card p-4">
+            <div className="text-2xl font-bold text-green-400">{stats.matched}</div>
+            <div className="text-sm text-dark-text-secondary">Matched</div>
+          </div>
+          <div className="card p-4">
+            <div className="text-2xl font-bold text-red-400">{stats.unmatched}</div>
+            <div className="text-sm text-dark-text-secondary">Unmatched</div>
+          </div>
+          <div className="card p-4">
+            <div className="text-2xl font-bold text-purple-400">{stats.locked}</div>
+            <div className="text-sm text-dark-text-secondary">Locked</div>
+          </div>
         </div>
-        <div className="card p-4">
-          <div className="text-2xl font-bold text-green-400">{stats.matched}</div>
-          <div className="text-sm text-dark-text-secondary">Matched</div>
-        </div>
-        <div className="card p-4">
-          <div className="text-2xl font-bold text-red-400">{stats.unmatched}</div>
-          <div className="text-sm text-dark-text-secondary">Unmatched</div>
-        </div>
-        <div className="card p-4">
-          <div className="text-2xl font-bold text-purple-400">{stats.locked}</div>
-          <div className="text-sm text-dark-text-secondary">Locked</div>
-        </div>
-      </div>
+      )}
 
       {/* Controls */}
       <div className="flex gap-3 mb-4">
@@ -246,7 +245,7 @@ export default function Tracks() {
         {/* Filter */}
         <div className="flex gap-2 bg-dark-bg-elevated rounded-lg p-1 border border-dark-border">
           <button
-            onClick={() => setFilterStatus('all')}
+            onClick={() => handleFilterChange('all')}
             className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
               filterStatus === 'all'
                 ? 'bg-dark-accent text-dark-bg'
@@ -256,7 +255,7 @@ export default function Tracks() {
             All
           </button>
           <button
-            onClick={() => setFilterStatus('matched')}
+            onClick={() => handleFilterChange('matched')}
             className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
               filterStatus === 'matched'
                 ? 'bg-dark-accent text-dark-bg'
@@ -266,7 +265,7 @@ export default function Tracks() {
             Matched
           </button>
           <button
-            onClick={() => setFilterStatus('unmatched')}
+            onClick={() => handleFilterChange('unmatched')}
             className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
               filterStatus === 'unmatched'
                 ? 'bg-dark-accent text-dark-bg'
@@ -276,7 +275,7 @@ export default function Tracks() {
             Unmatched
           </button>
           <button
-            onClick={() => setFilterStatus('locked')}
+            onClick={() => handleFilterChange('locked')}
             className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
               filterStatus === 'locked'
                 ? 'bg-dark-accent text-dark-bg'
@@ -297,7 +296,12 @@ export default function Tracks() {
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto card">
+      <div className="flex-1 overflow-auto card relative">
+        {loading && (
+          <div className="absolute inset-0 bg-dark-bg/80 backdrop-blur-sm flex items-center justify-center z-10">
+            <Loader2 className="w-12 h-12 text-dark-accent animate-spin" />
+          </div>
+        )}
         <table className="w-full">
           <thead className="sticky top-0 bg-dark-bg-elevated border-b border-dark-border">
             <tr>
@@ -442,9 +446,15 @@ export default function Tracks() {
         )}
       </div>
 
-      <div className="mt-4 text-sm text-dark-text-secondary text-center">
-        Showing {filteredAndSortedRows.length} of {tracks.length} tracks
-      </div>
+      <PaginationControls
+        offset={pagination.offset}
+        limit={ITEMS_PER_PAGE}
+        total={pagination.totalCount}
+        onPrevPage={pagination.prevPage}
+        onNextPage={pagination.nextPage}
+        itemName="tracks"
+        filteredCount={filteredAndSortedRows.length < tracks.length ? filteredAndSortedRows.length : undefined}
+      />
 
       {/* Modals */}
       {selectedCluster && (

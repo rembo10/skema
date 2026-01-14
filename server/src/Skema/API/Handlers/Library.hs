@@ -5,13 +5,14 @@ module Skema.API.Handlers.Library
   ( libraryServer
   ) where
 
-import Skema.API.Types.Library (LibraryAPI, UpdateTrackRequest(..), TrackWithCluster, LibraryTaskRequest(..))
+import Skema.API.Types.Library (LibraryAPI, UpdateTrackRequest(..), TracksResponse(..), TracksPagination(..), TracksStats(..), LibraryTaskRequest(..))
 import Skema.API.Types.Tasks (TaskResource(..))
 import Skema.Core.TaskManager (TaskManager)
 import qualified Skema.Core.TaskManager as TM
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
+import Database.SQLite.Simple (Only(..))
 import qualified Skema.Config.Types as Cfg
 import Skema.Services.Registry (ServiceRegistry)
 import Skema.Events.Bus (EventBus)
@@ -31,6 +32,7 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
   taskHandler maybeAuthHeader
   :<|> filesHandler maybeAuthHeader
   :<|> tracksHandler maybeAuthHeader
+  :<|> tracksStatsHandler maybeAuthHeader
   :<|> updateTrackHandler maybeAuthHeader
   where
     taskHandler authHeader req = do
@@ -74,12 +76,30 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
       -- TODO: Fetch from database
       pure []
 
-    tracksHandler :: Maybe Text -> Handler [TrackWithCluster]
-    tracksHandler authHeader = do
+    tracksHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Text -> Handler TracksResponse
+    tracksHandler authHeader maybeOffset maybeLimit maybeFilter = do
       _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection pool $ \conn ->
-        queryRows conn
-          "SELECT \
+      let offset = fromMaybe 0 maybeOffset
+      let limit = fromMaybe 50 maybeLimit
+      let filterStatus = fromMaybe "all" maybeFilter
+
+      liftIO $ withConnection pool $ \conn -> do
+        -- Build WHERE clause based on filter
+        let whereClause = case filterStatus of
+              "matched" -> "WHERE c.mb_release_id IS NOT NULL" :: Text
+              "unmatched" -> "WHERE c.mb_release_id IS NULL" :: Text
+              "locked" -> "WHERE c.match_locked = 1" :: Text
+              _ -> "" :: Text
+
+        -- Get total count with filter
+        [Only totalCount] <- queryRows conn
+          ("SELECT COUNT(*) FROM library_tracks t \
+          \LEFT JOIN clusters c ON t.cluster_id = c.id " <> whereClause)
+          ()
+
+        -- Get paginated tracks with filter
+        tracks <- queryRows conn
+          ("SELECT \
           \  t.id, t.path, m.title, m.artist, m.track_number, m.disc_number, m.duration_seconds, \
           \  t.mb_recording_id, t.mb_recording_title, \
           \  t.cluster_id, c.album, c.album_artist, m.year, \
@@ -89,9 +109,53 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
           \  c.mb_confidence, c.match_source, COALESCE(c.match_locked, 0) \
           \FROM library_tracks t \
           \LEFT JOIN library_track_metadata m ON t.id = m.track_id \
-          \LEFT JOIN clusters c ON t.cluster_id = c.id \
-          \ORDER BY c.album, m.disc_number, m.track_number"
+          \LEFT JOIN clusters c ON t.cluster_id = c.id " <>
+          whereClause <>
+          " ORDER BY c.album, m.disc_number, m.track_number \
+          \LIMIT ? OFFSET ?")
+          (limit, offset)
+
+        pure $ TracksResponse
+          { tracksResponsePagination = TracksPagination
+              { tracksPaginationTotal = totalCount
+              , tracksPaginationOffset = offset
+              , tracksPaginationLimit = limit
+              }
+          , tracksResponseTracks = tracks
+          }
+
+    tracksStatsHandler :: Maybe Text -> Handler TracksStats
+    tracksStatsHandler authHeader = do
+      _ <- requireAuth configVar jwtSecret authHeader
+
+      liftIO $ withConnection pool $ \conn -> do
+        -- Get total count
+        [Only total] <- queryRows conn
+          "SELECT COUNT(*) FROM library_tracks"
           ()
+
+        -- Get matched count (tracks with mb_release_id via cluster)
+        [Only matched] <- queryRows conn
+          "SELECT COUNT(*) FROM library_tracks t \
+          \LEFT JOIN clusters c ON t.cluster_id = c.id \
+          \WHERE c.mb_release_id IS NOT NULL"
+          ()
+
+        -- Get locked count
+        [Only locked] <- queryRows conn
+          "SELECT COUNT(*) FROM library_tracks t \
+          \LEFT JOIN clusters c ON t.cluster_id = c.id \
+          \WHERE c.match_locked = 1"
+          ()
+
+        let unmatched = total - matched
+
+        pure $ TracksStats
+          { tracksStatsTotal = total
+          , tracksStatsMatched = matched
+          , tracksStatsUnmatched = unmatched
+          , tracksStatsLocked = locked
+          }
 
     updateTrackHandler :: Maybe Text -> Int64 -> UpdateTrackRequest -> Handler NoContent
     updateTrackHandler authHeader trackId req = do

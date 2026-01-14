@@ -1,22 +1,26 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../lib/api';
 import type { Download, DownloadStatus } from '../types/api';
-import { Download as DownloadIcon, Trash2, Clock, CheckCircle2, XCircle, Archive, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Download as DownloadIcon, Trash2, Clock, CheckCircle2, XCircle, Archive, Loader2, AlertCircle, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
 
+const ITEMS_PER_PAGE = 50;
+
 export default function Downloads() {
-  const downloads = useAppStore((state) => state.downloads);
-  const setDownloads = useAppStore((state) => state.setDownloads);
+  // Local state - no longer using store for paginated data
+  const [downloads, setDownloads] = useState<Download[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTab, setSelectedTab] = useState<'active' | 'history'>('active');
+  const [offset, setOffset] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
   const connectionStatus = useAppStore((state) => state.connectionStatus);
   const prevConnectionStatus = useRef(connectionStatus);
 
-  // Load downloads on mount
+  // Load downloads on mount and when offset changes
   useEffect(() => {
     loadDownloads();
-  }, []);
+  }, [offset]);
 
   // Reload downloads when SSE reconnects after disconnection
   useEffect(() => {
@@ -30,8 +34,9 @@ export default function Downloads() {
   const loadDownloads = async () => {
     try {
       setLoading(true);
-      const downloadsData = await api.getAllDownloads();
-      setDownloads(downloadsData);
+      const response = await api.getAllDownloads(offset, ITEMS_PER_PAGE);
+      setDownloads(response.downloads);
+      setTotalCount(response.pagination.total);
     } catch (error) {
       toast.error('Failed to load downloads');
       console.error('Error loading downloads:', error);
@@ -302,6 +307,33 @@ export default function Downloads() {
           ))
         )}
       </div>
+
+      {/* Pagination Controls */}
+      {totalCount > ITEMS_PER_PAGE && (
+        <div className="flex items-center justify-between border-t border-dark-border pt-4 mt-4">
+          <div className="text-sm text-dark-text-secondary">
+            Showing {offset + 1}-{Math.min(offset + ITEMS_PER_PAGE, totalCount)} of {totalCount}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setOffset((o) => Math.max(0, o - ITEMS_PER_PAGE))}
+              disabled={offset === 0}
+              className="p-2 rounded-lg border border-dark-border hover:bg-dark-bg-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Previous page"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              onClick={() => setOffset((o) => Math.min(totalCount - ITEMS_PER_PAGE, o + ITEMS_PER_PAGE))}
+              disabled={offset + ITEMS_PER_PAGE >= totalCount}
+              className="p-2 rounded-lg border border-dark-border hover:bg-dark-bg-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Next page"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

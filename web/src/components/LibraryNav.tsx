@@ -1,12 +1,12 @@
 import { NavLink } from 'react-router-dom';
-import { GitCompare, Search, List } from 'lucide-react';
+import { GitCompare } from 'lucide-react';
 
 export function LibraryNav() {
   return (
     <nav className="border-b border-dark-border mb-6">
       <div className="flex space-x-8">
         <NavLink
-          to="/diffs"
+          to="/library/diffs"
           className={({ isActive }) =>
             `flex items-center gap-2 px-1 py-4 border-b-2 text-sm font-medium transition-colors ${
               isActive
@@ -17,32 +17,6 @@ export function LibraryNav() {
         >
           <GitCompare className="h-4 w-4" />
           <span>Diffs</span>
-        </NavLink>
-        <NavLink
-          to="/library/tracks"
-          className={({ isActive }) =>
-            `flex items-center gap-2 px-1 py-4 border-b-2 text-sm font-medium transition-colors ${
-              isActive
-                ? 'border-dark-accent text-dark-accent'
-                : 'border-transparent text-dark-text-secondary hover:text-dark-text hover:border-dark-border-bright'
-            }`
-          }
-        >
-          <List className="h-4 w-4" />
-          <span>Tracks</span>
-        </NavLink>
-        <NavLink
-          to="/identification"
-          className={({ isActive }) =>
-            `flex items-center gap-2 px-1 py-4 border-b-2 text-sm font-medium transition-colors ${
-              isActive
-                ? 'border-dark-accent text-dark-accent'
-                : 'border-transparent text-dark-text-secondary hover:text-dark-text hover:border-dark-border-bright'
-            }`
-          }
-        >
-          <Search className="h-4 w-4" />
-          <span>Cluster Identification</span>
         </NavLink>
       </div>
     </nav>

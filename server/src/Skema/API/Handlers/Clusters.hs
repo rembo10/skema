@@ -7,7 +7,7 @@ module Skema.API.Handlers.Clusters
   ( clustersServer
   ) where
 
-import Skema.API.Types.Clusters (ClustersAPI, ClusterResponse(..), ClusterWithTracksResponse(..), ClusterTrackInfo(..), MBTrackInfo(..), CandidateRelease(..), AssignReleaseRequest(..), UpdateTrackRecordingRequest(..), CreateClusterRequest(..), ClusterTaskRequest(..))
+import Skema.API.Types.Clusters (ClustersAPI, ClusterResponse(..), ClustersResponse(..), ClustersPagination(..), ClusterWithTracksResponse(..), ClusterTrackInfo(..), MBTrackInfo(..), CandidateRelease(..), AssignReleaseRequest(..), UpdateTrackRecordingRequest(..), CreateClusterRequest(..), ClusterTaskRequest(..))
 import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
 import Skema.Core.TaskManager (TaskManager)
 import qualified Skema.Core.TaskManager as TM
@@ -38,6 +38,9 @@ import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.Async (async)
 import Servant
 import Katip
+import Data.List (sortBy)
+import Data.Maybe (isJust, isNothing, fromMaybe)
+import Control.Applicative ((<|>))
 
 -- | Throw a 404 Not Found error.
 throw404 :: Text -> Handler a
@@ -171,13 +174,21 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
 
           pure taskResp
         _ -> throwError err400 { errBody = "Unknown task type" }
-    getAllClustersHandler :: Maybe Text -> Handler [ClusterResponse]
-    getAllClustersHandler authHeader = do
+    getAllClustersHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler ClustersResponse
+    getAllClustersHandler authHeader maybeOffset maybeLimit maybeSearch maybeFilter maybeSortField maybeOrder = do
       _ <- requireAuth configVar jwtSecret authHeader
+      let offset = fromMaybe 0 maybeOffset
+      let limit = fromMaybe 50 maybeLimit
+      let searchQuery = maybeSearch
+      let filterStatus = maybeFilter  -- "all", "matched", "unmatched", or "locked"
+      let sortField = fromMaybe "album" maybeSortField  -- "album", "artist", "confidence", "status", "track_count"
+      let sortOrder = fromMaybe "asc" maybeOrder  -- "asc" or "desc"
+
       liftIO $ withConnection connPool $ \conn -> do
-        clusters <- DB.getAllClusters conn
+        allClusters <- DB.getAllClusters conn
+
         -- For each cluster, get the first track's metadata
-        forM clusters $ \cluster -> do
+        clusterResponses <- forM allClusters $ \cluster -> do
           firstTrackMeta <- case DBTypes.clusterId cluster of
             Nothing -> pure Nothing
             Just cid -> do
@@ -188,6 +199,59 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
                   Nothing -> Nothing
                   Just (_, _, metadata, _, _) -> Just metadata
           pure $ clusterToResponse cluster firstTrackMeta
+
+        -- Apply filtering
+        let filtered = case filterStatus of
+              Just "matched" -> filter (\c -> isJust (clusterResponseMBReleaseId c)) clusterResponses
+              Just "unmatched" -> filter (\c -> isNothing (clusterResponseMBReleaseId c)) clusterResponses
+              Just "locked" -> filter clusterResponseMatchLocked clusterResponses
+              _ -> clusterResponses
+
+        -- Apply search
+        let searched = case searchQuery of
+              Nothing -> filtered
+              Just query -> let queryLower = T.toLower query
+                            in filter (\c ->
+                              matchText queryLower (clusterResponseAlbum c) ||
+                              matchText queryLower (clusterResponseAlbumArtist c) ||
+                              matchText queryLower (clusterResponseMBReleaseTitle c) ||
+                              matchText queryLower (clusterResponseMBReleaseArtist c)
+                            ) filtered
+
+        -- Apply sorting
+        let sorted = sortBy (compareClustersByField sortField sortOrder) searched
+
+        let total = length sorted
+        let paginated = take limit $ drop offset $ sorted
+
+        pure $ ClustersResponse
+          { clustersResponsePagination = ClustersPagination
+              { clustersPaginationTotal = total
+              , clustersPaginationOffset = offset
+              , clustersPaginationLimit = limit
+              }
+          , clustersResponseClusters = paginated
+          }
+      where
+        matchText :: Text -> Maybe Text -> Bool
+        matchText query maybeText = case maybeText of
+          Nothing -> False
+          Just text -> query `T.isInfixOf` T.toLower text
+
+        compareClustersByField :: Text -> Text -> ClusterResponse -> ClusterResponse -> Ordering
+        compareClustersByField field order a b =
+          let cmp = case field of
+                "album" -> compare (clusterResponseAlbum a <|> clusterResponseMBReleaseTitle a)
+                                   (clusterResponseAlbum b <|> clusterResponseMBReleaseTitle b)
+                "artist" -> compare (clusterResponseAlbumArtist a <|> clusterResponseMBReleaseArtist a)
+                                    (clusterResponseAlbumArtist b <|> clusterResponseMBReleaseArtist b)
+                "confidence" -> compare (fromMaybe (-1) (clusterResponseMBConfidence a))
+                                        (fromMaybe (-1) (clusterResponseMBConfidence b))
+                "status" -> compare (if isJust (clusterResponseMBReleaseId a) then 1 :: Int else 0)
+                                    (if isJust (clusterResponseMBReleaseId b) then 1 :: Int else 0)
+                "track_count" -> compare (clusterResponseTrackCount a) (clusterResponseTrackCount b)
+                _ -> EQ
+          in if order == "desc" then case cmp of { LT -> GT; GT -> LT; EQ -> EQ } else cmp
 
     getClusterHandler :: Maybe Text -> Int64 -> Handler ClusterWithTracksResponse
     getClusterHandler authHeader clusterId = do

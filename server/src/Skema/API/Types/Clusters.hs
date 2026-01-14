@@ -7,6 +7,8 @@
 module Skema.API.Types.Clusters
   ( ClustersAPI
   , ClusterResponse(..)
+  , ClustersResponse(..)
+  , ClustersPagination(..)
   , ClusterWithTracksResponse(..)
   , ClusterTrackInfo(..)
   , MBTrackInfo(..)
@@ -25,7 +27,13 @@ import Servant
 -- | Clusters API endpoints.
 type ClustersAPI = "clusters" :> Header "Authorization" Text :>
   ( "tasks" :> ReqBody '[JSON] ClusterTaskRequest :> PostCreated '[JSON] TaskResponse
-  :<|> Get '[JSON] [ClusterResponse]
+  :<|> QueryParam "offset" Int
+    :> QueryParam "limit" Int
+    :> QueryParam "search" Text
+    :> QueryParam "filter" Text
+    :> QueryParam "sort" Text
+    :> QueryParam "order" Text
+    :> Get '[JSON] ClustersResponse
   :<|> Capture "clusterId" Int64 :> Get '[JSON] ClusterWithTracksResponse
   :<|> Capture "clusterId" Int64 :> "candidates" :> Get '[JSON] [CandidateRelease]
   :<|> Capture "clusterId" Int64 :> "release" :> ReqBody '[JSON] AssignReleaseRequest :> Put '[JSON] ClusterResponse
@@ -81,6 +89,31 @@ instance ToJSON ClusterResponse where
 
 instance FromJSON ClusterResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
+
+-- | Pagination info for clusters.
+data ClustersPagination = ClustersPagination
+  { clustersPaginationTotal :: Int
+  , clustersPaginationOffset :: Int
+  , clustersPaginationLimit :: Int
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON ClustersPagination where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
+
+instance FromJSON ClustersPagination where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
+
+-- | Paginated clusters response.
+data ClustersResponse = ClustersResponse
+  { clustersResponsePagination :: ClustersPagination
+  , clustersResponseClusters :: [ClusterResponse]
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON ClustersResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
+
+instance FromJSON ClustersResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
 
 -- | Track info for cluster detail view.
 data ClusterTrackInfo = ClusterTrackInfo

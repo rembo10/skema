@@ -7,6 +7,8 @@
 module Skema.API.Types.Downloads
   ( DownloadsAPI
   , DownloadResponse(..)
+  , DownloadsPagination(..)
+  , DownloadsResponse(..)
   , QueueDownloadRequest(..)
   , QueueDownloadResponse(..)
   , DownloadTaskRequest(..)
@@ -20,7 +22,9 @@ import Servant
 -- | Downloads API endpoints.
 type DownloadsAPI = "downloads" :> Header "Authorization" Text :>
   ( "tasks" :> ReqBody '[JSON] DownloadTaskRequest :> PostCreated '[JSON] TaskResponse
-  :<|> Get '[JSON] [DownloadResponse]
+  :<|> QueryParam "offset" Int
+    :> QueryParam "limit" Int
+    :> Get '[JSON] DownloadsResponse
   :<|> Capture "downloadId" Int64 :> Get '[JSON] DownloadResponse
   :<|> "queue" :> ReqBody '[JSON] QueueDownloadRequest :> PostCreated '[JSON] QueueDownloadResponse
   :<|> Capture "downloadId" Int64 :> DeleteNoContent
@@ -55,6 +59,31 @@ instance ToJSON DownloadResponse where
 
 instance FromJSON DownloadResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
+
+-- | Pagination info for downloads.
+data DownloadsPagination = DownloadsPagination
+  { downloadsPaginationTotal :: Int
+  , downloadsPaginationOffset :: Int
+  , downloadsPaginationLimit :: Int
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON DownloadsPagination where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 20 }
+
+instance FromJSON DownloadsPagination where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 20 }
+
+-- | Paginated downloads response.
+data DownloadsResponse = DownloadsResponse
+  { downloadsResponsePagination :: DownloadsPagination
+  , downloadsResponseDownloads :: [DownloadResponse]
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON DownloadsResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 17 }
+
+instance FromJSON DownloadsResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 17 }
 
 -- | Request to queue a new download.
 data QueueDownloadRequest = QueueDownloadRequest

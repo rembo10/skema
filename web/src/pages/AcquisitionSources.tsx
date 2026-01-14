@@ -20,13 +20,13 @@ export default function AcquisitionSources() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [sourcesData, artistsData, albumsData] = await Promise.all([
+      const [sourcesData, artistsResponse, albumsData] = await Promise.all([
         api.getAcquisitionSources(),
-        api.getCatalogArtists(true), // Get all followed artists (manual + source-based)
+        api.getCatalogArtists(0, 1000, true), // Get all followed artists (manual + source-based)
         api.getWantedAlbums(),
       ]);
       setSources(sourcesData);
-      setArtists(artistsData);
+      setArtists(artistsResponse.artists);
       setAlbums(albumsData);
     } catch (error) {
       toast.error('Failed to load acquisition sources');

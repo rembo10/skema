@@ -5,7 +5,7 @@ module Skema.API.Handlers.Diffs
   ( diffsServer
   ) where
 
-import Skema.API.Types.Diffs (DiffsAPI, MetadataDiffResponse(..), GroupedDiffResponse(..), ApplyGroupedDiffRequest(..), ApplyToFileRequest(..), ApplyChangesRequest(..), MetadataChangeResponse(..))
+import Skema.API.Types.Diffs (DiffsAPI, MetadataDiffResponse(..), GroupedDiffResponse(..), GroupedDiffsResponse(..), DiffsPagination(..), ApplyGroupedDiffRequest(..), ApplyToFileRequest(..), ApplyChangesRequest(..), MetadataChangeResponse(..), MetadataChangesResponse(..))
 import Skema.API.Handlers.Auth (throwJsonError)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
@@ -59,9 +59,12 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
             , diffCreatedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.diffCreatedAt diff)
             }
 
-    getGroupedDiffsHandler :: Maybe Text -> Handler [GroupedDiffResponse]
-    getGroupedDiffsHandler authHeader = do
+    getGroupedDiffsHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Handler GroupedDiffsResponse
+    getGroupedDiffsHandler authHeader maybeOffset maybeLimit = do
       _ <- requireAuth configVar jwtSecret authHeader
+      let offset = fromMaybe 0 maybeOffset
+      let limit = fromMaybe 50 maybeLimit
+
       liftIO $ withConnection connPool $ \conn -> do
         diffs <- DB.getAllMetadataDiffs conn
         diffResponses <- forM diffs $ \(diff, path) -> do
@@ -82,15 +85,27 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
               | dr <- diffResponses
               ]
 
-        pure $ map (\((fieldName, fileValue, mbValue), drs) ->
-          GroupedDiffResponse
-            { groupedFieldName = fieldName
-            , groupedFileValue = fileValue
-            , groupedMBValue = mbValue
-            , groupedCount = length drs
-            , groupedTrackIds = map diffTrackId drs
-            , groupedDiffs = drs
-            }) (Map.toList grouped)
+        let allGrouped = map (\((fieldName, fileValue, mbValue), drs) ->
+              GroupedDiffResponse
+                { groupedFieldName = fieldName
+                , groupedFileValue = fileValue
+                , groupedMBValue = mbValue
+                , groupedCount = length drs
+                , groupedTrackIds = map diffTrackId drs
+                , groupedDiffs = drs
+                }) (Map.toList grouped)
+
+        let total = length allGrouped
+        let paginated = take limit $ drop offset $ allGrouped
+
+        pure $ GroupedDiffsResponse
+          { groupedDiffsResponsePagination = DiffsPagination
+              { diffsPaginationTotal = total
+              , diffsPaginationOffset = offset
+              , diffsPaginationLimit = limit
+              }
+          , groupedDiffsResponseDiffs = paginated
+          }
 
     applyGroupedHandler :: Maybe Text -> ApplyGroupedDiffRequest -> Handler ()
     applyGroupedHandler authHeader req = do
@@ -119,12 +134,15 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
       -- Return empty list immediately - client will receive updates via SSE
       pure []
 
-    getChangesHandler :: Maybe Text -> Handler [MetadataChangeResponse]
-    getChangesHandler authHeader = do
+    getChangesHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Handler MetadataChangesResponse
+    getChangesHandler authHeader maybeOffset maybeLimit = do
       _ <- requireAuth configVar jwtSecret authHeader
+      let offset = fromMaybe 0 maybeOffset
+      let limit = fromMaybe 50 maybeLimit
+
       liftIO $ withConnection connPool $ \conn -> do
         changes <- DB.getMetadataChanges conn False  -- False = get all changes, not just active
-        forM changes $ \(change, path) -> do
+        changeResponses <- forM changes $ \(change, path) -> do
           pathStr <- OP.decodeUtf path
           pure $ MetadataChangeResponse
             { changeResponseId = fromMaybe 0 (DBTypes.changeId change)
@@ -136,6 +154,18 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
             , changeResponseAppliedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.changeAppliedAt change)
             , changeResponseReverted = isJust (DBTypes.changeRevertedAt change)
             }
+
+        let total = length changeResponses
+        let paginated = take limit $ drop offset $ changeResponses
+
+        pure $ MetadataChangesResponse
+          { metadataChangesResponsePagination = DiffsPagination
+              { diffsPaginationTotal = total
+              , diffsPaginationOffset = offset
+              , diffsPaginationLimit = limit
+              }
+          , metadataChangesResponseChanges = paginated
+          }
 
     revertChangeHandler :: Maybe Text -> Int64 -> Handler NoContent
     revertChangeHandler authHeader changeId = do

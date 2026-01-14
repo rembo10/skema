@@ -9,6 +9,8 @@ module Skema.API.Types.Catalog
   , CatalogQueryRequest(..)
   , CatalogQueryResponse(..)
   , CatalogArtistResponse(..)
+  , ArtistsPagination(..)
+  , ArtistsResponse(..)
   , CatalogAlbumResponse(..)
   , CatalogAlbumOverviewResponse(..)
   , AlbumOverviewResponse(..)
@@ -37,12 +39,16 @@ import Servant
 type CatalogAPI = "catalog" :> Header "Authorization" Text :>
   ( "tasks" :> ReqBody '[JSON] CatalogTaskRequest :> PostCreated '[JSON] TaskResponse
   :<|> "query" :> ReqBody '[JSON] CatalogQueryRequest :> Post '[JSON] CatalogQueryResponse
-  :<|> "artists" :> QueryParam "followed" Bool :> Get '[JSON] [CatalogArtistResponse]
+  :<|> "artists"
+    :> QueryParam "offset" Int
+    :> QueryParam "limit" Int
+    :> QueryParam "followed" Bool
+    :> Get '[JSON] ArtistsResponse
   :<|> "artists" :> ReqBody '[JSON] CreateCatalogArtistRequest :> PostCreated '[JSON] CatalogArtistResponse
   :<|> "artists" :> Capture "artistId" Int64 :> ReqBody '[JSON] UpdateCatalogArtistRequest :> Patch '[JSON] CatalogArtistResponse
   :<|> "artists" :> Capture "artistId" Int64 :> DeleteNoContent
   :<|> "albums"
-    :> QueryParam "page" Int
+    :> QueryParam "offset" Int
     :> QueryParam "limit" Int
     :> QueryParam "wanted" Bool
     :> QueryParam "artistId" Int64
@@ -112,6 +118,31 @@ instance ToJSON CatalogArtistResponse where
 
 instance FromJSON CatalogArtistResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 21 }
+
+-- | Pagination info for artists.
+data ArtistsPagination = ArtistsPagination
+  { artistsPaginationTotal :: Int
+  , artistsPaginationOffset :: Int
+  , artistsPaginationLimit :: Int
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON ArtistsPagination where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
+
+instance FromJSON ArtistsPagination where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
+
+-- | Paginated artists response.
+data ArtistsResponse = ArtistsResponse
+  { artistsResponsePagination :: ArtistsPagination
+  , artistsResponseArtists :: [CatalogArtistResponse]
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON ArtistsResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
+
+instance FromJSON ArtistsResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
 
 -- | Catalog album response.
 data CatalogAlbumResponse = CatalogAlbumResponse
@@ -314,9 +345,8 @@ instance FromJSON CatalogAlbumOverviewRequest where
 -- | Pagination info.
 data AlbumOverviewPagination = AlbumOverviewPagination
   { albumOverviewPaginationTotal :: Int
-  , albumOverviewPaginationPage :: Int
+  , albumOverviewPaginationOffset :: Int
   , albumOverviewPaginationLimit :: Int
-  , albumOverviewPaginationPages :: Int
   } deriving (Show, Eq, Generic)
 
 instance ToJSON AlbumOverviewPagination where

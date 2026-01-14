@@ -5,7 +5,7 @@ module Skema.API.Handlers.Downloads
   ( downloadsServer
   ) where
 
-import Skema.API.Types.Downloads (DownloadsAPI, DownloadResponse(..), QueueDownloadRequest(..), QueueDownloadResponse(..), DownloadTaskRequest(..))
+import Skema.API.Types.Downloads (DownloadsAPI, DownloadResponse(..), DownloadsPagination(..), DownloadsResponse(..), QueueDownloadRequest(..), QueueDownloadResponse(..), DownloadTaskRequest(..))
 import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
 import Skema.Core.TaskManager (TaskManager)
 import qualified Skema.Core.TaskManager as TM
@@ -77,21 +77,28 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
 
         _ -> throwError err400 { errBody = "Unknown task type" }
 
-    getAllDownloadsHandler :: Maybe Text -> Handler [DownloadResponse]
-    getAllDownloadsHandler authHeader = do
+    getAllDownloadsHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Handler DownloadsResponse
+    getAllDownloadsHandler authHeader maybeOffset maybeLimit = do
       _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn -> do
-        downloads <- queryRows conn
+
+      let offset = fromMaybe 0 maybeOffset
+      let limit = fromMaybe 50 maybeLimit
+
+      (allDownloads, responses) <- liftIO $ withConnection connPool $ \conn -> do
+        allDownloads <- queryRows conn
           "SELECT id, catalog_album_id, indexer_name, download_url, download_client, \
           \download_client_id, status, download_path, title, size_bytes, quality, \
           \format, seeders, progress, error_message, queued_at, started_at, \
           \completed_at, imported_at, updated_at, matched_cluster_id, library_path \
           \FROM downloads ORDER BY queued_at DESC"
           () :: IO [DBTypes.DownloadRecord]
+
+        let paginated = take limit $ drop offset $ allDownloads
+
         -- Read current progress and status from memory
         progressMapData <- STM.atomically $ STM.readTVar progressMap
         -- Merge in-memory progress and display status with database records
-        forM downloads $ \download -> do
+        responses <- forM paginated $ \download -> do
           let downloadId = fromMaybe 0 (DBTypes.downloadId download)
               -- Use in-memory data if available, otherwise use database values
               (currentProgress, maybeDisplayStatus) = case Map.lookup downloadId progressMapData of
@@ -104,6 +111,20 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
           pure $ case maybeDisplayStatus of
             Just displayStatus -> response { downloadResponseStatus = displayStatus }
             Nothing -> response
+
+        pure (allDownloads, responses)
+
+      let total = length allDownloads
+      let pagination = DownloadsPagination
+            { downloadsPaginationTotal = total
+            , downloadsPaginationOffset = offset
+            , downloadsPaginationLimit = limit
+            }
+
+      pure DownloadsResponse
+        { downloadsResponsePagination = pagination
+        , downloadsResponseDownloads = responses
+        }
 
     getDownloadHandler :: Maybe Text -> Int64 -> Handler DownloadResponse
     getDownloadHandler authHeader downloadId = do

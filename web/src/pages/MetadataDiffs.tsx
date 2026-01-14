@@ -1,11 +1,14 @@
 import { useEffect, useState, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { api } from '../lib/api';
-import { useAppStore } from '../store';
 import type { GroupedDiff, MetadataDiff, MetadataChange } from '../types/api';
 import { LibraryNav } from '../components/LibraryNav';
+import { PaginationControls } from '../components/PaginationControls';
+import { usePagination } from '../hooks/usePagination';
 
 type Tab = 'diffs' | 'history';
+
+const ITEMS_PER_PAGE = 50;
 
 export default function MetadataDiffs() {
   const [activeTab, setActiveTab] = useState<Tab>('diffs');
@@ -16,25 +19,21 @@ export default function MetadataDiffs() {
   const [applyingGroup, setApplyingGroup] = useState<string | null>(null);
   const [selectedDiffIds, setSelectedDiffIds] = useState<Set<number>>(new Set());
 
-  // Read from store
-  const groupedDiffs = useAppStore((state) => state.groupedDiffs);
-  const groupedDiffsStale = useAppStore((state) => state.groupedDiffsStale);
-  const setGroupedDiffs = useAppStore((state) => state.setGroupedDiffs);
+  // Pagination
+  const pagination = usePagination(ITEMS_PER_PAGE);
+  const [groupedDiffs, setGroupedDiffs] = useState<GroupedDiff[]>([]);
 
-  // Load diffs on mount if not loaded or stale
+  // Load diffs on mount and when offset changes
   useEffect(() => {
-    if (groupedDiffs === null || groupedDiffsStale) {
-      loadDiffs();
-    }
-  }, []);
+    loadDiffs();
+  }, [pagination.offset]);
 
   async function loadDiffs() {
     setLoadingDiffs(true);
     try {
-      console.log('[MetadataDiffs] Loading diffs...');
-      const diffs = await api.getGroupedDiffs();
-      setGroupedDiffs(diffs);
-      console.log('[MetadataDiffs] Loaded', diffs.length, 'diff groups');
+      const response = await api.getGroupedDiffs(pagination.offset, ITEMS_PER_PAGE);
+      setGroupedDiffs(response.diffs);
+      pagination.setTotalCount(response.pagination?.total ?? 0);
     } catch (error: any) {
       // Don't log or toast 401 errors - they're expected when auth is required
       if (!error.isAuthError) {
@@ -57,8 +56,8 @@ export default function MetadataDiffs() {
   async function loadChangesHistory() {
     setLoadingChanges(true);
     try {
-      const history = await api.getMetadataChanges();
-      setChanges(history);
+      const response = await api.getMetadataChanges();
+      setChanges(response.changes);
     } catch (error: any) {
       // Don't log or toast 401 errors - they're expected when auth is required
       if (!error.isAuthError) {
@@ -162,7 +161,7 @@ export default function MetadataDiffs() {
   }
 
   // Show loading state while diffs are being fetched
-  const showDiffsLoading = loadingDiffs || (groupedDiffs === null && activeTab === 'diffs');
+  const showDiffsLoading = loadingDiffs;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -214,17 +213,27 @@ export default function MetadataDiffs() {
             <div className="text-dark-text-secondary">Loading diffs...</div>
           </div>
         ) : (
-          <DiffsView
-            groupedDiffs={groupedDiffs || []}
-            selectedDiffIds={selectedDiffIds}
-            applying={applying}
-            applyingGroup={applyingGroup}
-            onToggleSelection={toggleDiffSelection}
-            onToggleGroupSelection={toggleGroupSelection}
-            onToggleSelectAll={toggleSelectAll}
-            onApplySelected={applySelected}
-            onApplyGroup={applyGroup}
-          />
+          <>
+            <DiffsView
+              groupedDiffs={groupedDiffs || []}
+              selectedDiffIds={selectedDiffIds}
+              applying={applying}
+              applyingGroup={applyingGroup}
+              onToggleSelection={toggleDiffSelection}
+              onToggleGroupSelection={toggleGroupSelection}
+              onToggleSelectAll={toggleSelectAll}
+              onApplySelected={applySelected}
+              onApplyGroup={applyGroup}
+            />
+            <PaginationControls
+              offset={pagination.offset}
+              limit={ITEMS_PER_PAGE}
+              total={pagination.totalCount}
+              onPrevPage={pagination.prevPage}
+              onNextPage={pagination.nextPage}
+              itemName="diff groups"
+            />
+          </>
         )
       ) : (
         <HistoryView changes={changes} loading={loadingChanges} onRevert={revertChange} />

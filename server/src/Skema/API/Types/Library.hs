@@ -11,6 +11,9 @@ module Skema.API.Types.Library
   , LibraryStats(..)
   , UpdateTrackRequest(..)
   , TrackWithCluster(..)
+  , TracksResponse(..)
+  , TracksPagination(..)
+  , TracksStats(..)
   , LibraryTaskRequest(..)
   ) where
 
@@ -24,7 +27,12 @@ import Database.SQLite.Simple.FromRow (FromRow(..), field)
 type LibraryAPI = "library" :> Header "Authorization" Text :>
   ( "tasks" :> ReqBody '[JSON] LibraryTaskRequest :> PostCreated '[JSON] TaskResponse
   :<|> "files" :> Get '[JSON] [FileInfo]
-  :<|> "tracks" :> Get '[JSON] [TrackWithCluster]
+  :<|> "tracks"
+    :> QueryParam "offset" Int
+    :> QueryParam "limit" Int
+    :> QueryParam "filter" Text
+    :> Get '[JSON] TracksResponse
+  :<|> "tracks" :> "stats" :> Get '[JSON] TracksStats
   :<|> "tracks" :> Capture "trackId" Int64 :> ReqBody '[JSON] UpdateTrackRequest :> Patch '[JSON] NoContent
   )
 
@@ -141,4 +149,43 @@ instance ToJSON LibraryTaskRequest where
   toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
 
 instance FromJSON LibraryTaskRequest where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
+
+-- | Pagination info for tracks.
+data TracksPagination = TracksPagination
+  { tracksPaginationTotal :: Int
+  , tracksPaginationOffset :: Int
+  , tracksPaginationLimit :: Int
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON TracksPagination where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
+
+instance FromJSON TracksPagination where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
+
+-- | Paginated tracks response.
+data TracksResponse = TracksResponse
+  { tracksResponsePagination :: TracksPagination
+  , tracksResponseTracks :: [TrackWithCluster]
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON TracksResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 14 }
+
+instance FromJSON TracksResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 14 }
+
+-- | Track statistics.
+data TracksStats = TracksStats
+  { tracksStatsTotal :: Int
+  , tracksStatsMatched :: Int
+  , tracksStatsUnmatched :: Int
+  , tracksStatsLocked :: Int
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON TracksStats where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
+
+instance FromJSON TracksStats where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }

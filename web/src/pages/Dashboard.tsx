@@ -49,16 +49,16 @@ export default function Dashboard() {
     async function loadData() {
       try {
         // Load stats and artists in parallel
-        const [statsData, artistsData] = await Promise.all([
+        const [statsData, artistsResponse] = await Promise.all([
           api.getStats(),
-          followedArtists.length === 0 ? api.getCatalogArtists(true) : Promise.resolve([])
+          followedArtists.length === 0 ? api.getCatalogArtists(0, 1000, true) : Promise.resolve({ artists: [], pagination: { total: 0, offset: 0, limit: 0 } })
         ]);
 
         useAppStore.getState().setStats(statsData);
 
         // Only set artists if we loaded them (not already in store)
-        if (artistsData.length > 0) {
-          useAppStore.getState().setFollowedArtists(artistsData);
+        if (artistsResponse.artists.length > 0) {
+          useAppStore.getState().setFollowedArtists(artistsResponse.artists);
         }
 
         setLoading(false);

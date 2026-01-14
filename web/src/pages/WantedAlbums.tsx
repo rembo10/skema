@@ -28,15 +28,15 @@ export default function WantedAlbums() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [profiles, defaultProf, artistsData, albumsData] = await Promise.all([
+      const [profiles, defaultProf, artistsResponse, albumsData] = await Promise.all([
         api.getQualityProfiles(),
         api.getDefaultQualityProfile(),
-        api.getCatalogArtists(),
+        api.getCatalogArtists(0, 1000),
         api.getCatalogAlbums(),
       ]);
       setQualityProfiles(profiles);
       setDefaultProfile(defaultProf);
-      setArtists(artistsData);
+      setArtists(artistsResponse.artists);
       setCatalogAlbums(albumsData);
     } catch (error) {
       toast.error('Failed to load data');

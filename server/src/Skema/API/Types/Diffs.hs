@@ -8,10 +8,13 @@ module Skema.API.Types.Diffs
   ( DiffsAPI
   , MetadataDiffResponse(..)
   , GroupedDiffResponse(..)
+  , GroupedDiffsResponse(..)
+  , DiffsPagination(..)
   , ApplyGroupedDiffRequest(..)
   , ApplyToFileRequest(..)
   , ApplyChangesRequest(..)
   , MetadataChangeResponse(..)
+  , MetadataChangesResponse(..)
   ) where
 
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
@@ -21,13 +24,18 @@ import Servant
 -- | Metadata diffs API endpoints.
 type DiffsAPI = "diffs" :> Header "Authorization" Text :>
   ( Get '[JSON] [MetadataDiffResponse]
-  :<|> "grouped" :> Get '[JSON] [GroupedDiffResponse]
+  :<|> "grouped"
+    :> QueryParam "offset" Int
+    :> QueryParam "limit" Int
+    :> Get '[JSON] GroupedDiffsResponse
   :<|> "apply-grouped" :> ReqBody '[JSON] ApplyGroupedDiffRequest :> Post '[JSON] ()
   :<|> "apply-to-file" :> ReqBody '[JSON] ApplyToFileRequest :> Post '[JSON] ()
   )
   :<|> "metadata-changes" :> Header "Authorization" Text :>
   ( ReqBody '[JSON] ApplyChangesRequest :> PostCreated '[JSON] [MetadataChangeResponse]
-  :<|> Get '[JSON] [MetadataChangeResponse]
+  :<|> QueryParam "offset" Int
+    :> QueryParam "limit" Int
+    :> Get '[JSON] MetadataChangesResponse
   :<|> Capture "changeId" Int64 :> DeleteNoContent
   )
 
@@ -63,6 +71,31 @@ instance ToJSON GroupedDiffResponse where
 
 instance FromJSON GroupedDiffResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 7 }
+
+-- | Pagination info for diffs.
+data DiffsPagination = DiffsPagination
+  { diffsPaginationTotal :: Int
+  , diffsPaginationOffset :: Int
+  , diffsPaginationLimit :: Int
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON DiffsPagination where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
+
+instance FromJSON DiffsPagination where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
+
+-- | Paginated grouped diffs response.
+data GroupedDiffsResponse = GroupedDiffsResponse
+  { groupedDiffsResponsePagination :: DiffsPagination
+  , groupedDiffsResponseDiffs :: [GroupedDiffResponse]
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON GroupedDiffsResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 20 }
+
+instance FromJSON GroupedDiffsResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 20 }
 
 -- | Request to apply grouped diff.
 data ApplyGroupedDiffRequest = ApplyGroupedDiffRequest
@@ -120,3 +153,15 @@ instance ToJSON MetadataChangeResponse where
 
 instance FromJSON MetadataChangeResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 14 }
+
+-- | Paginated metadata changes response.
+data MetadataChangesResponse = MetadataChangesResponse
+  { metadataChangesResponsePagination :: DiffsPagination
+  , metadataChangesResponseChanges :: [MetadataChangeResponse]
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON MetadataChangesResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 23 }
+
+instance FromJSON MetadataChangesResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 23 }

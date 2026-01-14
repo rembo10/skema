@@ -56,8 +56,7 @@ export default function Albums() {
   const [searchFilter, setSearchFilter] = useState('');
   const [sortBy, setSortBy] = useState<'title' | 'artist' | 'date'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [offset, setOffset] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [showReleasesModal, setShowReleasesModal] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<CatalogAlbumOverview | null>(null);
@@ -73,7 +72,7 @@ export default function Albums() {
     setSearching(true);
     const timer = setTimeout(() => {
       setSearchFilter(searchInput);
-      setPage(1);
+      setOffset(0);
       setSearching(false);
     }, 500);
     return () => {
@@ -87,7 +86,7 @@ export default function Albums() {
     // Clear selections and quality filter when tab changes
     setSelectedAlbumIds(new Set());
     setSelectedQualityFilter(null);
-  }, [activeTab, page, searchFilter, sortBy, sortOrder]);
+  }, [activeTab, offset, searchFilter, sortBy, sortOrder]);
 
   useEffect(() => {
     loadQualityProfiles();
@@ -118,7 +117,7 @@ export default function Albums() {
         : ['InLibrary', 'Monitored', 'Upgrading'] as AlbumState[];
 
       const request: AlbumOverviewRequest = {
-        page,
+        offset,
         limit: ITEMS_PER_PAGE,
         search: searchFilter || undefined,
         sort: sortBy,
@@ -135,7 +134,6 @@ export default function Albums() {
       }
 
       setAlbums(response.albums || []);
-      setTotalPages(response.pagination.pages);
       setTotalCount(response.pagination.total);
     } catch (error) {
       console.error('Failed to load albums:', error);
@@ -222,7 +220,7 @@ export default function Albums() {
       setSortBy(column);
       setSortOrder('desc');
     }
-    setPage(1);
+    setOffset(0);
   };
 
   // Bulk actions
@@ -401,7 +399,7 @@ export default function Albums() {
         <button
           onClick={() => {
             setActiveTab('unacquired');
-            setPage(1);
+            setOffset(0);
           }}
           className={`px-4 py-2 font-medium border-b-2 transition-colors ${
             activeTab === 'unacquired'
@@ -414,7 +412,7 @@ export default function Albums() {
         <button
           onClick={() => {
             setActiveTab('library');
-            setPage(1);
+            setOffset(0);
           }}
           className={`px-4 py-2 font-medium border-b-2 transition-colors ${
             activeTab === 'library'
@@ -781,22 +779,22 @@ export default function Albums() {
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
+          {totalCount > ITEMS_PER_PAGE && (
             <div className="flex items-center justify-between">
               <div className="text-sm text-dark-text-secondary">
-                Page {page} of {totalPages}
+                Showing {offset + 1}-{Math.min(offset + ITEMS_PER_PAGE, totalCount)} of {totalCount}
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
+                  onClick={() => setOffset((o) => Math.max(0, o - ITEMS_PER_PAGE))}
+                  disabled={offset === 0}
                   className="btn-secondary px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ChevronLeft size={16} />
                 </button>
                 <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
+                  onClick={() => setOffset((o) => Math.min(totalCount - ITEMS_PER_PAGE, o + ITEMS_PER_PAGE))}
+                  disabled={offset + ITEMS_PER_PAGE >= totalCount}
                   className="btn-secondary px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ChevronRight size={16} />

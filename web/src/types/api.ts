@@ -30,7 +30,29 @@ export interface GroupedDiff {
   diffs: MetadataDiff[];
 }
 
+export interface DiffsPagination {
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+export interface GroupedDiffsResponse {
+  pagination: DiffsPagination;
+  diffs: GroupedDiff[];
+}
+
 export type MatchSource = 'auto_fingerprint' | 'auto_metadata' | 'manual';
+
+export interface ClustersPagination {
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+export interface ClustersResponse {
+  pagination: ClustersPagination;
+  clusters: Cluster[];
+}
 
 export interface Cluster {
   id: number;
@@ -119,6 +141,24 @@ export interface TrackWithCluster {
   match_locked: boolean;
 }
 
+export interface TracksPagination {
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+export interface TracksResponse {
+  pagination: TracksPagination;
+  tracks: TrackWithCluster[];
+}
+
+export interface TracksStats {
+  total: number;
+  matched: number;
+  unmatched: number;
+  locked: number;
+}
+
 export interface CandidateRelease {
   release_id: string;
   title: string;
@@ -157,6 +197,11 @@ export interface MetadataChange {
   new_value: string | null;
   applied_at: string;
   reverted: boolean;
+}
+
+export interface MetadataChangesResponse {
+  pagination: DiffsPagination;
+  changes: MetadataChange[];
 }
 
 // Acquisition types
@@ -344,6 +389,17 @@ export interface CatalogQueryResponse {
   albums: CatalogAlbum[];
 }
 
+export interface ArtistsPagination {
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+export interface ArtistsResponse {
+  pagination: ArtistsPagination;
+  artists: CatalogArtist[];
+}
+
 // Download types
 export type DownloadStatus = 'queued' | 'downloading' | 'completed' | 'failed' | 'imported' | 'cancelled' | 'identification_failure';
 
@@ -368,6 +424,17 @@ export interface Download {
   completed_at: string | null;
   imported_at: string | null;
   library_path: string | null;
+}
+
+export interface DownloadsPagination {
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+export interface DownloadsResponse {
+  pagination: DownloadsPagination;
+  downloads: Download[];
 }
 
 // Album releases search types
@@ -510,7 +577,7 @@ export interface CatalogAlbumOverview {
 }
 
 export interface AlbumOverviewRequest {
-  page?: number;
+  offset?: number;
   limit?: number;
   state?: AlbumState[];
   quality?: string[];
@@ -523,9 +590,8 @@ export interface AlbumOverviewRequest {
 
 export interface AlbumOverviewPagination {
   total: number;
-  page: number;
+  offset: number;
   limit: number;
-  pages: number;
 }
 
 export interface AlbumOverviewStats {

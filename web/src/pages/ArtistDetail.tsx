@@ -72,8 +72,8 @@ export default function ArtistDetail() {
       setError(null);
 
       // Load all artists to find the one we need
-      const artistsData = await api.getCatalogArtists();
-      const foundArtist = artistsData.find(a => a.id === artistId);
+      const artistsResponse = await api.getCatalogArtists(0, 1000);
+      const foundArtist = artistsResponse.artists.find(a => a.id === artistId);
 
       if (!foundArtist) {
         setError('Artist not found');

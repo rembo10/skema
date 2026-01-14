@@ -1,35 +1,35 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
-import { useAppStore } from '../store';
 import type { CatalogArtist, CatalogAlbum } from '../types/api';
-import { Music, ExternalLink, Calendar, Disc, UserMinus, RefreshCw } from 'lucide-react';
+import { Music, ExternalLink, Calendar, Disc, UserMinus, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-export default function FollowedArtists() {
-  // Use store as single source of truth for both artists and albums
-  const artists = useAppStore((state) => state.followedArtists);
-  const setFollowedArtists = useAppStore((state) => state.setFollowedArtists);
-  const removeFollowedArtist = useAppStore((state) => state.removeFollowedArtist);
-  const catalogAlbums = useAppStore((state) => state.catalogAlbums);
-  const setCatalogAlbums = useAppStore((state) => state.setCatalogAlbums);
+const ITEMS_PER_PAGE = 50;
 
+export default function FollowedArtists() {
+  // Local state - no longer using store for paginated data
+  const [artists, setArtists] = useState<CatalogArtist[]>([]);
+  const [catalogAlbums, setCatalogAlbums] = useState<CatalogAlbum[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [offset]);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [artistsData, albumsData] = await Promise.all([
-        api.getCatalogArtists(true), // Get only followed artists
+      const [artistsResponse, albumsData] = await Promise.all([
+        api.getCatalogArtists(offset, ITEMS_PER_PAGE, true), // Get only followed artists with pagination
         api.getCatalogAlbums(),      // Get all albums (both wanted and in library)
       ]);
-      setFollowedArtists(artistsData);
+      setArtists(artistsResponse.artists);
+      setTotalCount(artistsResponse.pagination.total);
       setCatalogAlbums(albumsData);
     } catch (error) {
       toast.error('Failed to load followed artists');
@@ -48,7 +48,9 @@ export default function FollowedArtists() {
 
     try {
       await api.updateCatalogArtist(artist.id, false);
-      removeFollowedArtist(artist.id);
+      // Remove from local state
+      setArtists(artists.filter(a => a.id !== artist.id));
+      setTotalCount(prev => prev - 1);
       toast.success(`Unfollowed ${artist.name}`);
     } catch (error) {
       toast.error('Failed to unfollow artist');
@@ -251,6 +253,33 @@ export default function FollowedArtists() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Pagination Controls */}
+      {totalCount > ITEMS_PER_PAGE && (
+        <div className="flex items-center justify-between border-t border-dark-border pt-4">
+          <div className="text-sm text-dark-text-secondary">
+            Showing {offset + 1}-{Math.min(offset + ITEMS_PER_PAGE, totalCount)} of {totalCount}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setOffset((o) => Math.max(0, o - ITEMS_PER_PAGE))}
+              disabled={offset === 0}
+              className="p-2 rounded-lg border border-dark-border hover:bg-dark-bg-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Previous page"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              onClick={() => setOffset((o) => Math.min(totalCount - ITEMS_PER_PAGE, o + ITEMS_PER_PAGE))}
+              disabled={offset + ITEMS_PER_PAGE >= totalCount}
+              className="p-2 rounded-lg border border-dark-border hover:bg-dark-bg-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Next page"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
         </div>
       )}
     </div>

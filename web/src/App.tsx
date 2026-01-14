@@ -5,8 +5,6 @@ import { Settings, LogOut, LayoutDashboard, Database, Music, Disc, Sliders, Sear
 import Dashboard from './pages/Dashboard';
 import MetadataDiffs from './pages/MetadataDiffs';
 import Identification from './pages/Identification';
-import Tracks from './pages/Tracks';
-import Clusters from './pages/Clusters';
 import FollowedArtists from './pages/FollowedArtists';
 import ArtistDetail from './pages/ArtistDetail';
 import Albums from './pages/Albums';
@@ -58,7 +56,7 @@ function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: { isMobileMenuOpen: 
 
   const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Overview' },
-    { to: '/diffs', icon: Database, label: 'Library' },
+    { to: '/library/diffs', icon: Database, label: 'Library' },
     { to: '/identification/clusters', icon: Search, label: 'Identification' },
     { to: '/artists', icon: Music, label: 'Artists' },
     { to: '/albums', icon: Disc, label: 'Albums' },
@@ -157,11 +155,9 @@ function Sidebar({ isMobileMenuOpen, setIsMobileMenuOpen }: { isMobileMenuOpen: 
 // Route to page title mapping
 const routeTitles: Record<string, string> = {
   '/': 'Overview',
-  '/diffs': 'Library',
-  '/identification': 'Cluster Identification',
+  '/library/diffs': 'Library',
   '/identification/clusters': 'Clusters',
   '/identification/tracks': 'Tracks',
-  '/library/tracks': 'Library Tracks',
   '/artists': 'Artists',
   '/albums': 'Albums',
   '/downloads': 'Downloads',
@@ -287,11 +283,9 @@ function AppContent() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-              <Route path="/diffs" element={<ProtectedRoute><MetadataDiffs /></ProtectedRoute>} />
-              <Route path="/identification" element={<ProtectedRoute><Identification /></ProtectedRoute>} />
-              <Route path="/identification/clusters" element={<ProtectedRoute><Clusters /></ProtectedRoute>} />
-              <Route path="/identification/tracks" element={<ProtectedRoute><Tracks /></ProtectedRoute>} />
-              <Route path="/library/tracks" element={<ProtectedRoute><Tracks /></ProtectedRoute>} />
+              <Route path="/library/diffs" element={<ProtectedRoute><MetadataDiffs /></ProtectedRoute>} />
+              <Route path="/identification/clusters" element={<ProtectedRoute><Identification /></ProtectedRoute>} />
+              <Route path="/identification/tracks" element={<ProtectedRoute><Identification /></ProtectedRoute>} />
               <Route path="/artists" element={<ProtectedRoute><FollowedArtists /></ProtectedRoute>} />
               <Route path="/artists/:id" element={<ProtectedRoute><ArtistDetail /></ProtectedRoute>} />
               <Route path="/albums" element={<ProtectedRoute><Albums /></ProtectedRoute>} />

@@ -5,7 +5,7 @@ module Skema.API.Handlers.Catalog
   ( catalogServer
   ) where
 
-import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), CatalogTaskRequest(..), CatalogAlbumOverviewResponse(..), AlbumOverviewPagination(..), AlbumOverviewStats(..), AlbumOverviewResponse(..), BulkAlbumActionRequest(..), BulkAlbumAction(..), AlbumState(..), ActiveDownloadInfo(..), AlbumReleasesResponse(..), ReleaseResponse(..))
+import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), ArtistsPagination(..), ArtistsResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), CatalogTaskRequest(..), CatalogAlbumOverviewResponse(..), AlbumOverviewPagination(..), AlbumOverviewStats(..), AlbumOverviewResponse(..), BulkAlbumActionRequest(..), BulkAlbumAction(..), AlbumState(..), ActiveDownloadInfo(..), AlbumReleasesResponse(..), ReleaseResponse(..))
 import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
 import Skema.Core.TaskManager (TaskManager)
 import qualified Skema.Core.TaskManager as TM
@@ -172,11 +172,17 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         }
 
     -- Get catalog artists
-    getArtistsHandler :: Maybe Text -> Maybe Bool -> Handler [CatalogArtistResponse]
-    getArtistsHandler authHeader maybeFollowed =
-      withAuthDB configVar jwtSecret connPool authHeader $ \conn -> do
-        artists <- DB.getCatalogArtists conn maybeFollowed
-        forM artists $ \artist -> pure $ CatalogArtistResponse
+    getArtistsHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Bool -> Handler ArtistsResponse
+    getArtistsHandler authHeader maybeOffset maybeLimit maybeFollowed = do
+      _ <- requireAuth configVar jwtSecret authHeader
+
+      let offset = fromMaybe 0 maybeOffset
+      let limit = fromMaybe 50 maybeLimit
+
+      (allArtists, responses) <- liftIO $ withConnection connPool $ \conn -> do
+        all <- DB.getCatalogArtists conn maybeFollowed
+        let paginated = take limit $ drop offset $ all
+        responses <- forM paginated $ \artist -> pure $ CatalogArtistResponse
           { catalogArtistResponseId = DBTypes.catalogArtistId artist
           , catalogArtistResponseMBID = DBTypes.catalogArtistMBID artist
           , catalogArtistResponseName = DBTypes.catalogArtistName artist
@@ -189,6 +195,19 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           , catalogArtistResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistCreatedAt artist)
           , catalogArtistResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistUpdatedAt artist)
           }
+        pure (all, responses)
+
+      let total = length allArtists
+      let pagination = ArtistsPagination
+            { artistsPaginationTotal = total
+            , artistsPaginationOffset = offset
+            , artistsPaginationLimit = limit
+            }
+
+      pure ArtistsResponse
+        { artistsResponsePagination = pagination
+        , artistsResponseArtists = responses
+        }
 
     -- Create/upsert catalog artist
     createArtistHandler :: Maybe Text -> CreateCatalogArtistRequest -> Handler CatalogArtistResponse
@@ -493,10 +512,10 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
     -- Get catalog albums with enhanced state information (replaces simple GET /albums)
     albumOverviewHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler AlbumOverviewResponse
-    albumOverviewHandler authHeader maybePage maybeLimit _maybeWanted maybeArtistId maybeSearch maybeSort maybeOrder maybeStateFilter maybeQualityFilter = do
+    albumOverviewHandler authHeader maybeOffset maybeLimit _maybeWanted maybeArtistId maybeSearch maybeSort maybeOrder maybeStateFilter maybeQualityFilter = do
       _ <- requireAuth configVar jwtSecret authHeader
 
-      let page = fromMaybe 1 maybePage
+      let offset = fromMaybe 0 maybeOffset
       let limit = fromMaybe 50 maybeLimit
 
       -- Parse comma-separated filters
@@ -506,7 +525,6 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       -- When filtering by state, we need to fetch extra results since filtering happens after computing state
       -- Fetch 10x the limit to have enough results after filtering (rough heuristic)
       let fetchLimit = if isJust maybeStateFilter then limit * 10 else limit
-      let offset = (page - 1) * limit
 
       -- Query database for albums with joined data
       (overviewRows, totalCount, statsData) <- liftIO $ withConnection connPool $ \conn -> do
@@ -527,12 +545,10 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       let responses = take limit filteredResponses
 
       -- Build pagination
-      let totalPages = (totalCount + limit - 1) `div` limit
       let pagination = AlbumOverviewPagination
             { albumOverviewPaginationTotal = totalCount
-            , albumOverviewPaginationPage = page
+            , albumOverviewPaginationOffset = offset
             , albumOverviewPaginationLimit = limit
-            , albumOverviewPaginationPages = totalPages
             }
 
       -- Build stats

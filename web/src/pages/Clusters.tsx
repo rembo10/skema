@@ -4,7 +4,6 @@ import { api } from '../lib/api';
 import toast from 'react-hot-toast';
 import { IdentificationNav } from '../components/IdentificationNav';
 import { RematchModal } from '../components/identification/RematchModal';
-import { useAppStore } from '../store';
 import {
   Loader2,
   Search,
@@ -16,31 +15,50 @@ import {
   RefreshCw,
   Filter,
   Edit2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 type SortField = 'album' | 'artist' | 'confidence' | 'status' | 'track_count';
 type SortDirection = 'asc' | 'desc';
 type FilterStatus = 'all' | 'matched' | 'unmatched' | 'locked';
 
+const ITEMS_PER_PAGE = 50;
+
 export default function Clusters() {
-  const clusters = useAppStore((state) => state.clusters);
-  const setClusters = useAppStore((state) => state.setClusters);
+  // Local state - no longer using store
+  const [clusters, setClusters] = useState<Cluster[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortField, setSortField] = useState<SortField>('album');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [rematchingCluster, setRematchingCluster] = useState<Cluster | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+
+  // Reset offset when filters change
+  useEffect(() => {
+    setOffset(0);
+  }, [searchQuery, filterStatus, sortField, sortDirection]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [offset, searchQuery, filterStatus, sortField, sortDirection]);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const data = await api.getClusters();
-      setClusters(data);
+      const response = await api.getClusters(
+        offset,
+        ITEMS_PER_PAGE,
+        searchQuery || undefined,
+        filterStatus === 'all' ? undefined : filterStatus,
+        sortField,
+        sortDirection
+      );
+      setClusters(response.clusters);
+      setTotalCount(response.pagination.total);
     } catch (error) {
       console.error('Failed to load clusters:', error);
       toast.error('Failed to load clusters');
@@ -49,65 +67,8 @@ export default function Clusters() {
     }
   };
 
-  // Filter and sort
-  const filteredAndSortedClusters = useMemo(() => {
-    let filtered = clusters;
-
-    // Apply status filter
-    if (filterStatus === 'matched') {
-      filtered = filtered.filter(c => c.mb_release_id !== null);
-    } else if (filterStatus === 'unmatched') {
-      filtered = filtered.filter(c => c.mb_release_id === null);
-    } else if (filterStatus === 'locked') {
-      filtered = filtered.filter(c => c.match_locked);
-    }
-
-    // Apply search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(cluster =>
-        cluster.album?.toLowerCase().includes(query) ||
-        cluster.album_artist?.toLowerCase().includes(query) ||
-        cluster.mb_release_title?.toLowerCase().includes(query) ||
-        cluster.mb_release_artist?.toLowerCase().includes(query)
-      );
-    }
-
-    // Apply sorting
-    filtered.sort((a, b) => {
-      let aVal: any;
-      let bVal: any;
-
-      switch (sortField) {
-        case 'album':
-          aVal = a.album || a.mb_release_title || '';
-          bVal = b.album || b.mb_release_title || '';
-          break;
-        case 'artist':
-          aVal = a.album_artist || a.mb_release_artist || '';
-          bVal = b.album_artist || b.mb_release_artist || '';
-          break;
-        case 'confidence':
-          aVal = a.mb_confidence ?? -1;
-          bVal = b.mb_confidence ?? -1;
-          break;
-        case 'status':
-          aVal = a.mb_release_id ? 1 : 0;
-          bVal = b.mb_release_id ? 1 : 0;
-          break;
-        case 'track_count':
-          aVal = a.track_count;
-          bVal = b.track_count;
-          break;
-      }
-
-      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
-    });
-
-    return filtered;
-  }, [clusters, searchQuery, sortField, sortDirection, filterStatus]);
+  // Stats are now calculated on the backend based on the current filters
+  // We show stats for the filtered results
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -131,13 +92,15 @@ export default function Clusters() {
     return <CheckCircle2 className="h-4 w-4 text-green-400" />;
   };
 
+  // Stats - showing total count from pagination response
+  // Note: matched/unmatched/locked counts are based on current page only
   const stats = useMemo(() => {
-    const total = clusters.length;
+    const total = totalCount;
     const matched = clusters.filter(c => c.mb_release_id).length;
-    const unmatched = total - matched;
+    const unmatched = clusters.filter(c => !c.mb_release_id).length;
     const locked = clusters.filter(c => c.match_locked).length;
     return { total, matched, unmatched, locked };
-  }, [clusters]);
+  }, [clusters, totalCount]);
 
   if (loading) {
     return (
@@ -308,7 +271,7 @@ export default function Clusters() {
             </tr>
           </thead>
           <tbody>
-            {filteredAndSortedClusters.map((cluster, index) => (
+            {clusters.map((cluster, index) => (
               <tr
                 key={cluster.id}
                 className={`hover:bg-dark-bg-elevated transition-colors border-b border-dark-border ${
@@ -429,7 +392,7 @@ export default function Clusters() {
           </tbody>
         </table>
 
-        {filteredAndSortedClusters.length === 0 && (
+        {clusters.length === 0 && (
           <div className="p-12 text-center">
             <Filter className="mx-auto h-12 w-12 text-dark-text-tertiary" />
             <h3 className="mt-4 text-sm font-medium text-dark-text">No clusters found</h3>
@@ -440,9 +403,32 @@ export default function Clusters() {
         )}
       </div>
 
-      <div className="mt-4 text-sm text-dark-text-secondary text-center">
-        Showing {filteredAndSortedClusters.length} of {clusters.length} clusters
-      </div>
+      {/* Pagination Controls */}
+      {totalCount > ITEMS_PER_PAGE && (
+        <div className="flex items-center justify-between border-t border-dark-border pt-4 mt-4">
+          <div className="text-sm text-dark-text-secondary">
+            Showing {offset + 1}-{Math.min(offset + ITEMS_PER_PAGE, totalCount)} of {totalCount}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setOffset((o) => Math.max(0, o - ITEMS_PER_PAGE))}
+              disabled={offset === 0}
+              className="p-2 rounded-lg border border-dark-border hover:bg-dark-bg-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Previous page"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              onClick={() => setOffset((o) => Math.min(totalCount - ITEMS_PER_PAGE, o + ITEMS_PER_PAGE))}
+              disabled={offset + ITEMS_PER_PAGE >= totalCount}
+              className="p-2 rounded-lg border border-dark-border hover:bg-dark-bg-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Next page"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Rematch Modal */}
       {rematchingCluster && (
