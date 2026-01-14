@@ -4,8 +4,10 @@ import { Cluster, CandidateRelease } from '../types/api';
 import { api } from '../lib/api';
 import toast from 'react-hot-toast';
 import { IdentificationNav } from '../components/IdentificationNav';
+import { PaginationControls } from '../components/PaginationControls';
+import { usePagination } from '../hooks/usePagination';
 import Tracks from './Tracks';
-import { Disc, ExternalLink, X, RefreshCw, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Disc, ExternalLink, X, RefreshCw, Loader2 } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 50;
 
@@ -16,12 +18,11 @@ function ClustersView() {
   const [candidates, setCandidates] = useState<CandidateRelease[]>([]);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
   const [assigningRelease, setAssigningRelease] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const [totalCount, setTotalCount] = useState(0);
+  const pagination = usePagination(ITEMS_PER_PAGE);
 
   useEffect(() => {
     loadClusters();
-  }, [offset]);
+  }, [pagination.offset]);
 
   useEffect(() => {
     if (selectedCluster) {
@@ -34,9 +35,9 @@ function ClustersView() {
   const loadClusters = async () => {
     try {
       setLoading(true);
-      const response = await api.getClusters(offset, ITEMS_PER_PAGE);
+      const response = await api.getClusters(pagination.offset, ITEMS_PER_PAGE);
       setClusters(response.clusters);
-      setTotalCount(response.pagination.total);
+      pagination.setTotalCount(response.pagination.total);
     } catch (error) {
       console.error('Failed to load clusters:', error);
       toast.error('Failed to load clusters');
@@ -94,7 +95,7 @@ function ClustersView() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
-        <h1 className="text-3xl font-bold text-dark-text">Album Identification</h1>
+        <h1 className="text-3xl font-bold text-dark-text">Cluster Identification</h1>
         <p className="text-dark-text-secondary mt-2">
           Manage MusicBrainz matches for your album clusters
         </p>
@@ -210,33 +211,17 @@ function ClustersView() {
               </tbody>
             </table>
           </div>
-
-          {/* Pagination */}
-          {totalCount > ITEMS_PER_PAGE && (
-            <div className="px-6 py-4 border-t border-dark-border flex items-center justify-between">
-              <div className="text-sm text-dark-text-secondary">
-                Showing {offset + 1}-{Math.min(offset + ITEMS_PER_PAGE, totalCount)} of {totalCount}
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setOffset((o) => Math.max(0, o - ITEMS_PER_PAGE))}
-                  disabled={offset === 0}
-                  className="btn-secondary px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft size={16} />
-                </button>
-                <button
-                  onClick={() => setOffset((o) => Math.min(totalCount - ITEMS_PER_PAGE, o + ITEMS_PER_PAGE))}
-                  disabled={offset + ITEMS_PER_PAGE >= totalCount}
-                  className="btn-secondary px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight size={16} />
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       )}
+
+      <PaginationControls
+        offset={pagination.offset}
+        limit={ITEMS_PER_PAGE}
+        total={pagination.totalCount}
+        onPrevPage={pagination.prevPage}
+        onNextPage={pagination.nextPage}
+        itemName="clusters"
+      />
 
       {/* Cluster detail panel */}
       {selectedCluster && (

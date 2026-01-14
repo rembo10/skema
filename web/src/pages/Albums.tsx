@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '../lib/api';
 import toast from 'react-hot-toast';
+import { PaginationControls } from '../components/PaginationControls';
+import { usePagination } from '../hooks/usePagination';
 import {
   AlbumState,
   CatalogAlbumOverview,
@@ -18,8 +20,6 @@ import {
   AlertCircle,
   Eye,
   ArrowUpCircle,
-  ChevronLeft,
-  ChevronRight,
   Filter,
   X,
   Disc,
@@ -56,8 +56,7 @@ export default function Albums() {
   const [searchFilter, setSearchFilter] = useState('');
   const [sortBy, setSortBy] = useState<'title' | 'artist' | 'date'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [offset, setOffset] = useState(0);
-  const [totalCount, setTotalCount] = useState(0);
+  const pagination = usePagination(ITEMS_PER_PAGE);
   const [showReleasesModal, setShowReleasesModal] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<CatalogAlbumOverview | null>(null);
   const [searchingReleases, setSearchingReleases] = useState(false);
@@ -65,14 +64,13 @@ export default function Albums() {
   const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
   const [defaultProfile, setDefaultProfile] = useState<QualityProfile | null>(null);
   const [selectedAlbumIds, setSelectedAlbumIds] = useState<Set<number>>(new Set());
-  const [selectedQualityFilter, setSelectedQualityFilter] = useState<string | null>(null);
 
   // Debounce search input
   useEffect(() => {
     setSearching(true);
     const timer = setTimeout(() => {
       setSearchFilter(searchInput);
-      setOffset(0);
+      pagination.resetOffset();
       setSearching(false);
     }, 500);
     return () => {
@@ -83,10 +81,9 @@ export default function Albums() {
 
   useEffect(() => {
     loadAlbums();
-    // Clear selections and quality filter when tab changes
+    // Clear selections when tab changes
     setSelectedAlbumIds(new Set());
-    setSelectedQualityFilter(null);
-  }, [activeTab, offset, searchFilter, sortBy, sortOrder]);
+  }, [activeTab, pagination.offset, searchFilter, sortBy, sortOrder]);
 
   useEffect(() => {
     loadQualityProfiles();
@@ -117,7 +114,7 @@ export default function Albums() {
         : ['InLibrary', 'Monitored', 'Upgrading'] as AlbumState[];
 
       const request: AlbumOverviewRequest = {
-        offset,
+        offset: pagination.offset,
         limit: ITEMS_PER_PAGE,
         search: searchFilter || undefined,
         sort: sortBy,
@@ -134,7 +131,7 @@ export default function Albums() {
       }
 
       setAlbums(response.albums || []);
-      setTotalCount(response.pagination.total);
+      pagination.setTotalCount(response.pagination.total);
     } catch (error) {
       console.error('Failed to load albums:', error);
       toast.error('Failed to load albums');
@@ -220,15 +217,15 @@ export default function Albums() {
       setSortBy(column);
       setSortOrder('desc');
     }
-    setOffset(0);
+    pagination.resetOffset();
   };
 
   // Bulk actions
   const toggleSelectAll = () => {
-    if (selectedAlbumIds.size === filteredAlbums.length) {
+    if (selectedAlbumIds.size === albums.length) {
       setSelectedAlbumIds(new Set());
     } else {
-      setSelectedAlbumIds(new Set(filteredAlbums.map(a => a.id)));
+      setSelectedAlbumIds(new Set(albums.map(a => a.id)));
     }
   };
 
@@ -375,14 +372,6 @@ export default function Albums() {
     );
   };
 
-  // Filter albums by selected quality (client-side)
-  const filteredAlbums = albums.filter(album => {
-    if (selectedQualityFilter === null) return true;
-    return album.current_quality === selectedQualityFilter;
-  });
-
-  // Get unique quality levels from current albums for filter badges
-  const availableQualities = Array.from(new Set(albums.map(a => a.current_quality).filter(q => q !== null))) as string[];
 
   if (loading) {
     return (
@@ -399,7 +388,7 @@ export default function Albums() {
         <button
           onClick={() => {
             setActiveTab('unacquired');
-            setOffset(0);
+            pagination.resetOffset();
           }}
           className={`px-4 py-2 font-medium border-b-2 transition-colors ${
             activeTab === 'unacquired'
@@ -412,7 +401,7 @@ export default function Albums() {
         <button
           onClick={() => {
             setActiveTab('library');
-            setOffset(0);
+            pagination.resetOffset();
           }}
           className={`px-4 py-2 font-medium border-b-2 transition-colors ${
             activeTab === 'library'
@@ -457,38 +446,6 @@ export default function Albums() {
             )}
           </div>
         </div>
-
-        {/* Quality Filter Badges (Library Tab Only) */}
-        {activeTab === 'library' && availableQualities.length > 0 && (
-          <div className="mt-4">
-            <div className="text-xs font-medium text-dark-text-tertiary mb-2">Filter by Quality:</div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setSelectedQualityFilter(null)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                  selectedQualityFilter === null
-                    ? 'bg-dark-accent text-dark-bg border-dark-accent'
-                    : 'bg-dark-bg-hover text-dark-text-secondary border-dark-border hover:border-dark-accent'
-                }`}
-              >
-                All
-              </button>
-              {availableQualities.sort().map((quality) => (
-                <button
-                  key={quality}
-                  onClick={() => setSelectedQualityFilter(quality)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                    selectedQualityFilter === quality
-                      ? getQualityBadgeStyle(quality) + ' ring-2 ring-dark-accent ring-offset-2 ring-offset-dark-bg'
-                      : getQualityBadgeStyle(quality) + ' opacity-70 hover:opacity-100'
-                  }`}
-                >
-                  {formatQuality(quality)}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
         </div>
       </div>
 
@@ -604,9 +561,9 @@ export default function Albums() {
                       <button
                         onClick={toggleSelectAll}
                         className="text-dark-text-tertiary hover:text-dark-text transition-colors"
-                        title={selectedAlbumIds.size === filteredAlbums.length ? 'Deselect all' : 'Select all'}
+                        title={selectedAlbumIds.size === albums.length ? 'Deselect all' : 'Select all'}
                       >
-                        {selectedAlbumIds.size === filteredAlbums.length && filteredAlbums.length > 0 ? (
+                        {selectedAlbumIds.size === albums.length && albums.length > 0 ? (
                           <CheckSquare className="h-4 w-4" />
                         ) : (
                           <Square className="h-4 w-4" />
@@ -639,7 +596,7 @@ export default function Albums() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-dark-border">
-                  {filteredAlbums.map((album) => (
+                  {albums.map((album) => (
                     <tr key={album.id} className="hover:bg-dark-bg-hover transition-colors duration-150">
                       <td className="px-6 py-4">
                         <button
@@ -778,30 +735,14 @@ export default function Albums() {
             </div>
           </div>
 
-          {/* Pagination */}
-          {totalCount > ITEMS_PER_PAGE && (
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-dark-text-secondary">
-                Showing {offset + 1}-{Math.min(offset + ITEMS_PER_PAGE, totalCount)} of {totalCount}
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setOffset((o) => Math.max(0, o - ITEMS_PER_PAGE))}
-                  disabled={offset === 0}
-                  className="btn-secondary px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft size={16} />
-                </button>
-                <button
-                  onClick={() => setOffset((o) => Math.min(totalCount - ITEMS_PER_PAGE, o + ITEMS_PER_PAGE))}
-                  disabled={offset + ITEMS_PER_PAGE >= totalCount}
-                  className="btn-secondary px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight size={16} />
-                </button>
-              </div>
-            </div>
-          )}
+          <PaginationControls
+            offset={pagination.offset}
+            limit={ITEMS_PER_PAGE}
+            total={pagination.totalCount}
+            onPrevPage={pagination.prevPage}
+            onNextPage={pagination.nextPage}
+            itemName="albums"
+          />
         </>
       )}
 

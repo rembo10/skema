@@ -4,6 +4,8 @@ import { api } from '../lib/api';
 import toast from 'react-hot-toast';
 import { IdentificationNav } from '../components/IdentificationNav';
 import { RematchModal } from '../components/identification/RematchModal';
+import { PaginationControls } from '../components/PaginationControls';
+import { usePagination } from '../hooks/usePagination';
 import {
   Loader2,
   Search,
@@ -15,8 +17,6 @@ import {
   RefreshCw,
   Filter,
   Edit2,
-  ChevronLeft,
-  ChevronRight,
 } from 'lucide-react';
 
 type SortField = 'album' | 'artist' | 'confidence' | 'status' | 'track_count';
@@ -34,23 +34,22 @@ export default function Clusters() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [rematchingCluster, setRematchingCluster] = useState<Cluster | null>(null);
-  const [offset, setOffset] = useState(0);
-  const [totalCount, setTotalCount] = useState(0);
+  const pagination = usePagination(ITEMS_PER_PAGE);
 
   // Reset offset when filters change
   useEffect(() => {
-    setOffset(0);
+    pagination.resetOffset();
   }, [searchQuery, filterStatus, sortField, sortDirection]);
 
   useEffect(() => {
     loadData();
-  }, [offset, searchQuery, filterStatus, sortField, sortDirection]);
+  }, [pagination.offset, searchQuery, filterStatus, sortField, sortDirection]);
 
   const loadData = async () => {
     try {
       setLoading(true);
       const response = await api.getClusters(
-        offset,
+        pagination.offset,
         ITEMS_PER_PAGE,
         searchQuery || undefined,
         filterStatus === 'all' ? undefined : filterStatus,
@@ -58,7 +57,7 @@ export default function Clusters() {
         sortDirection
       );
       setClusters(response.clusters);
-      setTotalCount(response.pagination.total);
+      pagination.setTotalCount(response.pagination.total);
     } catch (error) {
       console.error('Failed to load clusters:', error);
       toast.error('Failed to load clusters');
@@ -66,9 +65,6 @@ export default function Clusters() {
       setLoading(false);
     }
   };
-
-  // Stats are now calculated on the backend based on the current filters
-  // We show stats for the filtered results
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -95,12 +91,12 @@ export default function Clusters() {
   // Stats - showing total count from pagination response
   // Note: matched/unmatched/locked counts are based on current page only
   const stats = useMemo(() => {
-    const total = totalCount;
+    const total = pagination.totalCount;
     const matched = clusters.filter(c => c.mb_release_id).length;
     const unmatched = clusters.filter(c => !c.mb_release_id).length;
     const locked = clusters.filter(c => c.match_locked).length;
     return { total, matched, unmatched, locked };
-  }, [clusters, totalCount]);
+  }, [clusters, pagination.totalCount]);
 
   if (loading) {
     return (
@@ -210,7 +206,7 @@ export default function Clusters() {
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto card">
+      <div className="card overflow-auto">
         <table className="w-full">
           <thead className="sticky top-0 bg-dark-bg-elevated border-b border-dark-border">
             <tr>
@@ -403,32 +399,14 @@ export default function Clusters() {
         )}
       </div>
 
-      {/* Pagination Controls */}
-      {totalCount > ITEMS_PER_PAGE && (
-        <div className="flex items-center justify-between border-t border-dark-border pt-4 mt-4">
-          <div className="text-sm text-dark-text-secondary">
-            Showing {offset + 1}-{Math.min(offset + ITEMS_PER_PAGE, totalCount)} of {totalCount}
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setOffset((o) => Math.max(0, o - ITEMS_PER_PAGE))}
-              disabled={offset === 0}
-              className="p-2 rounded-lg border border-dark-border hover:bg-dark-bg-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Previous page"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <button
-              onClick={() => setOffset((o) => Math.min(totalCount - ITEMS_PER_PAGE, o + ITEMS_PER_PAGE))}
-              disabled={offset + ITEMS_PER_PAGE >= totalCount}
-              className="p-2 rounded-lg border border-dark-border hover:bg-dark-bg-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Next page"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-        </div>
-      )}
+      <PaginationControls
+        offset={pagination.offset}
+        limit={ITEMS_PER_PAGE}
+        total={pagination.totalCount}
+        onPrevPage={pagination.prevPage}
+        onNextPage={pagination.nextPage}
+        itemName="clusters"
+      />
 
       {/* Rematch Modal */}
       {rematchingCluster && (
