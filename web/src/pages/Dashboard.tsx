@@ -215,7 +215,7 @@ export default function Dashboard() {
           title="Metadata Diffs"
           value={formattedStats?.totalDiffs ?? '0'}
           icon={<AlertTriangle className="w-5 h-5" />}
-          to="/diffs"
+          to="/library/diffs"
           accent={stats !== null && stats.total_diffs > 0}
         />
       </div>
@@ -225,7 +225,7 @@ export default function Dashboard() {
         <div className="flex items-start justify-between mb-4">
           <h2 className="text-lg font-semibold text-dark-text">Metadata Accuracy</h2>
           {stats && stats.total_diffs > 0 && (
-            <Link to="/diffs" className="link text-sm">View diffs →</Link>
+            <Link to="/library/diffs" className="link text-sm">View diffs →</Link>
           )}
         </div>
         <div className="flex items-center">
