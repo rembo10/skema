@@ -228,19 +228,17 @@ handleClustersGenerated IdentifierDeps{..} groupsNeedingId = do
                         , identifiedTrackCount = numTracks
                         }
 
-                      -- Emit LIBRARY_ARTIST_FOUND events for all artists
-                      -- This handles collaborative albums (e.g., Jay-Z & Kanye West)
-                      -- The Acquisition service will handle deduplication
-                      let artists = mbReleaseArtists release
-
-                      -- Emit event for each artist
-                      forM_ artists $ \(artistId, artName) -> do
-                        publishAndLog bus le "identifier" $ LibraryArtistFound
-                          { foundArtistMBID = unMBID artistId
-                          , foundArtistName = artName
-                          , foundClusterId = cid
-                          , foundReleaseGroupId = releaseGroupId
-                          }
+                      -- Emit LIBRARY_ARTIST_FOUND event for the primary artist only
+                      -- This prevents featured/secondary artists from being auto-followed
+                      case mbReleaseArtistId release of
+                        Just artistId -> do
+                          publishAndLog bus le "identifier" $ LibraryArtistFound
+                            { foundArtistMBID = unMBID artistId
+                            , foundArtistName = mbReleaseArtist release
+                            , foundClusterId = cid
+                            , foundReleaseGroupId = releaseGroupId
+                            }
+                        Nothing -> pure ()  -- No primary artist (shouldn't happen)
 
                       pure True  -- Successfully processed
                     Nothing -> pure False
