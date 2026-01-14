@@ -50,6 +50,7 @@ interface AppStore {
   setFollowedArtists: (artists: CatalogArtist[]) => void;
   addFollowedArtist: (artist: CatalogArtist) => void;
   removeFollowedArtist: (artistId: number) => void;
+  updateFollowedArtist: (artistId: number, updates: Partial<CatalogArtist>) => void;
   updateFollowedArtistImage: (mbid: string, imageUrl: string, thumbnailUrl: string | null) => void;
   updateFollowedArtistImageById: (artistId: number, imageUrl: string, thumbnailUrl: string | null) => void;
   updateFollowedArtistId: (mbid: string, artistId: number) => void;
@@ -197,6 +198,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
   removeFollowedArtist: (artistId) =>
     set((state) => ({
       followedArtists: state.followedArtists.filter((a) => a.id !== artistId),
+    })),
+
+  updateFollowedArtist: (artistId, updates) =>
+    set((state) => ({
+      followedArtists: state.followedArtists.map((a) =>
+        a.id === artistId ? { ...a, ...updates } : a
+      ),
     })),
 
   updateFollowedArtistImage: (mbid, imageUrl, thumbnailUrl) =>

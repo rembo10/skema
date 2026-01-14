@@ -1,35 +1,39 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
-import type { CatalogArtist, CatalogAlbum } from '../types/api';
+import type { CatalogArtist } from '../types/api';
 import { Music, ExternalLink, Calendar, Disc, UserMinus, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAppStore } from '../store';
 
 const ITEMS_PER_PAGE = 50;
 
 export default function FollowedArtists() {
-  // Local state - no longer using store for paginated data
-  const [artists, setArtists] = useState<CatalogArtist[]>([]);
-  const [catalogAlbums, setCatalogAlbums] = useState<CatalogAlbum[]>([]);
+  // Use global store for real-time updates
+  const followedArtists = useAppStore((state) => state.followedArtists);
+  const catalogAlbums = useAppStore((state) => state.catalogAlbums);
+  const setFollowedArtists = useAppStore((state) => state.setFollowedArtists);
+  const setCatalogAlbums = useAppStore((state) => state.setCatalogAlbums);
+  const removeFollowedArtist = useAppStore((state) => state.removeFollowedArtist);
+
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [offset, setOffset] = useState(0);
-  const [totalCount, setTotalCount] = useState(0);
 
   useEffect(() => {
     loadData();
-  }, [offset]);
+  }, []);
 
   const loadData = async () => {
     try {
       setLoading(true);
+      // Load all followed artists and albums into the store
       const [artistsResponse, albumsData] = await Promise.all([
-        api.getCatalogArtists(offset, ITEMS_PER_PAGE, true), // Get only followed artists with pagination
+        api.getCatalogArtists(0, 1000, true), // Get all followed artists
         api.getCatalogAlbums(),      // Get all albums (both wanted and in library)
       ]);
-      setArtists(artistsResponse.artists);
-      setTotalCount(artistsResponse.pagination.total);
+      setFollowedArtists(artistsResponse.artists);
       setCatalogAlbums(albumsData);
     } catch (error) {
       toast.error('Failed to load followed artists');
@@ -38,6 +42,19 @@ export default function FollowedArtists() {
       setLoading(false);
     }
   };
+
+  // Client-side pagination and filtering
+  const filteredArtists = useMemo(() => {
+    return followedArtists.filter(artist =>
+      artist.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [followedArtists, searchQuery]);
+
+  const paginatedArtists = useMemo(() => {
+    return filteredArtists.slice(offset, offset + ITEMS_PER_PAGE);
+  }, [filteredArtists, offset]);
+
+  const totalCount = filteredArtists.length;
 
   const getAlbumsForArtist = (artistMBID: string) => {
     return catalogAlbums.filter(album => album.artist_mbid === artistMBID);
@@ -48,9 +65,8 @@ export default function FollowedArtists() {
 
     try {
       await api.updateCatalogArtist(artist.id, false);
-      // Remove from local state
-      setArtists(artists.filter(a => a.id !== artist.id));
-      setTotalCount(prev => prev - 1);
+      // Remove from global store
+      removeFollowedArtist(artist.id);
       toast.success(`Unfollowed ${artist.name}`);
     } catch (error) {
       toast.error('Failed to unfollow artist');
@@ -71,9 +87,6 @@ export default function FollowedArtists() {
     }
   };
 
-  const filteredArtists = artists.filter(artist =>
-    artist.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'Unknown';
@@ -99,10 +112,10 @@ export default function FollowedArtists() {
         <div>
           <h1 className="text-3xl font-bold text-dark-text">Followed Artists</h1>
           <p className="text-dark-text-secondary mt-2">
-            {artists.length} followed artist{artists.length !== 1 ? 's' : ''} • {catalogAlbums.filter(a => a.wanted).length} wanted album{catalogAlbums.filter(a => a.wanted).length !== 1 ? 's' : ''}
+            {followedArtists.length} followed artist{followedArtists.length !== 1 ? 's' : ''} • {catalogAlbums.filter(a => a.wanted).length} wanted album{catalogAlbums.filter(a => a.wanted).length !== 1 ? 's' : ''}
           </p>
         </div>
-        {artists.length > 0 && (
+        {followedArtists.length > 0 && (
           <button
             onClick={handleRefreshAll}
             disabled={refreshing}
@@ -127,7 +140,7 @@ export default function FollowedArtists() {
       </div>
 
       {/* Artists Grid */}
-      {filteredArtists.length === 0 ? (
+      {paginatedArtists.length === 0 ? (
         <div className="card p-12 text-center">
           <Music className="mx-auto h-12 w-12 text-dark-text-tertiary" />
           <h3 className="mt-4 text-sm font-medium text-dark-text">No followed artists</h3>
@@ -137,7 +150,7 @@ export default function FollowedArtists() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredArtists.map((artist) => {
+          {paginatedArtists.map((artist) => {
             const artistAlbums = getAlbumsForArtist(artist.mbid);
             const wantedCount = artistAlbums.filter(a => a.wanted).length;
             const inLibraryCount = artistAlbums.filter(a => a.matched_cluster_id !== null).length;

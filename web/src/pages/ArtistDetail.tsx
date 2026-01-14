@@ -9,15 +9,28 @@ import { useAppStore } from '../store';
 export default function ArtistDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [artist, setArtist] = useState<CatalogArtist | null>(null);
   const catalogAlbums = useAppStore((state) => state.catalogAlbums);
+  const followedArtists = useAppStore((state) => state.followedArtists);
   const setCatalogAlbums = useAppStore((state) => state.setCatalogAlbums);
   const updateCatalogAlbum = useAppStore((state) => state.updateCatalogAlbum);
+  const updateFollowedArtist = useAppStore((state) => state.updateFollowedArtist);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
   const [defaultProfile, setDefaultProfile] = useState<QualityProfile | null>(null);
+  const [localArtist, setLocalArtist] = useState<CatalogArtist | null>(null);
+
+  // Get artist from store or local state
+  const artist = useMemo(() => {
+    if (!id) return null;
+    const artistId = parseInt(id, 10);
+    if (isNaN(artistId)) return null;
+
+    // Prefer the followed artist from the store (always up-to-date)
+    const storeArtist = followedArtists.find(a => a.id === artistId);
+    return storeArtist || localArtist;
+  }, [id, followedArtists, localArtist]);
 
   // Filter albums for the current artist
   const albums = useMemo(() => {
@@ -84,7 +97,7 @@ export default function ArtistDetail() {
       // Load albums for this artist using internal ID
       const albumsData = await api.getCatalogAlbums(undefined, foundArtist.id);
 
-      setArtist(foundArtist);
+      setLocalArtist(foundArtist);
 
       // Merge albums into the global store (don't replace all albums, just add new ones)
       const newAlbums = albumsData.filter(album =>
@@ -184,7 +197,11 @@ export default function ArtistDetail() {
     try {
       const newProfileId = profileId === '' ? null : parseInt(profileId, 10);
       const updatedArtist = await api.updateCatalogArtist(artist.id, artist.followed, newProfileId);
-      setArtist(updatedArtist);
+
+      // Update both local state and the global store
+      setLocalArtist(updatedArtist);
+      updateFollowedArtist(artist.id, { quality_profile_id: updatedArtist.quality_profile_id });
+
       toast.success(newProfileId === null ? 'Using default quality profile' : 'Quality profile updated');
     } catch (error) {
       toast.error('Failed to update quality profile');

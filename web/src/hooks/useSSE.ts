@@ -19,6 +19,7 @@ export function useSSE(enabled: boolean = true) {
     setStats,
     setGroupedDiffsStale,
     updateFollowedArtistImageById,
+    updateFollowedArtist,
     addFollowedArtist,
     addCatalogAlbum,
     updateAlbumCover,
@@ -457,12 +458,35 @@ export function useSSE(enabled: boolean = true) {
         });
       });
 
+      eventSource.addEventListener('ArtistDiscographyFetched', async (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          // Show a brief status notification
+          setStatusWithTimeout({
+            type: 'success',
+            message: `Fetched ${data.releaseGroupCount} albums for artist`,
+          }, 3000);
+
+          // Reload the artist to get updated last_checked_at
+          // We need to fetch the updated artist data since the event doesn't include it
+          const { api } = await import('../lib/api');
+          const artists = await api.getCatalogArtists(0, 1000);
+          const updatedArtist = artists.artists.find((a: any) => a.mbid === data.artistMBID);
+          if (updatedArtist) {
+            updateFollowedArtist(updatedArtist.id, {
+              last_checked_at: updatedArtist.last_checked_at,
+            });
+          }
+        } catch (error) {
+          console.error('Error handling ArtistDiscographyFetched:', error);
+        }
+      });
+
       // Additional events that don't have specific UI handling
       eventSource.addEventListener('FileSystemDiffGenerated', () => {});
       eventSource.addEventListener('LibraryArtistFound', () => {});
       eventSource.addEventListener('CatalogArtistFollowed', () => {});
       eventSource.addEventListener('CatalogArtistRefreshRequested', () => {});
-      eventSource.addEventListener('ArtistDiscographyFetched', () => {});
       eventSource.addEventListener('WantedAlbumAdded', () => {});
       eventSource.addEventListener('AlbumSearchStarted', () => {});
       eventSource.addEventListener('IndexerSearchCompleted', () => {});
