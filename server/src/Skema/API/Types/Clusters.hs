@@ -98,10 +98,10 @@ data ClustersPagination = ClustersPagination
   } deriving (Show, Eq, Generic)
 
 instance ToJSON ClustersPagination where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
 
 instance FromJSON ClustersPagination where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
 
 -- | Paginated clusters response.
 data ClustersResponse = ClustersResponse
