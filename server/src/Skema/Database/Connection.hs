@@ -39,7 +39,10 @@ createConnectionPool le config = do
   runKatipContextT le initialContext initialNamespace $ do
     $(logTM) InfoS $ logStr ("Connecting to SQLite database: " <> toText (dbPath config) :: Text)
 
-  newPool $ defaultPoolConfig
+  -- Use single stripe for optimal resource utilization
+  -- With bounded concurrency in the scanner (limited to CPU cores),
+  -- contention is minimal and a single stripe provides best connection sharing
+  newPool $ setNumStripes (Just 1) $ defaultPoolConfig
     (do
       conn <- SQLite.open (dbPath config)
       -- Enable WAL mode for better concurrency

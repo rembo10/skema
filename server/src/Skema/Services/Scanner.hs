@@ -19,19 +19,20 @@ import Skema.Database.Repository (upsertTrackWithMetadata, getLibrarySnapshot, g
 import qualified Skema.Database.Types as DBTypes
 import qualified System.OsPath as OP
 import Control.Concurrent.Async (Async, async, mapConcurrently)
+import Control.Concurrent.QSem (QSem, newQSem, waitQSem, signalQSem)
 import qualified Control.Concurrent.STM as STM
-import Control.Exception (try)
+import Control.Exception (try, bracket_)
+import GHC.Conc (getNumCapabilities)
 import Katip
 
--- | Maximum number of concurrent file operations.
--- This prevents resource exhaustion when scanning large libraries.
-maxConcurrentFiles :: Int
-maxConcurrentFiles = 50
-
--- | Split a list into chunks of the given size.
-chunksOf :: Int -> [a] -> [[a]]
-chunksOf _ [] = []
-chunksOf n xs = take n xs : chunksOf n (drop n xs)
+-- | Map a function over a list with bounded concurrency.
+-- Uses a semaphore to limit the number of concurrent operations.
+pooledMapConcurrently :: Int -> (a -> IO b) -> [a] -> IO [b]
+pooledMapConcurrently maxWorkers f xs = do
+  sem <- newQSem maxWorkers
+  mapConcurrently (withSem sem . f) xs
+  where
+    withSem sem action = bracket_ (waitQSem sem) (signalQSem sem) action
 
 -- | Start the scanner service.
 --
@@ -129,14 +130,13 @@ handleScanRequest ScannerDeps{..} scanPathText forceRescan = do
             { filesToRead = totalToRead
             }
 
-          -- Process files in bounded chunks to prevent resource exhaustion
-          -- Split into chunks and process each chunk concurrently
-          let chunks = chunksOf maxConcurrentFiles filesToRead
-          $(logTM) InfoS $ logStr $ ("Processing " <> show totalToRead <> " files in " <> show (length chunks) <> " chunks of max " <> show maxConcurrentFiles :: Text)
+          -- Get number of CPU cores for bounded concurrency
+          maxWorkers <- liftIO getNumCapabilities
+          $(logTM) InfoS $ logStr $ ("Processing " <> show totalToRead <> " files with " <> show maxWorkers <> " concurrent workers" :: Text)
 
-          liftIO $ forM_ chunks $ \chunk -> do
-            -- Process this chunk concurrently
-            _ <- mapConcurrently (\path -> do
+          -- Process all files with bounded concurrency (no chunking needed)
+          liftIO $ do
+            _ <- pooledMapConcurrently maxWorkers (\path -> do
               -- Read metadata
               pathStr <- OP.decodeUtf path
               runKatipContextT le initialContext initialNamespace $ do
@@ -175,8 +175,8 @@ handleScanRequest ScannerDeps{..} scanPathText forceRescan = do
               when (percentComplete /= prevPercentComplete && percentComplete `mod` 10 == 0) $ do
                 runKatipContextT le initialContext initialNamespace $ do
                   $(logTM) InfoS $ logStr $ ("Metadata read progress: " <> show percentComplete <> "% (" <> show processed <> "/" <> show totalToRead <> ")" :: Text)
-              ) chunk  -- End of mapConcurrently lambda and apply to chunk
-            pure ()  -- End of forM_ chunk iteration
+              ) filesToRead  -- End of pooledMapConcurrently
+            pure ()
 
           -- Get final error count
           parseErrors <- liftIO $ STM.readTVarIO errorCounter
