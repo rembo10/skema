@@ -135,9 +135,10 @@ computeReleaseMatch fg allCandidates (release, releaseCostValue) =
       combinedCost = releaseCostValue * (0.3 :: Double) + totalCost * (0.7 :: Double)
 
       -- Confidence based on cost and match completeness
+      -- Clamp to [0.0, 1.0] range to handle edge cases where cost might be negative
       confidence = if totalTracks == 0
                    then 0.0
-                   else (1.0 - combinedCost) * (fromIntegral matchedCount / fromIntegral totalTracks :: Double)
+                   else max 0.0 $ min 1.0 $ (1.0 - combinedCost) * (fromIntegral matchedCount / fromIntegral totalTracks :: Double)
 
   in ReleaseMatch
     { rmFileGroup = fg
