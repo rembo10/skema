@@ -14,7 +14,7 @@ import Skema.Services.Common (metadataRecordToMonatone)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getAllClusters, getAllTracks, getMetadataForTrack, getTrackByPath, computeClusterHash, findClusterByHash, createCluster, updateTrackCluster)
+import Skema.Database.Repository (getAllClusters, getAllTracks, getMetadataForTrack, getTrackByPath, computeClusterHash, findClusterByHash, createCluster, updateTrackCluster, updateClusterQuality)
 import Skema.Database.Types (ClusterRecord(..), LibraryTrackRecord(..))
 import Skema.MusicBrainz.Matching (groupFilesByRelease)
 import Skema.MusicBrainz.Types (FileGroup(..))
@@ -109,8 +109,10 @@ handleMetadataReadComplete GrouperDeps{..} fileCount = do
         let validTrackIds = catMaybes trackIds
 
         -- Assign tracks to cluster
-        when (not (null validTrackIds)) $
+        when (not (null validTrackIds)) $ do
           updateTrackCluster conn clusterId validTrackIds
+          -- Compute and store cluster quality from track audio metadata
+          updateClusterQuality conn clusterId
 
         pure maybeCluster
 

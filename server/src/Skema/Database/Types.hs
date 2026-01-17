@@ -183,6 +183,7 @@ data ClusterRecord = ClusterRecord
   , clusterMBCandidates :: Maybe Text
   , clusterMatchSource :: Maybe MatchSource
   , clusterMatchLocked :: Bool
+  , clusterQuality :: Maybe Text
   } deriving (Show, Eq, Generic)
 
 -- | Source type for acquisition sources (providers).
@@ -500,8 +501,9 @@ instance SQLite.FromRow ClusterRecord where
     mbCands <- SQLite.field
     matchSrcText <- SQLite.field :: SQLite.RowParser (Maybe Text)
     matchLck <- toBool <$> SQLite.field
+    quality <- SQLite.field
     let matchSrc = matchSrcText >>= textToMatchSource
-    pure $ ClusterRecord cId metaHash album albumArtist trackCnt mbRelId mbRelGrpId mbConf createdAt updatedAt lastIdAt mbRelData mbCands matchSrc matchLck
+    pure $ ClusterRecord cId metaHash album albumArtist trackCnt mbRelId mbRelGrpId mbConf createdAt updatedAt lastIdAt mbRelData mbCands matchSrc matchLck quality
     where
       toBool :: Int -> Bool
       toBool 0 = False

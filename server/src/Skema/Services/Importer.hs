@@ -29,7 +29,7 @@ import Skema.Database.Repository
 import Skema.Database.Types (DownloadRecord(..), CatalogAlbumRecord(..))
 import qualified Skema.Database.Types as DB
 import Skema.Database.Utils (downloadStatusToText)
-import Skema.Domain.Quality (qualityToText, meetsOrExceedsCutoff)
+import Skema.Domain.Quality (qualityToText, textToQuality, meetsOrExceedsCutoff)
 import Skema.FileSystem.PathFormatter (PathContext(..), formatPath)
 import Skema.FileSystem.Utils (moveFile)
 import Skema.FileSystem.Trash (moveToTrash)
@@ -471,8 +471,10 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
 
                 -- Link all tracks to cluster
                 let validTrackIds = trackIds
-                liftIO $ withConnection pool $ \conn ->
+                liftIO $ withConnection pool $ \conn -> do
                   updateTrackCluster conn clusterId validTrackIds
+                  -- Compute and store cluster quality from track audio metadata
+                  updateClusterQuality conn clusterId
 
                 -- 13. Link download to cluster and set library path
                 liftIO $ withConnection pool $ \conn ->
@@ -480,15 +482,19 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
                     "UPDATE downloads SET matched_cluster_id = ?, library_path = ? WHERE id = ?"
                     (clusterId, dirPath, DB.downloadId downloadRec)
 
-                -- 14. Compute cluster quality from audio metadata and link catalog_album to cluster (if not already linked)
-                maybeQuality <- liftIO $ withConnection pool $ \conn ->
-                  computeClusterQuality conn clusterId
-                let qualityText = fmap qualityToText maybeQuality
+                -- 14. Get cluster quality (already computed and stored)
+                maybeCluster <- liftIO $ withConnection pool $ \conn ->
+                  getClusterById conn clusterId
 
+                let maybeQualityText = maybeCluster >>= DB.clusterQuality
+                let maybeQuality = maybeQualityText >>= textToQuality
+
+                -- Update catalog_albums.current_quality from cluster
                 liftIO $ withConnection pool $ \conn ->
                   executeQuery conn
-                    "UPDATE catalog_albums SET matched_cluster_id = ?, current_quality = ? WHERE id = ? AND matched_cluster_id IS NULL"
-                    (clusterId, qualityText, DB.catalogAlbumId catalogAlbum)
+                    "UPDATE catalog_albums SET current_quality = ?, updated_at = CURRENT_TIMESTAMP \
+                    \WHERE release_group_mbid = (SELECT mb_release_group_id FROM clusters WHERE id = ?)"
+                    (maybeQualityText, clusterId)
 
                 -- 14a. Check if imported quality meets cutoff - if yes, set wanted=false (album is "Finished")
                 shouldStopMonitoring <- liftIO $ withConnection pool $ \conn -> do

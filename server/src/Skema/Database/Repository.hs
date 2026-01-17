@@ -45,6 +45,7 @@ module Skema.Database.Repository
   , getAllClusters
   , getClusterWithTracks
   , computeClusterQuality
+  , updateClusterQuality
     -- * Stats operations
   , getLibraryStats
     -- * Scan history
@@ -123,6 +124,7 @@ import Skema.Database.Repository.Clusters
   , getAllClusters
   , getClusterWithTracks
   , computeClusterQuality
+  , updateClusterQuality
   )
 
 -- Re-export diff operations

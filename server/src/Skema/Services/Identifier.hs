@@ -14,7 +14,7 @@ import Skema.Services.Common (metadataRecordToMonatone)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getAllClusters, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster, getCatalogAlbumByReleaseGroupMBID, computeClusterQuality)
+import Skema.Database.Repository (getAllClusters, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster, getCatalogAlbumByReleaseGroupMBID)
 import Skema.Database.Types (ClusterRecord(..), LibraryTrackMetadataRecord(..))
 import qualified Skema.Database.Types as DBTypes
 import Skema.MusicBrainz.Identify (identifyFileGroup)
@@ -167,21 +167,7 @@ handleClustersGenerated IdentifierDeps{..} groupsNeedingId = do
 
                         -- Link catalog album to this cluster if it exists
                         case mbReleaseGroupId release of
-                          Just rgId -> do
-                            let releaseGroupMBID = unMBID rgId
-                            maybeCatalogAlbum <- getCatalogAlbumByReleaseGroupMBID conn releaseGroupMBID
-                            case maybeCatalogAlbum of
-                              Just catalogAlbum -> do
-                                -- Compute cluster quality from audio metadata
-                                maybeQuality <- computeClusterQuality conn cid
-                                let qualityText = fmap qualityToText maybeQuality
-
-                                -- Only update if not already linked
-                                updateTime <- getCurrentTime
-                                executeQuery conn
-                                  "UPDATE catalog_albums SET matched_cluster_id = ?, current_quality = ?, updated_at = ? WHERE id = ? AND matched_cluster_id IS NULL"
-                                  (cid, qualityText, updateTime, DBTypes.catalogAlbumId catalogAlbum)
-                              Nothing -> pure ()  -- No catalog album exists for this release group
+                          Just _rgId -> pure ()  -- Catalog album linking is handled by migration/overview query
                           Nothing -> pure ()  -- No release group ID in the match
 
                         -- Get track IDs for this cluster

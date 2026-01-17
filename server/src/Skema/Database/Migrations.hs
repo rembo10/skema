@@ -369,6 +369,79 @@ runIncrementalMigrations le conn = do
         recordMigration conn "004_drop_catalog_albums_matched_cluster_id"
       $(logTM) InfoS "Completed migration: 004_drop_catalog_albums_matched_cluster_id"
 
+    -- Migration 005: Add quality column to clusters table
+    applied005 <- liftIO $ migrationApplied conn "005_add_quality_to_clusters"
+    unless applied005 $ do
+      $(logTM) InfoS "Running migration: 005_add_quality_to_clusters"
+      liftIO $ do
+        -- Check if column already exists
+        qualityExists <- columnExists conn "clusters" "quality"
+        unless qualityExists $ do
+          -- Add quality column to clusters table
+          executeQuery_ conn
+            "ALTER TABLE clusters ADD COLUMN quality TEXT"
+
+          -- Create index on quality for faster queries
+          executeQuery_ conn
+            "CREATE INDEX IF NOT EXISTS idx_clusters_quality ON clusters(quality)"
+
+          -- Backfill quality for existing clusters by computing from their tracks
+          executeQuery_ conn
+            "UPDATE clusters \
+            \SET quality = ( \
+            \  SELECT \
+            \    CASE MIN( \
+            \      CASE quality \
+            \        WHEN 'unknown' THEN 1 \
+            \        WHEN 'mp3_192' THEN 2 \
+            \        WHEN 'vbr2' THEN 3 \
+            \        WHEN 'mp3_256' THEN 4 \
+            \        WHEN 'vbr0' THEN 5 \
+            \        WHEN 'mp3_320' THEN 6 \
+            \        WHEN 'lossless' THEN 7 \
+            \        WHEN 'hires_lossless' THEN 8 \
+            \        ELSE 0 \
+            \      END \
+            \    ) \
+            \      WHEN 1 THEN 'unknown' \
+            \      WHEN 2 THEN 'mp3_192' \
+            \      WHEN 3 THEN 'vbr2' \
+            \      WHEN 4 THEN 'mp3_256' \
+            \      WHEN 5 THEN 'vbr0' \
+            \      WHEN 6 THEN 'mp3_320' \
+            \      WHEN 7 THEN 'lossless' \
+            \      WHEN 8 THEN 'hires_lossless' \
+            \      ELSE NULL \
+            \    END \
+            \  FROM library_tracks \
+            \  WHERE library_tracks.cluster_id = clusters.id \
+            \    AND library_tracks.quality IS NOT NULL \
+            \) \
+            \WHERE EXISTS ( \
+            \  SELECT 1 FROM library_tracks \
+            \  WHERE library_tracks.cluster_id = clusters.id \
+            \    AND library_tracks.quality IS NOT NULL \
+            \)"
+
+          -- Backfill catalog_albums.current_quality from cluster quality
+          executeQuery_ conn
+            "UPDATE catalog_albums \
+            \SET current_quality = ( \
+            \  SELECT c.quality \
+            \  FROM clusters c \
+            \  WHERE c.mb_release_group_id = catalog_albums.release_group_mbid \
+            \), \
+            \updated_at = CURRENT_TIMESTAMP \
+            \WHERE current_quality IS NULL \
+            \  AND EXISTS ( \
+            \    SELECT 1 FROM clusters c \
+            \    WHERE c.mb_release_group_id = catalog_albums.release_group_mbid \
+            \      AND c.quality IS NOT NULL \
+            \  )"
+
+        recordMigration conn "005_add_quality_to_clusters"
+      $(logTM) InfoS "Completed migration: 005_add_quality_to_clusters"
+
 
 -- | Create the complete database schema.
 createSchema :: SQLite.Connection -> IO ()
@@ -485,6 +558,7 @@ createSchema conn = do
     \  mb_candidates TEXT, \
     \  match_source TEXT, \
     \  match_locked INTEGER NOT NULL DEFAULT 0, \
+    \  quality TEXT, \
     \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
     \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
     \  last_identified_at TIMESTAMP \
@@ -493,6 +567,7 @@ createSchema conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_clusters_metadata_hash ON clusters(metadata_hash)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_clusters_mb_release_id ON clusters(mb_release_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_clusters_match_locked ON clusters(match_locked)"
+  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_clusters_quality ON clusters(quality)"
 
   -- Create metadata_change_history table
   executeQuery_ conn

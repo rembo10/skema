@@ -16,6 +16,7 @@ module Skema.Database.Repository.Clusters
   , getClusterWithTracks
   , emptyMetadataRecord
   , computeClusterQuality
+  , updateClusterQuality
   ) where
 
 import Skema.Database.Connection
@@ -23,7 +24,7 @@ import Skema.Database.Types
 import Skema.Database.Utils (insertReturningId)
 import Skema.Database.Repository.Tracks (stringToOsPath)
 import Skema.MusicBrainz.Types (MBRelease(..), MBID(..), unMBID)
-import Skema.Domain.Quality (Quality(..), textToQuality)
+import Skema.Domain.Quality (Quality(..), textToQuality, qualityToText)
 import System.OsPath (OsPath)
 import Data.Time (getCurrentTime)
 import Data.List (minimum)
@@ -60,7 +61,7 @@ computeClusterHash album albumArtist trackCount =
 findClusterByHash :: SQLite.Connection -> Text -> IO (Maybe ClusterRecord)
 findClusterByHash conn hash = do
   results <- queryRows conn
-    "SELECT id, metadata_hash, album, album_artist, track_count, mb_release_id, mb_release_group_id, mb_confidence, created_at, updated_at, last_identified_at, mb_release_data, mb_candidates, match_source, match_locked \
+    "SELECT id, metadata_hash, album, album_artist, track_count, mb_release_id, mb_release_group_id, mb_confidence, created_at, updated_at, last_identified_at, mb_release_data, mb_candidates, match_source, match_locked, quality \
     \FROM clusters WHERE metadata_hash = ?"
     (Only hash)
   pure $ viaNonEmpty head results
@@ -141,7 +142,7 @@ updateTrackCluster conn cid trackIds = do
 getClusterById :: SQLite.Connection -> Int64 -> IO (Maybe ClusterRecord)
 getClusterById conn cid = do
   results <- queryRows conn
-    "SELECT id, metadata_hash, album, album_artist, track_count, mb_release_id, mb_release_group_id, mb_confidence, created_at, updated_at, last_identified_at, mb_release_data, mb_candidates, match_source, match_locked \
+    "SELECT id, metadata_hash, album, album_artist, track_count, mb_release_id, mb_release_group_id, mb_confidence, created_at, updated_at, last_identified_at, mb_release_data, mb_candidates, match_source, match_locked, quality \
     \FROM clusters WHERE id = ?"
     (Only cid)
   pure $ viaNonEmpty head results
@@ -150,7 +151,7 @@ getClusterById conn cid = do
 getAllClusters :: SQLite.Connection -> IO [ClusterRecord]
 getAllClusters conn =
   queryRows_ conn
-    "SELECT id, metadata_hash, album, album_artist, track_count, mb_release_id, mb_release_group_id, mb_confidence, created_at, updated_at, last_identified_at, mb_release_data, mb_candidates, match_source, match_locked \
+    "SELECT id, metadata_hash, album, album_artist, track_count, mb_release_id, mb_release_group_id, mb_confidence, created_at, updated_at, last_identified_at, mb_release_data, mb_candidates, match_source, match_locked, quality \
     \FROM clusters ORDER BY updated_at DESC"
 
 -- | Create an empty metadata record for a track.
@@ -237,3 +238,16 @@ computeClusterQuality conn clusterIdArg = do
   case viaNonEmpty minimum qualities of
     Nothing -> pure Nothing
     Just quality -> pure $ Just quality
+
+-- | Update the quality field of a cluster based on its tracks.
+-- This should be called after tracks are added/updated.
+updateClusterQuality :: SQLite.Connection -> Int64 -> IO ()
+updateClusterQuality conn clusterId = do
+  maybeQuality <- computeClusterQuality conn clusterId
+  case maybeQuality of
+    Nothing -> pure ()  -- No quality could be determined
+    Just quality -> do
+      now <- getCurrentTime
+      executeQuery conn
+        "UPDATE clusters SET quality = ?, updated_at = ? WHERE id = ?"
+        (qualityToText quality, now, clusterId)
