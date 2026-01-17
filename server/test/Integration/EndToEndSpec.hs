@@ -91,7 +91,7 @@ testScanAndGroupWorkflow = withTestEnv $ \env -> do
 
     -- Trigger library scan
     publishAndLog (teEventBus env) (teLogEnv env) "test" $
-      LibraryScanRequested (toText libPath)
+      LibraryScanRequested (toText libPath) False
 
     -- Wait for scan to complete
     scanResult <- waitForEventWithTimeout eventChan isMetadataReadComplete (15 * 1000000)

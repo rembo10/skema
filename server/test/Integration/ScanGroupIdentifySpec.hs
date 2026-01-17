@@ -61,7 +61,7 @@ testScanAndGroup = withTestEnv $ \env -> do
 
     -- Trigger library scan
     publishAndLog (teEventBus env) (teLogEnv env) "test" $
-      LibraryScanRequested (toText libPath)
+      LibraryScanRequested (toText libPath) False
 
     -- Wait for scan completion
     scanComplete <- waitForEventWithTimeout eventChan isMetadataReadComplete (10 * 1000000)
@@ -131,7 +131,7 @@ testMultipleAlbums = withTestEnv $ \env -> do
 
     -- Trigger scan
     publishAndLog (teEventBus env) (teLogEnv env) "test" $
-      LibraryScanRequested (toText libPath)
+      LibraryScanRequested (toText libPath) False
 
     -- Wait for scan completion
     _ <- waitForEventWithTimeout eventChan isMetadataReadComplete (10 * 1000000)
@@ -198,7 +198,7 @@ testCompilationAlbum = withTestEnv $ \env -> do
 
     -- Trigger scan
     publishAndLog (teEventBus env) (teLogEnv env) "test" $
-      LibraryScanRequested (toText libPath)
+      LibraryScanRequested (toText libPath) False
 
     -- Wait for completion
     _ <- waitForEventWithTimeout eventChan isMetadataReadComplete (10 * 1000000)

@@ -19,6 +19,7 @@ import Skema.MusicBrainz.Types
 import qualified Monatone.Metadata as M
 import System.OsPath (OsPath, encodeUtf)
 import Data.Text (Text)
+import qualified Data.HashMap.Strict as HM
 
 tests :: TestTree
 tests = testGroup "Unit.Matching"
@@ -212,6 +213,10 @@ makeTestFile title trackNum discNum duration =
         , M.releaseStatus = Nothing
         , M.releaseType = Nothing
         , M.publisher = Nothing
+        , M.albumArtInfo = Nothing
+        , M.acoustidFingerprint = Nothing
+        , M.acoustidId = Nothing
+        , M.rawTags = HM.empty
         }
   in (path, metadata)
 
