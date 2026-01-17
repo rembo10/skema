@@ -216,15 +216,19 @@ runIncrementalMigrations le conn = do
           executeQuery_ conn "UPDATE library_tracks SET modified_at = '1970-01-01 00:00:00'"
 
         -- Update catalog album quality from cluster track quality
-        executeQuery_ conn
-          "UPDATE catalog_albums \
-          \SET current_quality = ( \
-          \  SELECT MIN(quality) \
-          \  FROM library_tracks \
-          \  WHERE cluster_id = catalog_albums.matched_cluster_id \
-          \  AND quality IS NOT NULL \
-          \) \
-          \WHERE matched_cluster_id IS NOT NULL"
+        -- Note: This uses matched_cluster_id if it exists (during migration),
+        -- but after migration 004, this column won't exist anymore
+        matchedClusterIdExists <- columnExists conn "catalog_albums" "matched_cluster_id"
+        when matchedClusterIdExists $
+          executeQuery_ conn
+            "UPDATE catalog_albums \
+            \SET current_quality = ( \
+            \  SELECT MIN(quality) \
+            \  FROM library_tracks \
+            \  WHERE cluster_id = catalog_albums.matched_cluster_id \
+            \  AND quality IS NOT NULL \
+            \) \
+            \WHERE matched_cluster_id IS NOT NULL"
 
         -- Remove wanted and user_unwanted columns (derived state, not stored)
         -- The "wanted" status is now computed from quality_profile_id + current_quality + matched_cluster_id
@@ -311,6 +315,59 @@ runIncrementalMigrations le conn = do
 
         recordMigration conn "003_remove_legacy_wanted_tracked_tables"
       $(logTM) InfoS "Completed migration: 003_remove_legacy_wanted_tracked_tables"
+
+    -- Migration 004: Drop matched_cluster_id column from catalog_albums
+    applied004 <- liftIO $ migrationApplied conn "004_drop_catalog_albums_matched_cluster_id"
+    unless applied004 $ do
+      $(logTM) InfoS "Running migration: 004_drop_catalog_albums_matched_cluster_id"
+      liftIO $ do
+        -- Check if column still exists before attempting to drop
+        matchedClusterExists <- columnExists conn "catalog_albums" "matched_cluster_id"
+        when matchedClusterExists $ do
+          -- SQLite doesn't support DROP COLUMN directly, need to recreate table
+          executeQuery_ conn
+            "CREATE TABLE catalog_albums_new ( \
+            \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
+            \  release_group_mbid TEXT NOT NULL UNIQUE, \
+            \  title TEXT NOT NULL, \
+            \  artist_id INTEGER REFERENCES catalog_artists(id) ON DELETE CASCADE, \
+            \  artist_mbid TEXT NOT NULL, \
+            \  artist_name TEXT NOT NULL, \
+            \  album_type TEXT, \
+            \  first_release_date TEXT, \
+            \  album_cover_url TEXT, \
+            \  album_cover_thumbnail_url TEXT, \
+            \  quality_profile_id INTEGER REFERENCES quality_profiles(id) ON DELETE SET NULL, \
+            \  current_quality TEXT, \
+            \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
+            \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
+            \)"
+
+          -- Copy data from old table (excluding matched_cluster_id)
+          executeQuery_ conn
+            "INSERT INTO catalog_albums_new \
+            \  (id, release_group_mbid, title, artist_id, artist_mbid, artist_name, \
+            \   album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, \
+            \   quality_profile_id, current_quality, created_at, updated_at) \
+            \SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, \
+            \       album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, \
+            \       quality_profile_id, current_quality, created_at, updated_at \
+            \FROM catalog_albums"
+
+          -- Drop old table and rename new one
+          executeQuery_ conn "DROP TABLE catalog_albums"
+          executeQuery_ conn "ALTER TABLE catalog_albums_new RENAME TO catalog_albums"
+
+          -- Recreate indexes (excluding matched_cluster_id index)
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_release_group_mbid ON catalog_albums(release_group_mbid)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_artist_id ON catalog_albums(artist_id)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_artist_mbid ON catalog_albums(artist_mbid)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_created_at ON catalog_albums(created_at DESC)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_quality_profile_id ON catalog_albums(quality_profile_id)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_current_quality ON catalog_albums(current_quality)"
+
+        recordMigration conn "004_drop_catalog_albums_matched_cluster_id"
+      $(logTM) InfoS "Completed migration: 004_drop_catalog_albums_matched_cluster_id"
 
 
 -- | Create the complete database schema.
@@ -498,7 +555,8 @@ createSchema conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_artists_quality_profile_id ON catalog_artists(quality_profile_id)"
 
   -- Create catalog_albums table with all fields
-  -- NOTE: "wanted" is NOT stored - it's computed from quality_profile_id + current_quality + matched_cluster_id
+  -- NOTE: "wanted" is NOT stored - it's computed from quality_profile_id + current_quality + cluster match
+  -- NOTE: matched_cluster_id is NOT stored - it's derived via JOIN on clusters.mb_release_group_id
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS catalog_albums ( \
     \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
@@ -511,7 +569,6 @@ createSchema conn = do
     \  first_release_date TEXT, \
     \  album_cover_url TEXT, \
     \  album_cover_thumbnail_url TEXT, \
-    \  matched_cluster_id INTEGER REFERENCES clusters(id) ON DELETE SET NULL, \
     \  quality_profile_id INTEGER REFERENCES quality_profiles(id) ON DELETE SET NULL, \
     \  current_quality TEXT, \
     \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
@@ -521,7 +578,6 @@ createSchema conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_release_group_mbid ON catalog_albums(release_group_mbid)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_artist_id ON catalog_albums(artist_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_artist_mbid ON catalog_albums(artist_mbid)"
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_matched_cluster_id ON catalog_albums(matched_cluster_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_created_at ON catalog_albums(created_at DESC)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_quality_profile_id ON catalog_albums(quality_profile_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_current_quality ON catalog_albums(current_quality)"
