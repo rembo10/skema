@@ -94,6 +94,7 @@ mbArtistSearchToCatalogResponse searchResult maybeCatalogRecord =
     , catalogArtistResponseScore = Just (mbasScore searchResult)
     , catalogArtistResponseCreatedAt = maybeCatalogRecord >>= DBTypes.catalogArtistCreatedAt >>= (Just . show)
     , catalogArtistResponseUpdatedAt = maybeCatalogRecord >>= DBTypes.catalogArtistUpdatedAt >>= (Just . show)
+    , catalogArtistResponseAlbums = Nothing  -- Not needed for search results
     }
 
 -- | Convert MusicBrainz release-group search result to catalog response.

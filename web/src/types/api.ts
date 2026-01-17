@@ -359,6 +359,7 @@ export interface CatalogArtist {
   score: number | null; // MusicBrainz search score (0-100), present in search results
   created_at: string | null;
   updated_at: string | null;
+  albums: CatalogAlbumOverview[] | null; // Albums for this artist (included in followed artists list)
 }
 
 export interface CatalogAlbum {

@@ -28,13 +28,31 @@ export default function FollowedArtists() {
   const loadData = async () => {
     try {
       setLoading(true);
-      // Load all followed artists and albums into the store
-      const [artistsResponse, albumsData] = await Promise.all([
-        api.getCatalogArtists(0, 1000, true), // Get all followed artists
-        api.getCatalogAlbums(),      // Get all albums (both wanted and in library)
-      ]);
+      // Load followed artists with embedded album data
+      const artistsResponse = await api.getCatalogArtists(0, 1000, true);
       setFollowedArtists(artistsResponse.artists);
-      setCatalogAlbums(albumsData);
+
+      // Collect all albums from all artists into the global store
+      const allAlbums = artistsResponse.artists.flatMap(artist =>
+        (artist.albums || []).map(album => ({
+          id: album.id,
+          release_group_mbid: album.release_group_mbid,
+          title: album.title,
+          artist_mbid: album.artist_mbid,
+          artist_name: album.artist_name,
+          type: album.type,
+          first_release_date: album.first_release_date,
+          cover_url: album.cover_url,
+          cover_thumbnail_url: album.cover_thumbnail_url,
+          wanted: album.wanted,
+          quality_profile_id: album.quality_profile_id,
+          matched_cluster_id: album.has_cluster ? 1 : null,
+          score: null,
+          created_at: album.created_at,
+          updated_at: album.updated_at,
+        }))
+      );
+      setCatalogAlbums(allAlbums);
     } catch (error) {
       toast.error('Failed to load followed artists');
       console.error('Error loading artists:', error);

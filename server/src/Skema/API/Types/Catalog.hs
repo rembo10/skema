@@ -111,6 +111,8 @@ data CatalogArtistResponse = CatalogArtistResponse
     -- ^ MusicBrainz search score (0-100), present in search results
   , catalogArtistResponseCreatedAt :: Maybe Text
   , catalogArtistResponseUpdatedAt :: Maybe Text
+  , catalogArtistResponseAlbums :: Maybe [CatalogAlbumOverviewResponse]
+    -- ^ Recent albums for this artist (optional, included for followed artists list)
   } deriving (Show, Eq, Generic)
 
 instance ToJSON CatalogArtistResponse where

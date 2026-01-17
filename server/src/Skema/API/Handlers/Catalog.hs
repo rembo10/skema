@@ -182,19 +182,29 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       (allArtists, responses) <- liftIO $ withConnection connPool $ \conn -> do
         all <- DB.getCatalogArtists conn maybeFollowed
         let paginated = take limit $ drop offset $ all
-        responses <- forM paginated $ \artist -> pure $ CatalogArtistResponse
-          { catalogArtistResponseId = DBTypes.catalogArtistId artist
-          , catalogArtistResponseMBID = DBTypes.catalogArtistMBID artist
-          , catalogArtistResponseName = DBTypes.catalogArtistName artist
-          , catalogArtistResponseType = DBTypes.catalogArtistType artist
-          , catalogArtistResponseImageUrl = DBTypes.catalogArtistImageUrl artist
-          , catalogArtistResponseThumbnailUrl = DBTypes.catalogArtistThumbnailUrl artist
-          , catalogArtistResponseFollowed = DBTypes.catalogArtistFollowed artist
-          , catalogArtistResponseQualityProfileId = DBTypes.catalogArtistQualityProfileId artist
-          , catalogArtistResponseScore = Nothing  -- No score in database records
-          , catalogArtistResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistCreatedAt artist)
-          , catalogArtistResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistUpdatedAt artist)
-          }
+        responses <- forM paginated $ \artist -> do
+          -- For followed artists, include recent albums
+          maybeAlbums <- case (DBTypes.catalogArtistFollowed artist, DBTypes.catalogArtistId artist) of
+            (True, Just artistId) -> do
+              -- Get albums for this artist (all albums, sorted by release date desc)
+              albumRows <- DB.getCatalogAlbumsOverview conn 999999 0 Nothing Nothing (Just artistId) Nothing (Just "first_release_date") (Just "desc")
+              pure $ Just $ map rowToResponse albumRows
+            _ -> pure Nothing
+
+          pure $ CatalogArtistResponse
+            { catalogArtistResponseId = DBTypes.catalogArtistId artist
+            , catalogArtistResponseMBID = DBTypes.catalogArtistMBID artist
+            , catalogArtistResponseName = DBTypes.catalogArtistName artist
+            , catalogArtistResponseType = DBTypes.catalogArtistType artist
+            , catalogArtistResponseImageUrl = DBTypes.catalogArtistImageUrl artist
+            , catalogArtistResponseThumbnailUrl = DBTypes.catalogArtistThumbnailUrl artist
+            , catalogArtistResponseFollowed = DBTypes.catalogArtistFollowed artist
+            , catalogArtistResponseQualityProfileId = DBTypes.catalogArtistQualityProfileId artist
+            , catalogArtistResponseScore = Nothing  -- No score in database records
+            , catalogArtistResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistCreatedAt artist)
+            , catalogArtistResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistUpdatedAt artist)
+            , catalogArtistResponseAlbums = maybeAlbums
+            }
         pure (all, responses)
 
       let total = length allArtists
@@ -256,6 +266,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           , catalogArtistResponseScore = Nothing
           , catalogArtistResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistCreatedAt artist)
           , catalogArtistResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistUpdatedAt artist)
+          , catalogArtistResponseAlbums = Nothing  -- Not needed for create response
           }
 
     -- Update catalog artist (followed status and quality profile)
@@ -286,6 +297,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           , catalogArtistResponseScore = Nothing
           , catalogArtistResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistCreatedAt artist)
           , catalogArtistResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistUpdatedAt artist)
+          , catalogArtistResponseAlbums = Nothing  -- Not needed for update response
           }
 
     -- Delete catalog artist
