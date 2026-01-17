@@ -44,6 +44,8 @@ import qualified Database.SQLite.Simple.ToRow as SQLite
 import qualified Database.SQLite.Simple.ToField as SQLite
 import qualified Database.SQLite.Simple as SQLite
 import qualified Data.Map.Strict as Map
+import GHC.IO.Encoding (mkTextEncoding)
+import Control.Exception (throwIO)
 
 -- * Helper types
 
@@ -114,12 +116,24 @@ audioFormatToText MP3 = "mp3"
 audioFormatToText M4A = "m4a"
 
 -- | Convert OsPath to String for database storage.
+-- Uses UTF-8 with ROUNDTRIP mode (PEP 383) to preserve exact byte sequences,
+-- even for invalid UTF-8. This ensures we can always reconstruct the original path.
 osPathToString :: OsPath -> IO String
-osPathToString = OP.decodeUtf
+osPathToString path = do
+  enc <- mkTextEncoding "UTF-8//ROUNDTRIP"
+  case OP.decodeWith enc enc path of
+    Left err -> throwIO err
+    Right str -> pure str
 
 -- | Convert String to OsPath from database.
+-- Uses UTF-8 with ROUNDTRIP mode (PEP 383) to preserve exact byte sequences,
+-- even for invalid UTF-8. This ensures we can always reconstruct the original path.
 stringToOsPath :: String -> IO OsPath
-stringToOsPath = OP.encodeFS
+stringToOsPath str = do
+  enc <- mkTextEncoding "UTF-8//ROUNDTRIP"
+  case OP.encodeWith enc enc str of
+    Left err -> throwIO err
+    Right path -> pure path
 
 
 -- * Track operations
