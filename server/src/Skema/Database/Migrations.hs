@@ -230,6 +230,14 @@ runIncrementalMigrations le conn = do
         -- The "wanted" status is now computed from quality_profile_id + current_quality + matched_cluster_id
         wantedExists <- columnExists conn "catalog_albums" "wanted"
         when wantedExists $ do
+          -- Get default quality profile ID from settings
+          defaultProfileResults <- queryRows conn
+            "SELECT default_quality_profile_id FROM settings WHERE id = 1"
+            () :: IO [Only (Maybe Int)]
+          let defaultProfileId = case viaNonEmpty head defaultProfileResults of
+                Just (Only (Just pid)) -> pid
+                _ -> 2  -- Fallback to "Lossless Preferred" profile ID
+
           -- SQLite doesn't support DROP COLUMN directly, need to recreate table
           executeQuery_ conn
             "CREATE TABLE catalog_albums_new ( \
@@ -250,17 +258,25 @@ runIncrementalMigrations le conn = do
             \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
             \)"
 
-          -- Copy data from old table (excluding wanted and user_unwanted)
-          executeQuery_ conn
+          -- Copy data from old table, preserving wanted status by assigning default quality profile
+          -- If album was wanted=1 but has no quality_profile_id, assign the default profile
+          executeQuery conn
             "INSERT INTO catalog_albums_new \
             \  (id, release_group_mbid, title, artist_id, artist_mbid, artist_name, \
             \   album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, \
             \   matched_cluster_id, quality_profile_id, current_quality, created_at, updated_at) \
             \SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, \
             \       album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, \
-            \       matched_cluster_id, quality_profile_id, current_quality, \
+            \       matched_cluster_id, \
+            \       CASE \
+            \         WHEN quality_profile_id IS NOT NULL THEN quality_profile_id \
+            \         WHEN wanted = 1 THEN ? \
+            \         ELSE NULL \
+            \       END, \
+            \       current_quality, \
             \       COALESCE(created_at, CURRENT_TIMESTAMP), COALESCE(updated_at, CURRENT_TIMESTAMP) \
             \FROM catalog_albums"
+            (Only defaultProfileId)
 
           -- Drop old table and rename new one
           executeQuery_ conn "DROP TABLE catalog_albums"
