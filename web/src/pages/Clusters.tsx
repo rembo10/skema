@@ -28,22 +28,33 @@ const ITEMS_PER_PAGE = 50;
 export default function Clusters() {
   // Local state - no longer using store
   const [clusters, setClusters] = useState<Cluster[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [sortField, setSortField] = useState<SortField>('album');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [rematchingCluster, setRematchingCluster] = useState<Cluster | null>(null);
   const pagination = usePagination(ITEMS_PER_PAGE);
 
+  // Debounce search query
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery]);
+
   // Reset offset when filters change
   useEffect(() => {
     pagination.resetOffset();
-  }, [searchQuery, filterStatus, sortField, sortDirection]);
+  }, [debouncedSearchQuery, filterStatus, sortField, sortDirection]);
 
   useEffect(() => {
     loadData();
-  }, [pagination.offset, searchQuery, filterStatus, sortField, sortDirection]);
+  }, [pagination.offset, debouncedSearchQuery, filterStatus, sortField, sortDirection]);
 
   const loadData = async () => {
     try {
@@ -51,7 +62,7 @@ export default function Clusters() {
       const response = await api.getClusters(
         pagination.offset,
         ITEMS_PER_PAGE,
-        searchQuery || undefined,
+        debouncedSearchQuery || undefined,
         filterStatus === 'all' ? undefined : filterStatus,
         sortField,
         sortDirection
@@ -63,6 +74,7 @@ export default function Clusters() {
       toast.error('Failed to load clusters');
     } finally {
       setLoading(false);
+      setInitialLoading(false);
     }
   };
 
@@ -98,7 +110,7 @@ export default function Clusters() {
     return { total, matched, unmatched, locked };
   }, [clusters, pagination.totalCount]);
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="w-12 h-12 text-dark-accent animate-spin" />
@@ -206,7 +218,12 @@ export default function Clusters() {
       </div>
 
       {/* Table */}
-      <div className="card overflow-auto">
+      <div className="card overflow-auto relative">
+        {loading && (
+          <div className="absolute inset-0 bg-dark-bg/50 flex items-center justify-center z-10">
+            <Loader2 className="w-8 h-8 text-dark-accent animate-spin" />
+          </div>
+        )}
         <table className="w-full">
           <thead className="sticky top-0 bg-dark-bg-elevated border-b border-dark-border">
             <tr>

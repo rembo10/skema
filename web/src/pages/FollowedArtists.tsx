@@ -2,38 +2,55 @@ import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import type { CatalogArtist } from '../types/api';
-import { Music, ExternalLink, Calendar, Disc, UserMinus, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Music, ExternalLink, Calendar, Disc, UserMinus, RefreshCw, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
 
 const ITEMS_PER_PAGE = 50;
 
 export default function FollowedArtists() {
-  // Use global store for real-time updates
-  const followedArtists = useAppStore((state) => state.followedArtists);
-  const catalogAlbums = useAppStore((state) => state.catalogAlbums);
-  const setFollowedArtists = useAppStore((state) => state.setFollowedArtists);
-  const setCatalogAlbums = useAppStore((state) => state.setCatalogAlbums);
-  const removeFollowedArtist = useAppStore((state) => state.removeFollowedArtist);
-
-  const [loading, setLoading] = useState(true);
+  // Local state for artists loaded from API
+  const [artists, setArtists] = useState<CatalogArtist[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [offset, setOffset] = useState(0);
 
+  // Use global store only for catalogAlbums and mutations
+  const catalogAlbums = useAppStore((state) => state.catalogAlbums);
+  const setCatalogAlbums = useAppStore((state) => state.setCatalogAlbums);
+
+  // Debounce search query
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery]);
+
+  // Reset offset when search changes
+  useEffect(() => {
+    setOffset(0);
+  }, [debouncedSearchQuery]);
+
+  // Load data when offset changes
   useEffect(() => {
     loadData();
-  }, []);
+  }, [offset]);
 
   const loadData = async () => {
     try {
       setLoading(true);
       // Load followed artists with embedded album data
-      const artistsResponse = await api.getCatalogArtists(0, 1000, true);
-      setFollowedArtists(artistsResponse.artists);
+      const artistsResponse = await api.getCatalogArtists(offset, ITEMS_PER_PAGE, true);
+      setArtists(artistsResponse.artists);
+      setTotalCount(artistsResponse.pagination.total);
 
-      // Collect all albums from all artists into the global store
-      const allAlbums = artistsResponse.artists.flatMap(artist =>
+      // Collect all albums from current page into the global store
+      const currentAlbums = artistsResponse.artists.flatMap(artist =>
         (artist.albums || []).map(album => ({
           id: album.id,
           release_group_mbid: album.release_group_mbid,
@@ -52,27 +69,25 @@ export default function FollowedArtists() {
           updated_at: album.updated_at,
         }))
       );
-      setCatalogAlbums(allAlbums);
+      setCatalogAlbums(currentAlbums);
     } catch (error) {
       toast.error('Failed to load followed artists');
       console.error('Error loading artists:', error);
     } finally {
       setLoading(false);
+      setInitialLoading(false);
     }
   };
 
-  // Client-side pagination and filtering
+  // Client-side filtering for search (since backend doesn't support it)
   const filteredArtists = useMemo(() => {
-    return followedArtists.filter(artist =>
-      artist.name.toLowerCase().includes(searchQuery.toLowerCase())
+    if (!debouncedSearchQuery) return artists;
+    return artists.filter(artist =>
+      artist.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
     );
-  }, [followedArtists, searchQuery]);
+  }, [artists, debouncedSearchQuery]);
 
-  const paginatedArtists = useMemo(() => {
-    return filteredArtists.slice(offset, offset + ITEMS_PER_PAGE);
-  }, [filteredArtists, offset]);
-
-  const totalCount = filteredArtists.length;
+  const displayedArtists = filteredArtists;
 
   const getAlbumsForArtist = (artistMBID: string) => {
     return catalogAlbums.filter(album => album.artist_mbid === artistMBID);
@@ -83,8 +98,9 @@ export default function FollowedArtists() {
 
     try {
       await api.updateCatalogArtist(artist.id, false);
-      // Remove from global store
-      removeFollowedArtist(artist.id);
+      // Remove from local state
+      setArtists(prev => prev.filter(a => a.id !== artist.id));
+      setTotalCount(prev => prev - 1);
       toast.success(`Unfollowed ${artist.name}`);
     } catch (error) {
       toast.error('Failed to unfollow artist');
@@ -115,7 +131,7 @@ export default function FollowedArtists() {
     });
   };
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-2 border-dark-border border-t-dark-accent"></div>
@@ -130,10 +146,10 @@ export default function FollowedArtists() {
         <div>
           <h1 className="text-3xl font-bold text-dark-text">Followed Artists</h1>
           <p className="text-dark-text-secondary mt-2">
-            {followedArtists.length} followed artist{followedArtists.length !== 1 ? 's' : ''} • {catalogAlbums.filter(a => a.wanted).length} wanted album{catalogAlbums.filter(a => a.wanted).length !== 1 ? 's' : ''}
+            {totalCount} followed artist{totalCount !== 1 ? 's' : ''} • {catalogAlbums.filter(a => a.wanted).length} wanted album{catalogAlbums.filter(a => a.wanted).length !== 1 ? 's' : ''}
           </p>
         </div>
-        {followedArtists.length > 0 && (
+        {totalCount > 0 && (
           <button
             onClick={handleRefreshAll}
             disabled={refreshing}
@@ -158,17 +174,23 @@ export default function FollowedArtists() {
       </div>
 
       {/* Artists Grid */}
-      {paginatedArtists.length === 0 ? (
-        <div className="card p-12 text-center">
-          <Music className="mx-auto h-12 w-12 text-dark-text-tertiary" />
-          <h3 className="mt-4 text-sm font-medium text-dark-text">No followed artists</h3>
-          <p className="mt-2 text-sm text-dark-text-secondary">
-            {searchQuery ? 'Try a different search term' : 'Use the universal search to find and follow artists'}
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {paginatedArtists.map((artist) => {
+      <div className="relative">
+        {loading && (
+          <div className="absolute inset-0 bg-dark-bg/50 flex items-center justify-center z-10 rounded-lg">
+            <div className="animate-spin rounded-full h-12 w-12 border-2 border-dark-border border-t-dark-accent"></div>
+          </div>
+        )}
+        {displayedArtists.length === 0 ? (
+          <div className="card p-12 text-center">
+            <Music className="mx-auto h-12 w-12 text-dark-text-tertiary" />
+            <h3 className="mt-4 text-sm font-medium text-dark-text">No followed artists</h3>
+            <p className="mt-2 text-sm text-dark-text-secondary">
+              {searchQuery ? 'Try a different search term' : 'Use the universal search to find and follow artists'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {displayedArtists.map((artist) => {
             const artistAlbums = getAlbumsForArtist(artist.mbid);
             const wantedCount = artistAlbums.filter(a => a.wanted).length;
             const inLibraryCount = artistAlbums.filter(a => a.matched_cluster_id !== null).length;
@@ -284,11 +306,12 @@ export default function FollowedArtists() {
               </div>
             );
           })}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
       {/* Pagination Controls */}
-      {totalCount > ITEMS_PER_PAGE && (
+      {!debouncedSearchQuery && totalCount > ITEMS_PER_PAGE && (
         <div className="flex items-center justify-between border-t border-dark-border pt-4">
           <div className="text-sm text-dark-text-secondary">
             Showing {offset + 1}-{Math.min(offset + ITEMS_PER_PAGE, totalCount)} of {totalCount}
