@@ -514,7 +514,7 @@ export const api = {
       status: album.state.toLowerCase() as 'wanted' | 'monitoring' | 'acquired' | 'ignored',
       added_by_source_id: album.artist_id || 0, // We don't have added_by_source_id in overview, use 0 as fallback
       first_release_date: album.first_release_date,
-      matched_cluster_id: album.has_cluster ? 1 : null,
+      matched_cluster_id: album.matched_cluster_id,
       created_at: album.created_at,
       updated_at: album.updated_at,
     }));
@@ -605,7 +605,7 @@ export const api = {
       cover_thumbnail_url: album.cover_thumbnail_url,
       wanted: album.wanted,
       quality_profile_id: album.quality_profile_id,
-      matched_cluster_id: album.has_cluster ? 1 : null, // Approximate - we don't have the actual ID
+      matched_cluster_id: album.matched_cluster_id,
       score: null,
       created_at: album.created_at,
       updated_at: album.updated_at,

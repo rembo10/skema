@@ -306,6 +306,7 @@ data CatalogAlbumOverviewResponse = CatalogAlbumOverviewResponse
   , catalogAlbumOverviewState :: AlbumState
   , catalogAlbumOverviewWanted :: Bool
   , catalogAlbumOverviewHasCluster :: Bool
+  , catalogAlbumOverviewMatchedClusterId :: Maybe Int64
   , catalogAlbumOverviewCurrentQuality :: Maybe Text
   , catalogAlbumOverviewQualityProfileId :: Maybe Int64
   , catalogAlbumOverviewQualityProfileName :: Maybe Text

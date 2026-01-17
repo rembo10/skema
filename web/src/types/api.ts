@@ -564,6 +564,7 @@ export interface CatalogAlbumOverview {
   state: AlbumState;
   wanted: boolean;
   has_cluster: boolean;
+  matched_cluster_id: number | null;
   current_quality: string | null;
   quality_profile_id: number | null;
   quality_profile_name: string | null;

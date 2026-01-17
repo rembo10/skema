@@ -46,7 +46,7 @@ export default function FollowedArtists() {
           cover_thumbnail_url: album.cover_thumbnail_url,
           wanted: album.wanted,
           quality_profile_id: album.quality_profile_id,
-          matched_cluster_id: album.has_cluster ? 1 : null,
+          matched_cluster_id: album.matched_cluster_id,
           score: null,
           created_at: album.created_at,
           updated_at: album.updated_at,

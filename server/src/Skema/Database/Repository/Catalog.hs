@@ -280,7 +280,7 @@ getCatalogAlbumsOverview conn limit offset _maybeStates maybeQualities maybeArti
         \  ca.album_cover_thumbnail_url, \
         \  CASE \
         \    WHEN ca.quality_profile_id IS NULL THEN 0 \
-        \    WHEN ca.matched_cluster_id IS NULL THEN 1 \
+        \    WHEN c.id IS NULL THEN 1 \
         \    WHEN ca.current_quality IS NULL THEN 1 \
         \    WHEN qp.cutoff_quality IS NULL THEN 0 \
         \    ELSE CASE \
@@ -290,7 +290,7 @@ getCatalogAlbumsOverview conn limit offset _maybeStates maybeQualities maybeArti
         \      ELSE 1 \
         \    END \
         \  END AS wanted, \
-        \  ca.matched_cluster_id, \
+        \  c.id, \
         \  ca.current_quality, \
         \  ca.quality_profile_id, \
         \  qp.name, \
@@ -317,7 +317,7 @@ getCatalogAlbumsOverview conn limit offset _maybeStates maybeQualities maybeArti
         \  FROM downloads \
         \  GROUP BY catalog_album_id \
         \) d_count ON ca.id = d_count.catalog_album_id \
-        \LEFT JOIN clusters c ON ca.matched_cluster_id = c.id \
+        \LEFT JOIN clusters c ON c.mb_release_group_id = ca.release_group_mbid \
         \WHERE 1=1 "
 
   -- Build filter conditions

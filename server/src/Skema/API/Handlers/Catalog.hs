@@ -613,6 +613,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         , catalogAlbumOverviewState = albumState
         , catalogAlbumOverviewWanted = DB.caorWanted row
         , catalogAlbumOverviewHasCluster = isJust (DB.caorMatchedClusterId row)
+        , catalogAlbumOverviewMatchedClusterId = DB.caorMatchedClusterId row
         , catalogAlbumOverviewCurrentQuality = DB.caorCurrentQuality row
         , catalogAlbumOverviewQualityProfileId = DB.caorQualityProfileId row
         , catalogAlbumOverviewQualityProfileName = DB.caorQualityProfileName row
