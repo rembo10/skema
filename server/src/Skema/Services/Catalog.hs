@@ -28,8 +28,9 @@ import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Monad ()
 import Control.Exception (try)
-import Data.Time (getCurrentTime)
+import Data.Time (getCurrentTime, formatTime, defaultTimeLocale)
 import Data.IORef (newIORef, modifyIORef', readIORef)
+import Data.Text (pack)
 import Katip
 
 -- | Start the catalog service.
@@ -115,9 +116,14 @@ handleCatalogArtistFollowed CatalogDeps{..} artistMBID artistName = do
                     let releaseGroups = filter (shouldIncludeReleaseGroup allowedTypes excludedSecondaryTypes) allReleaseGroups
 
                     -- Emit event for observability
+                    -- Note: last_checked_at is not updated during initial follow, only during refresh
+                    now <- liftIO getCurrentTime
                     liftIO $ publishAndLog bus le "catalog" $ ArtistDiscographyFetched
-                      { artistMBID = artistMBID
+                      { artistDiscographyArtistId = artistId
+                      , artistMBID = artistMBID
+                      , artistDiscographyArtistName = artistName
                       , releaseGroupCount = length releaseGroups
+                      , artistLastCheckedAt = pack $ formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" now
                       }
 
                     -- Store ALL albums in catalog_albums (not just wanted ones)
@@ -143,6 +149,9 @@ handleCatalogArtistFollowed CatalogDeps{..} artistMBID artistName = do
 
                           $(logTM) InfoS $ logStr $ ("Added album to catalog: " <> title :: Text)
 
+                          -- Compute wanted status: album is wanted if artist has a quality profile
+                          let isWanted = DB.catalogArtistQualityProfileId artistRecord /= Nothing
+
                           -- Emit CatalogAlbumAdded event with complete album data
                           -- This eliminates the need for frontend to make GET requests
                           liftIO $ publishAndLog bus le "catalog" $ CatalogAlbumAdded
@@ -154,6 +163,7 @@ handleCatalogArtistFollowed CatalogDeps{..} artistMBID artistName = do
                             , catalogAlbumArtistName = artistName
                             , catalogAlbumType = albumType
                             , catalogAlbumFirstReleaseDate = firstReleaseDate
+                            , catalogAlbumWanted = isWanted
                             }
 
 -- | Handle a catalog artist refresh request.
@@ -204,20 +214,23 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                 let releaseGroups = filter (shouldIncludeReleaseGroup allowedTypes excludedSecondaryTypes) allReleaseGroups
 
                 -- Update last_checked_at timestamp
+                now <- liftIO getCurrentTime
                 case DB.catalogArtistId artist of
                   Just artistId -> do
-                    now <- liftIO getCurrentTime
                     liftIO $ withConnection pool $ \conn ->
                       executeQuery conn
                         "UPDATE catalog_artists SET last_checked_at = ? WHERE id = ?"
                         (now, artistId)
-                  Nothing -> pure ()
 
-                -- Emit event for observability
-                liftIO $ publishAndLog bus le "catalog" $ ArtistDiscographyFetched
-                  { artistMBID = artistMBID
-                  , releaseGroupCount = length releaseGroups
-                  }
+                    -- Emit event for observability with updated timestamp
+                    liftIO $ publishAndLog bus le "catalog" $ ArtistDiscographyFetched
+                      { artistDiscographyArtistId = artistId
+                      , artistMBID = artistMBID
+                      , artistDiscographyArtistName = artistName
+                      , releaseGroupCount = length releaseGroups
+                      , artistLastCheckedAt = pack $ formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" now
+                      }
+                  Nothing -> pure ()
 
                 -- Check for new albums and add them
                 newAlbumsCount <- liftIO $ Data.IORef.newIORef (0 :: Int)
@@ -249,6 +262,9 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                           liftIO $ Data.IORef.modifyIORef' newAlbumsCount (+1)
                           $(logTM) InfoS $ logStr $ ("NEW album discovered: " <> title :: Text)
 
+                          -- Compute wanted status: album is wanted if artist has a quality profile
+                          let isWanted = DB.catalogArtistQualityProfileId artist /= Nothing
+
                           -- Emit CatalogAlbumAdded event with complete album data
                           -- This eliminates the need for frontend to make GET requests
                           liftIO $ publishAndLog bus le "catalog" $ CatalogAlbumAdded
@@ -260,10 +276,12 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                             , catalogAlbumArtistName = artistName
                             , catalogAlbumType = albumType
                             , catalogAlbumFirstReleaseDate = firstReleaseDate
+                            , catalogAlbumWanted = isWanted
                             }
 
                 newCount <- liftIO $ Data.IORef.readIORef newAlbumsCount
-                $(logTM) InfoS $ logStr $ ("Catalog refresh complete. Found " <> show newCount <> " new albums for " <> artistName :: Text)
+                let totalAlbums = length releaseGroups
+                $(logTM) InfoS $ logStr $ ("Catalog refresh complete for " <> artistName <> " (total: " <> show totalAlbums <> ", new: " <> show newCount <> ")" :: Text)
 
 -- | Check if a release group should be included based on configured album types.
 --

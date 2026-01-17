@@ -110,6 +110,7 @@ data Event
       , catalogAlbumArtistName :: Text
       , catalogAlbumType :: Maybe Text
       , catalogAlbumFirstReleaseDate :: Maybe Text
+      , catalogAlbumWanted :: Bool
       }
   | ArtistImageFetched
       { artistImageId :: Int64
@@ -119,8 +120,11 @@ data Event
       , artistImageSource :: Text  -- e.g., "MusicBrainz", "Last.fm"
       }
   | ArtistDiscographyFetched
-      { artistMBID :: Text
+      { artistDiscographyArtistId :: Int64
+      , artistMBID :: Text
+      , artistDiscographyArtistName :: Text
       , releaseGroupCount :: Int
+      , artistLastCheckedAt :: Text
       }
   | WantedAlbumAdded
       { wantedCatalogAlbumId :: Int64
@@ -427,6 +431,7 @@ eventToJSON = \case
     , "artist_name" .= catalogAlbumArtistName
     , "album_type" .= catalogAlbumType
     , "first_release_date" .= catalogAlbumFirstReleaseDate
+    , "wanted" .= catalogAlbumWanted
     ]
   ArtistImageFetched{..} -> object
     [ "artist_id" .= artistImageId
@@ -436,8 +441,11 @@ eventToJSON = \case
     , "source" .= artistImageSource
     ]
   ArtistDiscographyFetched{..} -> object
-    [ "artist_mbid" .= artistMBID
+    [ "artist_id" .= artistDiscographyArtistId
+    , "artist_mbid" .= artistMBID
+    , "artist_name" .= artistDiscographyArtistName
     , "release_group_count" .= releaseGroupCount
+    , "last_checked_at" .= artistLastCheckedAt
     ]
   WantedAlbumAdded{..} -> object
     [ "catalog_album_id" .= wantedCatalogAlbumId

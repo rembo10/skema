@@ -461,20 +461,17 @@ export function useSSE(enabled: boolean = true) {
       eventSource.addEventListener('ArtistDiscographyFetched', async (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data);
+
           // Show a brief status notification
           setStatusWithTimeout({
             type: 'success',
-            message: `Fetched ${data.releaseGroupCount} albums for artist`,
+            message: `Fetched ${data.release_group_count} albums for ${data.artist_name}`,
           }, 3000);
 
-          // Reload the artist to get updated last_checked_at
-          // We need to fetch the updated artist data since the event doesn't include it
-          const { api } = await import('../lib/api');
-          const artists = await api.getCatalogArtists(0, 1000);
-          const updatedArtist = artists.artists.find((a: any) => a.mbid === data.artistMBID);
-          if (updatedArtist) {
-            updateFollowedArtist(updatedArtist.id, {
-              last_checked_at: updatedArtist.last_checked_at,
+          // Update artist's last_checked_at if provided in the event
+          if (data.artist_id && data.last_checked_at) {
+            updateFollowedArtist(data.artist_id, {
+              last_checked_at: data.last_checked_at,
             });
           }
         } catch (error) {
