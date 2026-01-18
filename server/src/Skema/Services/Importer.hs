@@ -625,8 +625,7 @@ getCatalogAlbumById conn albumId = do
   albums <- queryRows conn
     "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, \
     \album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, \
-    \wanted, user_unwanted, matched_cluster_id, quality_profile_id, current_quality, \
-    \created_at, updated_at \
+    \quality_profile_id, current_quality, created_at, updated_at \
     \FROM catalog_albums WHERE id = ?"
     (Only albumId) :: IO [CatalogAlbumRecord]
   pure $ viaNonEmpty head albums
