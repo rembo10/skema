@@ -22,6 +22,7 @@ module Skema.FileSystem.Watcher
 
 import Skema.Core.Library
 import Skema.FileSystem.Scanner (scanDirectory)
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Skema.Events.Bus (EventBus, publishAndLog)
 import Skema.Events.Types (Event(..))
 import System.OsPath (OsPath)
@@ -91,7 +92,7 @@ watchDirectoryWithEvents
   -- ^ Action to stop watching
 watchDirectoryWithEvents root debounceMs callback mBus mLogEnv = do
   -- Convert OsPath to FilePath for fsnotify
-  rootPath <- OP.decodeUtf root
+  rootPath <- osPathToString root
 
   -- Get initial snapshot
   initialSnapshot <- scanDirectory root

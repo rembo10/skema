@@ -13,6 +13,7 @@ import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Core.Library (FileSystemDiff(..), LibrarySnapshot(..))
 import Skema.FileSystem.Scanner
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Monatone.Common (parseMetadata)
 import Skema.Database.Connection
 import Skema.Database.Repository (upsertTrackWithMetadata, getLibrarySnapshot, getTrackByPath, deleteTrack)
@@ -21,7 +22,7 @@ import qualified System.OsPath as OP
 import Control.Concurrent.Async (Async, async, mapConcurrently)
 import Control.Concurrent.QSem (QSem, newQSem, waitQSem, signalQSem)
 import qualified Control.Concurrent.STM as STM
-import Control.Exception (try, bracket_)
+import Control.Exception (try, bracket_, displayException)
 import GHC.Conc (getNumCapabilities)
 import Katip
 
@@ -52,7 +53,7 @@ startScannerService deps = do
             Left (e :: SomeException) -> do
               let le = scanLogEnv deps
               runKatipContextT le () "scanner.error" $ do
-                $(logTM) ErrorS $ logStr $ ("Exception during scan: " <> show e :: Text)
+                $(logTM) ErrorS $ logStr $ ("Exception during scan: " <> toText (displayException e) :: Text)
             Right () -> pure ()
         pure ()
       _ -> pure ()  -- Ignore other events
@@ -71,8 +72,8 @@ handleScanRequest ScannerDeps{..} scanPathText forceRescan = do
       then $(logTM) InfoS $ logStr ("Starting FORCE re-scan (treating all files as new)" :: Text)
       else $(logTM) InfoS $ logStr ("Starting file system scan" :: Text)
 
-    -- Convert scan path to OsPath
-    scanPath <- liftIO $ OP.encodeFS (toString scanPathText)
+    -- Convert scan path to OsPath - use ROUNDTRIP mode to handle any Unicode
+    scanPath <- liftIO $ stringToOsPath (toString scanPathText)
 
     -- Check if library is available
     libAvailable <- liftIO $ isLibraryAvailable scanPath
@@ -137,8 +138,12 @@ handleScanRequest ScannerDeps{..} scanPathText forceRescan = do
           -- Process all files with bounded concurrency (no chunking needed)
           liftIO $ do
             _ <- pooledMapConcurrently maxWorkers (\path -> do
-              -- Read metadata
-              pathStr <- OP.decodeUtf path
+              -- Read metadata - use ROUNDTRIP mode to handle any Unicode in paths
+              pathStrResult <- try $ osPathToString path
+              let pathStr = case pathStrResult of
+                    Right str -> str
+                    Left (e :: SomeException) -> "<invalid path: " <> displayException e <> ">"
+
               runKatipContextT le initialContext initialNamespace $ do
                 $(logTM) DebugS $ logStr $ ("Reading metadata: " <> toText pathStr :: Text)
 

@@ -31,7 +31,7 @@ import qualified Skema.Database.Types as DB
 import Skema.Database.Utils (downloadStatusToText)
 import Skema.Domain.Quality (qualityToText, textToQuality, meetsOrExceedsCutoff)
 import Skema.FileSystem.PathFormatter (PathContext(..), formatPath)
-import Skema.FileSystem.Utils (moveFile)
+import Skema.FileSystem.Utils (moveFile, osPathToString, stringToOsPath)
 import Skema.FileSystem.Trash (moveToTrash)
 import Skema.Core.Metadata (scanAndParseMetadata, groupParsedFiles, MetadataResult(..), GroupedFiles(..))
 import Skema.MusicBrainz.Identify (identifyFileGroup)
@@ -155,7 +155,7 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
 
   runKatipContextT le () "importer" $ do
     -- 1. Parse download path to OsPath
-    downloadPath <- liftIO $ OP.encodeFS (toString downloadPathText)
+    downloadPath <- liftIO $ stringToOsPath (toString downloadPathText)
     $(logTM) InfoS $ logStr $ ("Scanning download directory: " <> downloadPathText :: Text)
 
     -- 2. Scan and parse metadata from all files (shared with Scanner)
@@ -170,7 +170,7 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
     -- Log parse failures for debugging
     unless (null (mrFailedFiles metadataResult)) $ do
       forM_ (mrFailedFiles metadataResult) $ \(path, err) -> do
-        pathStr <- liftIO $ OP.decodeUtf path
+        pathStr <- liftIO $ osPathToString path
         $(logTM) DebugS $ logStr $ ("Failed to parse metadata: " <> toText pathStr <> " - " <> toText err :: Text)
 
     when (null validFiles) $ do
@@ -364,7 +364,7 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
                 -- Format directory path from template
                 let dirPath = formatPath (libraryPathFormat libConfig) pathContext
                 targetDir <- liftIO $ do
-                  dirOsPath <- OP.encodeFS (toString dirPath)
+                  dirOsPath <- stringToOsPath (toString dirPath)
                   pure $ libraryBasePath </> dirOsPath
 
                 $(logTM) InfoS $ logStr $ ("Target directory: " <> show targetDir :: Text)
@@ -396,8 +396,8 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
 
                         -- Delete or trash each old file based on config
                         forM_ existingTracks $ \(Only trackPathText) -> do
-                          trackPath <- liftIO $ OP.encodeFS (toString trackPathText)
-                          trackPathStr <- liftIO $ OP.decodeUtf trackPath
+                          trackPath <- liftIO $ stringToOsPath (toString trackPathText)
+                          trackPathStr <- liftIO $ osPathToString trackPath
                           fileExists <- liftIO $ Dir.doesFileExist trackPathStr
                           when fileExists $ do
                             if downloadUseTrash downloadCfg
@@ -432,7 +432,7 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
 
                 -- Create target directory
                 liftIO $ do
-                  targetDirStr <- OP.decodeUtf targetDir
+                  targetDirStr <- osPathToString targetDir
                   Dir.createDirectoryIfMissing True targetDirStr
 
                 -- 12. Move each file with formatted filename and create track records
@@ -442,7 +442,7 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
                 trackIds <- liftIO $ forM validFiles $ \(oldPath, meta) -> do
                   -- Extract file extension (without leading dot)
                   let oldFileName = OP.takeFileName oldPath
-                  oldFileNameStr <- OP.decodeUtf oldFileName
+                  oldFileNameStr <- osPathToString oldFileName
                   let extension = toText $ drop 1 $ takeExtension oldFileNameStr
 
                   -- Look up the matched MusicBrainz track for this file
@@ -463,12 +463,12 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
 
                   -- Format filename from template
                   let formattedFileName = formatPath (libraryFileFormat libConfig) trackContext
-                  formattedFileNameOsPath <- OP.encodeFS (toString formattedFileName)
+                  formattedFileNameOsPath <- stringToOsPath (toString formattedFileName)
                   let newPath = targetDir </> formattedFileNameOsPath
 
                   -- Move file to new path
-                  sourceStr <- OP.decodeUtf oldPath
-                  targetStr <- OP.decodeUtf newPath
+                  sourceStr <- osPathToString oldPath
+                  targetStr <- osPathToString newPath
                   moveFile sourceStr targetStr
 
                   -- Insert/update track record

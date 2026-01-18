@@ -19,6 +19,7 @@ import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
 import qualified Skema.Config.Types as Cfg
 import Skema.Domain.Converters (clusterToResponse)
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Skema.Services.Registry (ServiceRegistry(..))
 import Skema.MusicBrainz.Client (getRelease, searchReleases, searchRecordings)
 import Skema.MusicBrainz.Identify (identifyFileGroup)
@@ -153,7 +154,7 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
                                 recording = tmTrack tm'
                                 recordingId = unMBID (mbTrackRecordingId recording)
                                 recordingTitle = mbTrackTitle recording
-                            pathStr <- OP.decodeUtf filePath
+                            pathStr <- osPathToString filePath
                             executeQuery conn
                               "UPDATE library_tracks SET mb_recording_id = ?, mb_recording_title = ? WHERE path = ?"
                               (Just recordingId, Just recordingTitle, toText pathStr)
@@ -262,7 +263,7 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
         Nothing -> throw404 $ "Cluster not found: " <> show clusterId
         Just (cluster, tracks) -> do
           trackInfos <- liftIO $ forM tracks $ \(trackId, path, metadata, mbRecId, mbRecTitle) -> do
-            pathStr <- OP.decodeUtf path
+            pathStr <- osPathToString path
             pure $ ClusterTrackInfo
               { clusterTrackId = trackId
               , clusterTrackPath = toText pathStr

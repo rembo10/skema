@@ -14,6 +14,7 @@ import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
 import Database.SQLite.Simple (Only(..))
 import qualified Skema.Config.Types as Cfg
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Skema.Services.Registry (ServiceRegistry)
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
@@ -53,7 +54,7 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
               Nothing -> do
                 TM.failTask tm taskId "Library path not configured"
               Just libOsPath -> do
-                libPathText <- OP.decodeUtf libOsPath
+                libPathText <- osPathToString libOsPath
                 EventBus.publishAndLog bus le "library-task" $
                   Events.LibraryScanRequested
                     { Events.scanPath = toText libPathText

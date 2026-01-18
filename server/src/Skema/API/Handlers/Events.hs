@@ -18,6 +18,7 @@ import Skema.Auth.JWT (JWTSecret, validateJWT)
 import Skema.Database.Connection
 import Skema.Database.Repository (getLibraryStats)
 import qualified Skema.Config.Types as Cfg
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
@@ -71,7 +72,7 @@ eventsServer le bus _serverCfg jwtSecret connPool libPath configVar =
               , eventResponseMessage = "Library path not configured"
               }
             Just libOsPath -> do
-              libPathText <- liftIO $ OP.decodeUtf libOsPath
+              libPathText <- liftIO $ osPathToString libOsPath
 
               -- Parse force_rescan flag from event data (defaults to False)
               let forceRescan = case eventRequestData req of

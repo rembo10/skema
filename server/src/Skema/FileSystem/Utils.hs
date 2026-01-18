@@ -3,11 +3,15 @@
 -- | Filesystem utilities for cross-platform file operations.
 module Skema.FileSystem.Utils
   ( moveFile
+  , osPathToString
+  , stringToOsPath
   ) where
 
 import qualified System.Directory as Dir
+import qualified System.OsPath as OP
 import System.IO.Error (IOError, ioeGetErrorType)
 import GHC.IO.Exception (IOErrorType(..))
+import GHC.IO.Encoding (mkTextEncoding)
 import Control.Exception (try, throwIO)
 
 -- | Move a file, handling cross-device links by falling back to copy+delete.
@@ -36,3 +40,29 @@ moveFile source target = do
           Dir.copyFile source target
           Dir.removeFile source
         else throwIO e
+
+-- | Convert OsPath to String using UTF-8 with ROUNDTRIP mode.
+--
+-- Uses PEP 383 surrogateescape to preserve exact byte sequences,
+-- even for invalid UTF-8. This ensures we can always reconstruct the original path.
+--
+-- This is the same approach used in the database repository layer.
+osPathToString :: OP.OsPath -> IO String
+osPathToString path = do
+  enc <- mkTextEncoding "UTF-8//ROUNDTRIP"
+  case OP.decodeWith enc enc path of
+    Left err -> throwIO err
+    Right str -> pure str
+
+-- | Convert String to OsPath using UTF-8 with ROUNDTRIP mode.
+--
+-- Uses PEP 383 surrogateescape to preserve exact byte sequences,
+-- even for invalid UTF-8. This ensures we can always reconstruct the original path.
+--
+-- This is the same approach used in the database repository layer.
+stringToOsPath :: String -> IO OP.OsPath
+stringToOsPath str = do
+  enc <- mkTextEncoding "UTF-8//ROUNDTRIP"
+  case OP.encodeWith enc enc str of
+    Left err -> throwIO err
+    Right path -> pure path

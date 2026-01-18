@@ -17,6 +17,7 @@ module Skema.FileSystem.Scanner
   ) where
 
 import Skema.Core.Library
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Monatone.Common (parseMetadata)
 import Monatone.Metadata (Metadata)
 import System.OsPath (OsPath, (</>))
@@ -88,7 +89,7 @@ listAudioFilesRecursive root = go root
 -- | Check if a path is an audio file based on extension.
 isAudioFile :: OsPath -> IO Bool
 isAudioFile path = do
-  pathStr <- OP.decodeUtf path
+  pathStr <- osPathToString path
   pure $ any (`isSuffixOf` pathStr) audioExtensions
   where
     audioExtensions = [".mp3", ".flac", ".m4a", ".aac", ".alac", ".ogg", ".opus"]
@@ -146,7 +147,7 @@ fullScanWithLogging root mLogEnv = do
       results <- forConcurrently paths $ \path -> do
         -- Log at DEBUG level if log environment provided
         forM_ mLogEnv $ \le -> do
-          pathStr <- OP.decodeUtf path
+          pathStr <- osPathToString path
           let initialContext = ()
           let initialNamespace = "scanner"
           runKatipContextT le initialContext initialNamespace $ do

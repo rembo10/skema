@@ -45,6 +45,7 @@ module Skema.Config.Types
 import Data.Aeson (FromJSON (..), ToJSON (..), withObject, (.:), (.:?), (.!=), object, (.=), Value(..))
 import qualified Data.Aeson.KeyMap as KM
 import Skema.Config.Schema (Default(..), Mergeable(..))
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import System.OsPath (OsPath)
 import qualified System.OsPath as OP
 import System.IO.Unsafe (unsafePerformIO)
@@ -148,7 +149,7 @@ instance ToJSON LibraryConfig where
     -- Convert OsPath back to String for serialization
     let pathField = case maybePath of
           Nothing -> []
-          Just path -> ["path" .= (unsafePerformIO $ OP.decodeUtf path :: String)]
+          Just path -> ["path" .= (unsafePerformIO $ osPathToString path :: String)]
     in object $ pathField <>
       [ "watch" .= watch
       , "auto_scan" .= autoScan

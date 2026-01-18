@@ -14,6 +14,7 @@ import Skema.Config.EnvOverrides (applyEnvOverrides)
 import Skema.Config.Validation (validateConfig)
 import Skema.Config.Safe (safeWriteConfig)
 import Skema.Config.Migrations (migrateConfig, needsMigration)
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Data.Yaml (decodeFileEither, prettyPrintParseException)
 import System.OsPath (OsPath)
 import qualified System.OsPath as OP
@@ -26,7 +27,7 @@ import qualified Skema.Config.Types as Cfg
 -- Password hashing and migrations are done in-memory only.
 loadConfig :: OsPath -> IO (Either Text Config)
 loadConfig configPath = do
-  pathStr <- OP.decodeUtf configPath
+  pathStr <- osPathToString configPath
   result <- decodeFileEither pathStr
   case result of
     Left err -> pure $ Left $ toText $ prettyPrintParseException err
@@ -92,5 +93,5 @@ hashPasswordIfNeeded cfg configPath = do
 -- This is a convenience wrapper for when you have a String path.
 loadConfigFromFile :: FilePath -> IO (Either Text Config)
 loadConfigFromFile pathStr = do
-  osPath <- OP.encodeFS pathStr
+  osPath <- stringToOsPath pathStr
   loadConfig osPath

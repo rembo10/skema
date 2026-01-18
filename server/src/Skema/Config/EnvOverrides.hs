@@ -28,6 +28,7 @@ import Data.Char (isUpper, toUpper, toLower)
 import Data.List (stripPrefix)
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Skema.Config.Types as Cfg
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import System.OsPath (OsPath)
 import qualified System.OsPath as OP
 
@@ -55,7 +56,7 @@ instance EnvParseable Bool where
     _       -> Nothing
 
 instance EnvParseable OsPath where
-  parseEnvValue s = unsafePerformIO $ Just <$> OP.encodeFS s
+  parseEnvValue s = unsafePerformIO $ Just <$> stringToOsPath s
 
 instance {-# OVERLAPPABLE #-} EnvParseable a => EnvParseable (Maybe a) where
   parseEnvValue s = Just (parseEnvValue s)

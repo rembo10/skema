@@ -4,9 +4,6 @@
 module Skema.Database.Repository.Tracks
   ( -- * Helper types
     MetadataInsert(..)
-    -- * Helper functions
-  , osPathToString
-  , stringToOsPath
     -- * Track operations
   , insertTrack
   , updateTrack
@@ -32,6 +29,7 @@ import Skema.Database.Connection
 import Skema.Database.Types
 import Skema.Core.Library (LibrarySnapshot(..), FileInfo(..))
 import Skema.Domain.Quality (detectQualityFromAudio, qualityToText)
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Monatone.Metadata (Metadata(..), AudioFormat(..))
 import qualified Monatone.Metadata as M
 import Control.Monad (foldM)
@@ -44,8 +42,6 @@ import qualified Database.SQLite.Simple.ToRow as SQLite
 import qualified Database.SQLite.Simple.ToField as SQLite
 import qualified Database.SQLite.Simple as SQLite
 import qualified Data.Map.Strict as Map
-import GHC.IO.Encoding (mkTextEncoding)
-import Control.Exception (throwIO)
 
 -- * Helper types
 
@@ -115,27 +111,6 @@ audioFormatToText Opus = "opus"
 audioFormatToText MP3 = "mp3"
 audioFormatToText M4A = "m4a"
 
--- | Convert OsPath to String for database storage.
--- Uses UTF-8 with ROUNDTRIP mode (PEP 383) to preserve exact byte sequences,
--- even for invalid UTF-8. This ensures we can always reconstruct the original path.
-osPathToString :: OsPath -> IO String
-osPathToString path = do
-  enc <- mkTextEncoding "UTF-8//ROUNDTRIP"
-  case OP.decodeWith enc enc path of
-    Left err -> throwIO err
-    Right str -> pure str
-
--- | Convert String to OsPath from database.
--- Uses UTF-8 with ROUNDTRIP mode (PEP 383) to preserve exact byte sequences,
--- even for invalid UTF-8. This ensures we can always reconstruct the original path.
-stringToOsPath :: String -> IO OsPath
-stringToOsPath str = do
-  enc <- mkTextEncoding "UTF-8//ROUNDTRIP"
-  case OP.encodeWith enc enc str of
-    Left err -> throwIO err
-    Right path -> pure path
-
-
 -- * Track operations
 
 -- | Insert a new track record.
@@ -163,7 +138,7 @@ deleteTrack conn tid =
 -- | Get track by path.
 getTrackByPath :: SQLite.Connection -> OsPath -> IO (Maybe LibraryTrackRecord)
 getTrackByPath conn path = do
-  pathStr <- OP.decodeUtf path
+  pathStr <- osPathToString path
   results <- queryRows conn
     "SELECT id, path, size, modified_at, cluster_id, mb_recording_id, mb_track_id, mb_release_id, mb_confidence, added_at, updated_at FROM library_tracks WHERE path = ?"
     (Only (pathStr :: String))
@@ -245,7 +220,7 @@ getMetadataForTrack conn tid = do
 -- Optimized to use fewer queries.
 upsertTrackWithMetadata :: SQLite.Connection -> OsPath -> Metadata -> IO Int64
 upsertTrackWithMetadata conn path meta = do
-  pathStr <- OP.decodeUtf path
+  pathStr <- osPathToString path
   now <- getCurrentTime
 
   -- Get file size and modification time from filesystem
@@ -353,7 +328,7 @@ updateMusicBrainzIds :: SQLite.Connection
                      -> Maybe Double  -- Confidence
                      -> IO ()
 updateMusicBrainzIds conn path mbRecordingId mbTrackId mbReleaseId mbReleaseGroupId mbArtistId confidence = do
-  pathStr <- OP.decodeUtf path
+  pathStr <- osPathToString path
   executeQuery conn
     "UPDATE library_tracks SET \
     \mb_recording_id = ?, mb_track_id = ?, mb_release_id = ?, \
@@ -373,7 +348,7 @@ updateMusicBrainzIds conn path mbRecordingId mbTrackId mbReleaseId mbReleaseGrou
 -- Note: MB IDs are now stored on library_tracks table, not library_track_metadata.
 getMusicBrainzIdsByPath :: SQLite.Connection -> OsPath -> IO (Maybe (Maybe Text, Maybe Text, Maybe Text, Maybe Text, Maybe Text, Maybe Double))
 getMusicBrainzIdsByPath conn path = do
-  pathStr <- OP.decodeUtf path
+  pathStr <- osPathToString path
   results <- queryRows conn
     "SELECT mb_recording_id, mb_track_id, mb_release_id, mb_release_group_id, mb_artist_id, mb_confidence \
     \FROM library_tracks \

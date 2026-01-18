@@ -12,6 +12,7 @@ module Skema.FileSystem.Trash
   , getTrashDirectory
   ) where
 
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime, NominalDiffTime)
 import System.OsPath ((</>), OsPath)
 import qualified System.OsPath as OP
@@ -24,7 +25,7 @@ import Control.Monad (foldM)
 -- Creates a .trash subdirectory in the library path.
 getTrashDirectory :: OsPath -> IO OsPath
 getTrashDirectory libraryPath = do
-  trashName <- OP.encodeFS ".trash"
+  trashName <- stringToOsPath ".trash"
   pure $ libraryPath </> trashName
 
 -- | Move a file to the trash directory with a timestamp.
@@ -42,12 +43,12 @@ moveToTrash
 moveToTrash libraryPath filePath = do
   -- Get trash directory
   trashDir <- getTrashDirectory libraryPath
-  trashDirStr <- OP.decodeUtf trashDir
+  trashDirStr <- osPathToString trashDir
   Dir.createDirectoryIfMissing True trashDirStr
 
   -- Get relative path from library root
-  filePathStr <- OP.decodeUtf filePath
-  libraryPathStr <- OP.decodeUtf libraryPath
+  filePathStr <- osPathToString filePath
+  libraryPathStr <- osPathToString libraryPath
 
   let relativePath = if libraryPathStr `isPrefixOf` filePathStr
         then drop (length libraryPathStr) filePathStr
@@ -64,16 +65,16 @@ moveToTrash libraryPath filePath = do
   let trashedFileName = cleanRelativePath <> "." <> toString timestamp
 
   -- Create target path in trash
-  trashedFileOsPath <- OP.encodeFS trashedFileName
+  trashedFileOsPath <- stringToOsPath trashedFileName
   let targetPath = trashDir </> trashedFileOsPath
 
   -- Ensure parent directory exists in trash
   let targetDir = OP.takeDirectory targetPath
-  targetDirStr <- OP.decodeUtf targetDir
+  targetDirStr <- osPathToString targetDir
   Dir.createDirectoryIfMissing True targetDirStr
 
   -- Move file to trash
-  targetPathStr <- OP.decodeUtf targetPath
+  targetPathStr <- osPathToString targetPath
   Dir.renameFile filePathStr targetPathStr
 
 -- | Clean up trash files older than the specified retention period.
@@ -86,7 +87,7 @@ cleanupOldTrashFiles
   -> IO Int           -- ^ Number of files deleted
 cleanupOldTrashFiles libraryPath retentionDays = do
   trashDir <- getTrashDirectory libraryPath
-  trashDirStr <- OP.decodeUtf trashDir
+  trashDirStr <- osPathToString trashDir
 
   -- Check if trash directory exists
   exists <- Dir.doesDirectoryExist trashDirStr
@@ -103,7 +104,7 @@ cleanupOldTrashFiles libraryPath retentionDays = do
 -- | Recursively find and delete files older than maxAge.
 deleteOldFiles :: OsPath -> UTCTime -> NominalDiffTime -> Int -> IO Int
 deleteOldFiles dirPath now maxAge count = do
-  dirPathStr <- OP.decodeUtf dirPath
+  dirPathStr <- osPathToString dirPath
   entries <- Dir.listDirectory dirPathStr
 
   foldM (\acc entry -> do
@@ -113,7 +114,7 @@ deleteOldFiles dirPath now maxAge count = do
     if isDir
       then do
         -- Recursively process subdirectory
-        entryOsPath <- OP.encodeFS entryStr
+        entryOsPath <- stringToOsPath entryStr
         deleteOldFiles entryOsPath now maxAge acc
       else do
         -- Check file age

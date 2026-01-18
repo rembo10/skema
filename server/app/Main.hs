@@ -19,10 +19,10 @@ import Skema.Config.Directories
 import Skema.Events.Bus (newEventBus)
 import Skema.Services.Registry (startAllServices)
 import Skema.Services.AsyncRegistry (shutdownAllWithTimeout)
+import Skema.FileSystem.Utils (osPathToString)
 import Options.Applicative
 import Katip
 import Control.Monad.Catch (bracket)
-import qualified System.OsPath as OP
 import System.FilePath (isAbsolute, (</>))
 import System.IO (hPutStrLn)
 import System.Posix.Signals (installHandler, Handler(..), sigINT, sigTERM)
@@ -164,7 +164,7 @@ main = do
               libraryPathText <- case libraryPath libConfig of
                 Nothing -> pure Nothing
                 Just osPath -> do
-                  pathStr <- OP.decodeUtf osPath
+                  pathStr <- osPathToString osPath
                   pure $ Just (toText pathStr)
 
               -- Start API server in async thread

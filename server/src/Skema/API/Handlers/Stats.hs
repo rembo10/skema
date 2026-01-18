@@ -12,6 +12,7 @@ import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
 import Skema.Database.Repository
 import qualified Skema.Config.Types as Cfg
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import qualified System.OsPath as OP
 import Servant
 import qualified Control.Concurrent.STM as STM
@@ -27,7 +28,7 @@ statsServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader -> do
     config <- STM.atomically $ STM.readTVar configVar
     libPath <- case Cfg.libraryPath (Cfg.library config) of
       Nothing -> pure Nothing
-      Just osPath -> Just . toText <$> OP.decodeUtf osPath
+      Just osPath -> Just . toText <$> osPathToString osPath
 
     pure $ LibraryStats
       { statsTotalFiles = totalFiles

@@ -13,6 +13,7 @@ import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
 import qualified Skema.Config.Types as Cfg
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Skema.Services.Registry (ServiceRegistry)
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
@@ -48,7 +49,7 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
       liftIO $ withConnection connPool $ \conn -> do
         diffs <- DB.getAllMetadataDiffs conn
         forM diffs $ \(diff, path) -> do
-          pathStr <- OP.decodeUtf path
+          pathStr <- osPathToString path
           pure $ MetadataDiffResponse
             { diffId = fromMaybe 0 (DBTypes.diffId diff)
             , diffTrackId = DBTypes.diffTrackId diff
@@ -68,7 +69,7 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
       liftIO $ withConnection connPool $ \conn -> do
         diffs <- DB.getAllMetadataDiffs conn
         diffResponses <- forM diffs $ \(diff, path) -> do
-          pathStr <- OP.decodeUtf path
+          pathStr <- osPathToString path
           pure $ MetadataDiffResponse
             { diffId = fromMaybe 0 (DBTypes.diffId diff)
             , diffTrackId = DBTypes.diffTrackId diff
@@ -143,7 +144,7 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
       liftIO $ withConnection connPool $ \conn -> do
         changes <- DB.getMetadataChanges conn False  -- False = get all changes, not just active
         changeResponses <- forM changes $ \(change, path) -> do
-          pathStr <- OP.decodeUtf path
+          pathStr <- osPathToString path
           pure $ MetadataChangeResponse
             { changeResponseId = fromMaybe 0 (DBTypes.changeId change)
             , changeResponseTrackId = DBTypes.changeTrackId change

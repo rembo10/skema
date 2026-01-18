@@ -33,6 +33,7 @@ import Skema.Events.Types (Event(..), EventEnvelope(..))
 import Skema.Database.Connection (ConnectionPool)
 import Skema.Config.Types (Config(..), LibraryConfig(..))
 import Skema.Config.Loader (loadConfigFromFile)
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Skema.MusicBrainz.Client (newMBClientEnv, MBClientEnv)
 import Skema.HTTP.Client (HttpClient, newHttpClient, getManager, defaultHttpConfig, defaultUserAgentData)
 import Network.HTTP.Client (Manager)
@@ -265,7 +266,7 @@ startAllServices le bus pool config cacheDir configPath = do
     libraryPathText <- case libraryPath (library config) of
       Nothing -> pure Nothing
       Just osPath -> do
-        pathStr <- liftIO $ OP.decodeUtf osPath
+        pathStr <- liftIO $ osPathToString osPath
         pure $ Just (toText pathStr)
     let statsDeps = StatsDeps
           { statsEventBus = scEventBus ctx

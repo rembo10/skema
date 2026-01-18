@@ -45,6 +45,7 @@ import GHC.Generics ()
 import Data.Data (Data, toConstr, showConstr)
 import Data.Char (isUpper, isLower, toLower)
 import Data.Time (UTCTime)
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import System.OsPath (OsPath)
 import qualified System.OsPath as OP
 import qualified Database.SQLite.Simple as SQLite
@@ -418,7 +419,7 @@ instance SQLite.FromRow LibraryTrackRecord where
     <*> SQLite.field
     where
       toOsPath :: String -> OsPath
-      toOsPath = unsafePerformIO . OP.encodeFS
+      toOsPath = unsafePerformIO . stringToOsPath
 
 instance SQLite.FromRow LibraryTrackMetadataRecord where
   fromRow = LibraryTrackMetadataRecord

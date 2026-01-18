@@ -23,6 +23,7 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Text as T
 import qualified Skema.Config.Types as Cfg
 import qualified Skema.Config.Validation as CfgVal
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import qualified System.OsPath as OP
 
 -- | Convert Config to API JSON with computed fields.
@@ -37,7 +38,7 @@ configToAPIJSON cfg = do
   -- Convert library path from OsPath to Text
   libPathText <- case Cfg.libraryPath (Cfg.library cfg) of
     Nothing -> pure Nothing
-    Just osPath -> Just . toText <$> OP.decodeUtf osPath
+    Just osPath -> Just . toText <$> osPathToString osPath
 
   -- Check if auth is enabled (with environment variable overrides)
   maybeAuthCreds <- CfgVal.getAuthCredentials (Cfg.server cfg)

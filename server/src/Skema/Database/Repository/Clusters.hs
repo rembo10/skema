@@ -22,7 +22,7 @@ module Skema.Database.Repository.Clusters
 import Skema.Database.Connection
 import Skema.Database.Types
 import Skema.Database.Utils (insertReturningId)
-import Skema.Database.Repository.Tracks (stringToOsPath)
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Skema.MusicBrainz.Types (MBRelease(..), MBID(..), unMBID)
 import Skema.Domain.Quality (Quality(..), textToQuality, qualityToText)
 import System.OsPath (OsPath)

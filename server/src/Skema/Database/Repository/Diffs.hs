@@ -21,7 +21,7 @@ module Skema.Database.Repository.Diffs
 import Skema.Database.Connection
 import Skema.Database.Types
 import Skema.Database.Utils (insertReturningIdMaybe)
-import Skema.Database.Repository.Tracks (stringToOsPath)
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Skema.MusicBrainz.Types (ReleaseMatch(..), TrackMatch(..), MBRelease(..), MBTrack(..), MBID(..), unMBID, FileGroup(..))
 import Monatone.Metadata (Metadata(..))
 import qualified Monatone.Metadata as M
@@ -185,7 +185,7 @@ updateMatchInDatabase pool match = do
           confidence = tmConfidence tm
 
       -- Update MusicBrainz IDs
-      pathStr <- OP.decodeUtf filePath
+      pathStr <- osPathToString filePath
       executeQuery conn
         "UPDATE library_tracks SET \
         \mb_recording_id = ?, mb_track_id = ?, mb_release_id = ?, \
@@ -284,7 +284,7 @@ applyMetadataChanges pool diffIds = withConnection pool $ \conn -> do
         case viaNonEmpty head trackResult of
           Nothing -> pure $ Left $ "Track not found for ID: " <> show tid
           Just (Only pathStr) -> do
-            path <- OP.encodeFS pathStr
+            path <- stringToOsPath pathStr
 
             -- Build Monatone update using helper function
             let buildUpdate = foldl' (\acc (field, _, newVal) ->
@@ -375,7 +375,7 @@ revertMetadataChange pool cid = withConnection pool $ \conn -> do
       if isJust revertedAt
         then pure $ Left "Change already reverted"
         else do
-          path <- OP.encodeFS pathStr
+          path <- stringToOsPath pathStr
 
           -- Build Monatone update with old value using helper function
           let buildUpdate = applyFieldToUpdate fieldName oldValue MW.emptyUpdate

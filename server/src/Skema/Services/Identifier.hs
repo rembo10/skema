@@ -22,6 +22,7 @@ import Skema.Domain.Identification (IdentifyConfig(..), shouldRetryIdentificatio
 import Skema.Domain.Quality (qualityToText)
 import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), TrackMatch(..), IdentificationResult(..), MBID(..), unMBID, MBRelease(..), MBTrack(..))
 import Skema.Config.Types (Config(..), LibraryConfig(..))
+import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import qualified Monatone.Metadata as M
 import System.OsPath (OsPath, takeDirectory)
 import qualified System.OsPath as OP
@@ -187,7 +188,7 @@ handleClustersGenerated IdentifierDeps{..} groupsNeedingId = do
                               recordingId = unMBID (mbTrackRecordingId recording)
                               recordingTitle = mbTrackTitle recording
                           -- Update the track's mb_recording_id and mb_recording_title
-                          pathStr <- OP.decodeUtf filePath
+                          pathStr <- osPathToString filePath
                           executeQuery conn
                             "UPDATE library_tracks SET mb_recording_id = ?, mb_recording_title = ? WHERE path = ?"
                             (Just recordingId, Just recordingTitle, toText pathStr)
