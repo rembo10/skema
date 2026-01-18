@@ -628,10 +628,16 @@ export default function Albums() {
                   <select
                     onChange={(e) => {
                       const value = e.target.value;
-                      if (value) {
+                      if (value === 'default') {
+                        if (defaultProfile?.id) {
+                          handleBulkQualityChange(defaultProfile.id, false);
+                        } else {
+                          toast.error('No default quality profile configured');
+                        }
+                      } else if (value) {
                         handleBulkQualityChange(parseInt(value, 10));
-                        e.target.value = '';
                       }
+                      e.target.value = '';
                     }}
                     className="text-sm bg-dark-bg-hover border border-dark-border rounded px-3 py-1.5 text-dark-text focus:outline-none focus:ring-2 focus:ring-dark-accent"
                     defaultValue=""
@@ -655,6 +661,12 @@ export default function Albums() {
                     const value = e.target.value;
                     if (value === 'existing') {
                       handleBulkQualityChange(null, true);
+                    } else if (value === 'default') {
+                      if (defaultProfile?.id) {
+                        handleBulkQualityChange(defaultProfile.id, false);
+                      } else {
+                        toast.error('No default quality profile configured');
+                      }
                     } else if (value) {
                       handleBulkQualityChange(parseInt(value, 10));
                     }
@@ -804,14 +816,23 @@ export default function Albums() {
                       {activeTab === 'unacquired' ? (
                         <td className="px-6 py-4 whitespace-nowrap">
                           <select
-                            value={album.quality_profile_id || ''}
+                            value={album.quality_profile_id || 'default'}
                             onChange={(e) => {
-                              const profileId = e.target.value ? parseInt(e.target.value, 10) : null;
-                              handleQualityProfileChange(album.id, profileId);
+                              const value = e.target.value;
+                              if (value === 'default') {
+                                if (defaultProfile?.id) {
+                                  handleQualityProfileChange(album.id, defaultProfile.id);
+                                } else {
+                                  toast.error('No default quality profile configured');
+                                }
+                              } else {
+                                const profileId = parseInt(value, 10);
+                                handleQualityProfileChange(album.id, profileId);
+                              }
                             }}
                             className="text-sm bg-dark-bg-hover border border-dark-border rounded px-2 py-1 text-dark-text focus:outline-none focus:ring-2 focus:ring-dark-accent"
                           >
-                            <option value="">
+                            <option value="default">
                               {defaultProfile ? `Default (${defaultProfile.name})` : 'Default'}
                             </option>
                             {qualityProfiles.map((profile) => (
@@ -828,20 +849,26 @@ export default function Albums() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <select
-                              value={album.wanted ? (album.quality_profile_id || '') : 'existing'}
+                              value={album.wanted ? (album.quality_profile_id || 'default') : 'existing'}
                               onChange={(e) => {
                                 const value = e.target.value;
                                 if (value === 'existing') {
                                   handleQualityProfileChange(album.id, null, true);
+                                } else if (value === 'default') {
+                                  if (defaultProfile?.id) {
+                                    handleQualityProfileChange(album.id, defaultProfile.id, false);
+                                  } else {
+                                    toast.error('No default quality profile configured');
+                                  }
                                 } else {
-                                  const profileId = value ? parseInt(value, 10) : null;
+                                  const profileId = parseInt(value, 10);
                                   handleQualityProfileChange(album.id, profileId, false);
                                 }
                               }}
                               className="text-sm bg-dark-bg-hover border border-dark-border rounded px-2 py-1 text-dark-text focus:outline-none focus:ring-2 focus:ring-dark-accent"
                             >
                               <option value="existing">Existing</option>
-                              <option value="">
+                              <option value="default">
                                 {defaultProfile ? `Default (${defaultProfile.name})` : 'Default'}
                               </option>
                               {qualityProfiles.map((profile) => (
