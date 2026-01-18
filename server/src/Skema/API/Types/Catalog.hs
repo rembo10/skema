@@ -129,10 +129,10 @@ data ArtistsPagination = ArtistsPagination
   } deriving (Show, Eq, Generic)
 
 instance ToJSON ArtistsPagination where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 17 }
 
 instance FromJSON ArtistsPagination where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 17 }
 
 -- | Paginated artists response.
 data ArtistsResponse = ArtistsResponse
@@ -340,10 +340,10 @@ data CatalogAlbumOverviewRequest = CatalogAlbumOverviewRequest
   } deriving (Show, Eq, Generic)
 
 instance ToJSON CatalogAlbumOverviewRequest where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 24 }
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 23 }
 
 instance FromJSON CatalogAlbumOverviewRequest where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 24 }
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 23 }
 
 -- | Pagination info.
 data AlbumOverviewPagination = AlbumOverviewPagination
@@ -353,10 +353,10 @@ data AlbumOverviewPagination = AlbumOverviewPagination
   } deriving (Show, Eq, Generic)
 
 instance ToJSON AlbumOverviewPagination where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 21 }
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 23 }
 
 instance FromJSON AlbumOverviewPagination where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 21 }
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 23 }
 
 -- | Album statistics.
 data AlbumOverviewStats = AlbumOverviewStats
@@ -365,10 +365,10 @@ data AlbumOverviewStats = AlbumOverviewStats
   } deriving (Show, Eq, Generic)
 
 instance ToJSON AlbumOverviewStats where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 17 }
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
 
 instance FromJSON AlbumOverviewStats where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 17 }
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
 
 -- | Complete album overview response (wrapper for pagination, stats, and albums).
 data AlbumOverviewResponse = AlbumOverviewResponse

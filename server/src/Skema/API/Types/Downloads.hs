@@ -68,10 +68,10 @@ data DownloadsPagination = DownloadsPagination
   } deriving (Show, Eq, Generic)
 
 instance ToJSON DownloadsPagination where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 20 }
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
 
 instance FromJSON DownloadsPagination where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 20 }
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
 
 -- | Paginated downloads response.
 data DownloadsResponse = DownloadsResponse
