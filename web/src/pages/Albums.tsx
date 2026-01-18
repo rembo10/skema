@@ -438,14 +438,6 @@ export default function Albums() {
         </button>
       </div>
 
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-dark-text">Albums</h1>
-        <p className="text-dark-text-secondary mt-2">
-          Manage your wanted albums and quality settings for existing albums
-        </p>
-      </div>
-
       {/* Filters */}
       <div className="sticky top-0 z-10 pt-4 pb-4 mb-4 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 bg-dark-bg">
         <div className="card p-4 space-y-4">
