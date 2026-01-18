@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import toast from 'react-hot-toast';
 import { PaginationControls } from '../components/PaginationControls';
@@ -48,7 +49,16 @@ const stateConfig: Record<AlbumState, { label: string; icon: typeof Music; color
 type TabView = 'unacquired' | 'library';
 
 export default function Albums() {
-  const [activeTab, setActiveTab] = useState<TabView>('unacquired');
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Determine active tab from URL path
+  const getTabFromPath = (pathname: string): TabView => {
+    if (pathname === '/albums/library') return 'library';
+    return 'unacquired';
+  };
+
+  const [activeTab, setActiveTab] = useState<TabView>(() => getTabFromPath(location.pathname));
   const [albums, setAlbums] = useState<CatalogAlbumOverview[]>([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
@@ -64,6 +74,21 @@ export default function Albums() {
   const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
   const [defaultProfile, setDefaultProfile] = useState<QualityProfile | null>(null);
   const [selectedAlbumIds, setSelectedAlbumIds] = useState<Set<number>>(new Set());
+
+  // Sync active tab with URL changes
+  useEffect(() => {
+    const newTab = getTabFromPath(location.pathname);
+    if (newTab !== activeTab) {
+      setActiveTab(newTab);
+    }
+  }, [location.pathname]);
+
+  // Redirect /albums to /albums/unacquired
+  useEffect(() => {
+    if (location.pathname === '/albums') {
+      navigate('/albums/unacquired', { replace: true });
+    }
+  }, [location.pathname, navigate]);
 
   // Debounce search input
   useEffect(() => {
@@ -387,7 +412,7 @@ export default function Albums() {
       <div className="flex gap-2 border-b border-dark-border mb-6">
         <button
           onClick={() => {
-            setActiveTab('unacquired');
+            navigate('/albums/unacquired');
             pagination.resetOffset();
           }}
           className={`px-4 py-2 font-medium border-b-2 transition-colors ${
@@ -400,7 +425,7 @@ export default function Albums() {
         </button>
         <button
           onClick={() => {
-            setActiveTab('library');
+            navigate('/albums/library');
             pagination.resetOffset();
           }}
           className={`px-4 py-2 font-medium border-b-2 transition-colors ${
