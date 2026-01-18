@@ -72,9 +72,10 @@ export function useSSE(enabled: boolean = true) {
       const apiBase = getApiBase();
 
       // Connect to SSE (with or without token)
+      // Use window.location.origin to ensure absolute URL (fixes relative path issues)
       const url = jwt
-        ? `${apiBase}/events?token=${encodeURIComponent(jwt)}`
-        : `${apiBase}/events`;
+        ? `${window.location.origin}${apiBase}/events?token=${encodeURIComponent(jwt)}`
+        : `${window.location.origin}${apiBase}/events`;
       setConnectionStatus('connecting');
       const eventSource = new EventSource(url);
       eventSourceRef.current = eventSource;

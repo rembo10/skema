@@ -1,55 +1,28 @@
 import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, ArtistsResponse, CatalogAlbum, Download, DownloadsResponse, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task, AlbumOverviewRequest, AlbumOverviewResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse } from '../types/api';
 
-// Auto-detect base path from where the app is loaded
-// This allows the app to work at any subpath (e.g., /skema, /music, etc.)
+// Base path configuration
+// Can be set via environment variable at build time, or detected from <base> tag
 function detectBasePath(): string {
-  // Get the base element if it exists
+  // Check for base element in HTML (conventional approach)
   const base = document.querySelector('base');
   if (base?.href) {
     const url = new URL(base.href);
     return url.pathname.replace(/\/$/, '');
   }
 
-  // Fallback: detect from current location
-  // If we're at /skema/library, base path is /skema
-  // If we're at /library, base path is '' (root)
-  const path = window.location.pathname;
-
-  // Common route patterns in the app
-  const knownRoutes = [
-    '/library',
-    '/identify',
-    '/diffs',
-    '/metadata-changes',
-    '/acquisition',
-    '/albums',
-    '/catalog',
-    '/downloads',
-    '/settings',
-    '/login',
-    '/',
-  ];
-
-  // Find if we're on a known route
-  for (const route of knownRoutes) {
-    if (path === route || path.startsWith(route + '/')) {
-      return '';
-    }
-
-    // Check if we have a subpath before the route
-    // e.g., /skema/library -> base is /skema
-    const parts = path.split(route);
-    if (parts.length > 1 && parts[0] !== '') {
-      return parts[0].replace(/\/$/, '');
-    }
+  // Check for build-time environment variable
+  if (import.meta.env.BASE_URL && import.meta.env.BASE_URL !== '/') {
+    return import.meta.env.BASE_URL.replace(/\/$/, '');
   }
 
   // Default to root
   return '';
 }
 
+// Initialize base paths once at module load
 const BASE_PATH = detectBasePath();
 const API_BASE = `${BASE_PATH}/api`;
+
 const JWT_STORAGE_KEY = 'skema_jwt';
 const JWT_EXPIRES_STORAGE_KEY = 'skema_jwt_expires';
 
