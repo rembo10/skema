@@ -257,14 +257,14 @@ getCatalogAlbumsOverview
   :: SQLite.Connection
   -> Int        -- ^ Limit
   -> Int        -- ^ Offset
-  -> Maybe [Text]  -- ^ Filter by state (not yet implemented)
+  -> Maybe [Text]  -- ^ Filter by state
   -> Maybe [Text]  -- ^ Filter by quality
   -> Maybe Int64   -- ^ Filter by artist ID
   -> Maybe Text    -- ^ Search query
   -> Maybe Text    -- ^ Sort field
   -> Maybe Text    -- ^ Sort order (asc/desc)
   -> IO [CatalogAlbumOverviewRow]
-getCatalogAlbumsOverview conn limit offset _maybeStates maybeQualities maybeArtistId maybeSearch maybeSort maybeOrder = do
+getCatalogAlbumsOverview conn limit offset maybeStates maybeQualities maybeArtistId maybeSearch maybeSort maybeOrder = do
   let baseQuery =
         "SELECT \
         \  ca.id, \
@@ -316,29 +316,147 @@ getCatalogAlbumsOverview conn limit offset _maybeStates maybeQualities maybeArti
         \  FROM downloads \
         \  GROUP BY catalog_album_id \
         \) d_count ON ca.id = d_count.catalog_album_id \
-        \LEFT JOIN clusters c ON c.mb_release_group_id = ca.release_group_mbid \
+        \LEFT JOIN ( \
+        \  SELECT mb_release_group_id, MIN(id) as id \
+        \  FROM clusters \
+        \  WHERE mb_release_group_id IS NOT NULL \
+        \  GROUP BY mb_release_group_id \
+        \) c ON c.mb_release_group_id = ca.release_group_mbid \
         \WHERE 1=1 "
 
   -- Build filter conditions
   let (whereClause, params) = buildOverviewFilters maybeQualities maybeArtistId maybeSearch
-  let sortClause = buildSortClause maybeSort maybeOrder
-  let fullQuery = baseQuery <> whereClause <> sortClause <> " LIMIT ? OFFSET ?"
 
-  queryRows conn fullQuery (params <> [toField limit, toField offset])
+  -- Wrap the base query in a subquery if we need to filter by state
+  let (finalQuery, finalParams, sortClause) = case maybeStates of
+        Nothing ->
+          (baseQuery <> whereClause, params, buildSortClause maybeSort maybeOrder)
+        Just states ->
+          -- Wrap in subquery with computed state column
+          -- Only select the 29 columns needed for CatalogAlbumOverviewRow (exclude computed_state from final SELECT)
+          let subquery = "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, \
+                         \album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, \
+                         \wanted, cluster_id, current_quality, quality_profile_id, profile_name, cutoff_quality, \
+                         \active_download_id, active_download_status, progress, download_quality, download_title, \
+                         \size_bytes, started_at, error_message, download_count, last_download_at, \
+                         \created_at, updated_at, imported_at \
+                         \FROM (\
+                         \SELECT \
+                         \  ca.id, \
+                         \  ca.release_group_mbid, \
+                         \  ca.title, \
+                         \  ca.artist_id, \
+                         \  ca.artist_mbid, \
+                         \  ca.artist_name, \
+                         \  ca.album_type, \
+                         \  ca.first_release_date, \
+                         \  ca.album_cover_url, \
+                         \  ca.album_cover_thumbnail_url, \
+                         \  CASE \
+                         \    WHEN ca.quality_profile_id IS NULL THEN 0 \
+                         \    WHEN c.id IS NULL THEN 1 \
+                         \    WHEN ca.current_quality IS NULL THEN 1 \
+                         \    WHEN qp.cutoff_quality IS NULL THEN 0 \
+                         \    ELSE CASE \
+                         \      WHEN ca.current_quality = 'FLAC' AND qp.cutoff_quality IN ('MP3', 'V0', 'FLAC') THEN 0 \
+                         \      WHEN ca.current_quality = 'V0' AND qp.cutoff_quality IN ('MP3', 'V0') THEN 0 \
+                         \      WHEN ca.current_quality = 'MP3' AND qp.cutoff_quality = 'MP3' THEN 0 \
+                         \      ELSE 1 \
+                         \    END \
+                         \  END AS wanted, \
+                         \  c.id AS cluster_id, \
+                         \  ca.current_quality, \
+                         \  ca.quality_profile_id, \
+                         \  qp.name AS profile_name, \
+                         \  qp.cutoff_quality, \
+                         \  d_active.id AS active_download_id, \
+                         \  d_active.status AS active_download_status, \
+                         \  d_active.progress, \
+                         \  d_active.quality AS download_quality, \
+                         \  d_active.title AS download_title, \
+                         \  d_active.size_bytes, \
+                         \  d_active.started_at, \
+                         \  d_active.error_message, \
+                         \  COALESCE(d_count.download_count, 0) AS download_count, \
+                         \  d_count.last_download_at, \
+                         \  CURRENT_TIMESTAMP AS created_at, \
+                         \  CURRENT_TIMESTAMP AS updated_at, \
+                         \  NULL AS imported_at, \
+                         \  CASE \
+                         \    WHEN ca.quality_profile_id IS NULL AND c.id IS NULL THEN 'NotWanted' \
+                         \    WHEN ca.quality_profile_id IS NULL AND c.id IS NOT NULL THEN 'InLibrary' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NULL THEN 'Wanted' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failed' THEN 'IdentificationFailed' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
+                         \    ELSE 'Wanted' \
+                         \  END AS computed_state \
+                         \FROM catalog_albums ca \
+                         \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
+                         \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
+                         \  AND d_active.status IN ('queued', 'downloading', 'processing') \
+                         \LEFT JOIN ( \
+                         \  SELECT catalog_album_id, COUNT(*) as download_count, MAX(queued_at) as last_download_at \
+                         \  FROM downloads \
+                         \  GROUP BY catalog_album_id \
+                         \) d_count ON ca.id = d_count.catalog_album_id \
+                         \LEFT JOIN ( \
+                         \  SELECT mb_release_group_id, MIN(id) as id \
+                         \  FROM clusters \
+                         \  WHERE mb_release_group_id IS NOT NULL \
+                         \  GROUP BY mb_release_group_id \
+                         \) c ON c.mb_release_group_id = ca.release_group_mbid \
+                         \WHERE 1=1 " <> whereClause <> ") sub WHERE computed_state IN (" <> T.intercalate "," (replicate (length states) "?") <> ")"
+              stateParams = map toField states
+              sortClauseForSub = buildSortClauseForSubquery maybeSort maybeOrder
+          in (subquery, params <> stateParams, sortClauseForSub)
+
+  let fullQuery = finalQuery <> sortClause <> " LIMIT ? OFFSET ?"
+
+  queryRows conn fullQuery (finalParams <> [toField limit, toField offset])
 
 -- | Get total count of albums matching filters.
 getCatalogAlbumsOverviewCount
   :: SQLite.Connection
+  -> Maybe [Text]  -- ^ Filter by state
   -> Maybe [Text]  -- ^ Filter by quality
   -> Maybe Int64   -- ^ Filter by artist ID
   -> Maybe Text    -- ^ Search query
   -> IO Int
-getCatalogAlbumsOverviewCount conn maybeQualities maybeArtistId maybeSearch = do
-  let baseQuery = "SELECT COUNT(*) FROM catalog_albums ca WHERE 1=1 "
+getCatalogAlbumsOverviewCount conn maybeStates maybeQualities maybeArtistId maybeSearch = do
   let (whereClause, params) = buildOverviewFilters maybeQualities maybeArtistId maybeSearch
-  let fullQuery = baseQuery <> whereClause
 
-  results <- queryRows conn fullQuery params :: IO [Only Int]
+  let (fullQuery, finalParams) = case maybeStates of
+        Nothing ->
+          ("SELECT COUNT(*) FROM catalog_albums ca WHERE 1=1 " <> whereClause, params)
+        Just states ->
+          -- Use subquery with computed state for filtering
+          let subquery = "SELECT COUNT(*) FROM (\
+                         \SELECT ca.id, \
+                         \  CASE \
+                         \    WHEN ca.quality_profile_id IS NULL AND c.id IS NULL THEN 'NotWanted' \
+                         \    WHEN ca.quality_profile_id IS NULL AND c.id IS NOT NULL THEN 'InLibrary' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NULL THEN 'Wanted' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failed' THEN 'IdentificationFailed' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
+                         \    ELSE 'Wanted' \
+                         \  END AS computed_state \
+                         \FROM catalog_albums ca \
+                         \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
+                         \  AND d_active.status IN ('queued', 'downloading', 'processing') \
+                         \LEFT JOIN clusters c ON c.mb_release_group_id = ca.release_group_mbid \
+                         \WHERE 1=1 " <> whereClause <> ") sub WHERE computed_state IN (" <> T.intercalate "," (replicate (length states) "?") <> ")"
+              stateParams = map toField states
+          in (subquery, params <> stateParams)
+
+  results <- queryRows conn fullQuery finalParams :: IO [Only Int]
   pure $ maybe 0 (\(Only n) -> n) (viaNonEmpty head results)
 
 -- | Get statistics by state and quality.
@@ -374,17 +492,26 @@ buildOverviewFilters maybeQualities maybeArtistId maybeSearch =
   in (T.unwords clauses, params)
 
 -- Helper function to build ORDER BY clause
+-- When inSubquery is True, use column aliases without table prefix
 buildSortClause :: Maybe Text -> Maybe Text -> Text
 buildSortClause maybeSort maybeOrder =
+  buildSortClauseInternal maybeSort maybeOrder False
+
+buildSortClauseForSubquery :: Maybe Text -> Maybe Text -> Text
+buildSortClauseForSubquery maybeSort maybeOrder =
+  buildSortClauseInternal maybeSort maybeOrder True
+
+buildSortClauseInternal :: Maybe Text -> Maybe Text -> Bool -> Text
+buildSortClauseInternal maybeSort maybeOrder inSubquery =
   let order = case maybeOrder of
         Just "asc" -> " ASC"
         Just "desc" -> " DESC"
         _ -> " DESC"  -- Default to descending
       sortField = case maybeSort of
-        Just "title" -> "ca.title"
-        Just "artist" -> "ca.artist_name"
-        Just "date" -> "ca.first_release_date"
-        Just "quality" -> "ca.current_quality"
-        Just "state" -> "ca.id"  -- State is computed, sort by ID
-        _ -> "ca.id"  -- Default: by ID
+        Just "title" -> if inSubquery then "title" else "ca.title"
+        Just "artist" -> if inSubquery then "artist_name" else "ca.artist_name"
+        Just "date" -> if inSubquery then "first_release_date" else "ca.first_release_date"
+        Just "quality" -> if inSubquery then "current_quality" else "ca.current_quality"
+        Just "state" -> if inSubquery then "id" else "ca.id"
+        _ -> if inSubquery then "id" else "ca.id"  -- Default: by ID
   in " ORDER BY " <> sortField <> order

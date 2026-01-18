@@ -533,27 +533,16 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       let maybeStates = fmap (map Text.strip . Text.splitOn ",") maybeStateFilter
       let maybeQualities = fmap (map Text.strip . Text.splitOn ",") maybeQualityFilter
 
-      -- When filtering by state, we need to fetch extra results since filtering happens after computing state
-      -- Fetch 10x the limit to have enough results after filtering (rough heuristic)
-      let fetchLimit = if isJust maybeStateFilter then limit * 10 else limit
-
       -- Query database for albums with joined data
+      -- State filtering now happens at the database level
       (overviewRows, totalCount, statsData) <- liftIO $ withConnection connPool $ \conn -> do
-        rows <- DB.getCatalogAlbumsOverview conn fetchLimit offset Nothing maybeQualities maybeArtistId maybeSearch maybeSort maybeOrder
-        count <- DB.getCatalogAlbumsOverviewCount conn maybeQualities maybeArtistId maybeSearch
+        rows <- DB.getCatalogAlbumsOverview conn limit offset maybeStates maybeQualities maybeArtistId maybeSearch maybeSort maybeOrder
+        count <- DB.getCatalogAlbumsOverviewCount conn maybeStates maybeQualities maybeArtistId maybeSearch
         stats <- DB.getCatalogAlbumsOverviewStats conn
         pure (rows, count, stats)
 
-      -- Convert rows to response objects and apply state filtering
-      let allResponses = map rowToResponse overviewRows
-      let filteredResponses = case maybeStates of
-            Nothing -> allResponses
-            Just stateTexts ->
-              let states = mapMaybe textToAlbumState stateTexts
-              in filter (\resp -> catalogAlbumOverviewState resp `elem` states) allResponses
-
-      -- Take only the requested page of results
-      let responses = take limit filteredResponses
+      -- Convert rows to response objects
+      let responses = map rowToResponse overviewRows
 
       -- Build pagination
       let pagination = AlbumOverviewPagination
