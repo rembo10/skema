@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import toast from 'react-hot-toast';
@@ -42,7 +42,7 @@ const stateConfig: Record<AlbumState, { label: string; icon: typeof Music; color
   Failed: { label: 'Failed', icon: XCircle, color: 'text-red-500' },
   IdentificationFailed: { label: 'ID Failed', icon: AlertCircle, color: 'text-red-400' },
   InLibrary: { label: 'Finished', icon: CheckCircle2, color: 'text-green-500' },
-  Monitored: { label: 'Upgrading', icon: Eye, color: 'text-blue-400' },
+  Monitored: { label: 'Upgrading', icon: ArrowUpCircle, color: 'text-purple-500' },
   Upgrading: { label: 'Upgrading', icon: ArrowUpCircle, color: 'text-purple-500' },
 };
 
@@ -61,11 +61,15 @@ export default function Albums() {
   const [activeTab, setActiveTab] = useState<TabView>(() => getTabFromPath(location.pathname));
   const [albums, setAlbums] = useState<CatalogAlbumOverview[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tableLoading, setTableLoading] = useState(false);
+  const initialLoadComplete = useRef(false);
   const [searching, setSearching] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [searchFilter, setSearchFilter] = useState('');
-  const [sortBy, setSortBy] = useState<'title' | 'artist' | 'date'>('date');
+  const [sortBy, setSortBy] = useState<'title' | 'artist' | 'date' | 'quality' | 'state'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [qualityFilter, setQualityFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<AlbumState[]>([]);
   const pagination = usePagination(ITEMS_PER_PAGE);
   const [showReleasesModal, setShowReleasesModal] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<CatalogAlbumOverview | null>(null);
@@ -80,6 +84,9 @@ export default function Albums() {
     const newTab = getTabFromPath(location.pathname);
     if (newTab !== activeTab) {
       setActiveTab(newTab);
+      // Clear filters when switching tabs
+      setQualityFilter([]);
+      setStatusFilter([]);
     }
   }, [location.pathname]);
 
@@ -108,7 +115,7 @@ export default function Albums() {
     loadAlbums();
     // Clear selections when tab changes
     setSelectedAlbumIds(new Set());
-  }, [activeTab, pagination.offset, searchFilter, sortBy, sortOrder]);
+  }, [activeTab, pagination.offset, searchFilter, sortBy, sortOrder, qualityFilter, statusFilter]);
 
   useEffect(() => {
     loadQualityProfiles();
@@ -128,15 +135,23 @@ export default function Albums() {
   };
 
   const loadAlbums = async () => {
-    // Only show full loading spinner on initial load or tab change
-    if (albums.length === 0) {
+    // Only show full loading spinner on very first load
+    if (!initialLoadComplete.current) {
       setLoading(true);
+    } else {
+      // Show table loading overlay for subsequent loads
+      setTableLoading(true);
     }
     try {
       // Filter by state based on active tab
-      const stateFilter = activeTab === 'unacquired'
+      const baseStateFilter = activeTab === 'unacquired'
         ? ['Wanted', 'Searching', 'Downloading', 'Failed', 'IdentificationFailed'] as AlbumState[]
         : ['InLibrary', 'Monitored', 'Upgrading'] as AlbumState[];
+
+      // If user has selected specific statuses, use those instead (filtered by tab's base states)
+      const effectiveStateFilter = statusFilter.length > 0
+        ? statusFilter.filter(s => baseStateFilter.includes(s))
+        : baseStateFilter;
 
       const request: AlbumOverviewRequest = {
         offset: pagination.offset,
@@ -144,7 +159,8 @@ export default function Albums() {
         search: searchFilter || undefined,
         sort: sortBy,
         order: sortOrder,
-        state: stateFilter,
+        state: effectiveStateFilter,
+        quality: qualityFilter.length > 0 ? qualityFilter : undefined,
       };
 
       const response = await api.getAlbumOverview(request);
@@ -157,11 +173,13 @@ export default function Albums() {
 
       setAlbums(response.albums || []);
       pagination.setTotalCount(response.pagination.total);
+      initialLoadComplete.current = true;
     } catch (error) {
       console.error('Failed to load albums:', error);
       toast.error('Failed to load albums');
     } finally {
       setLoading(false);
+      setTableLoading(false);
     }
   };
 
@@ -233,7 +251,7 @@ export default function Albums() {
     }
   };
 
-  const handleSort = (column: 'title' | 'artist' | 'date') => {
+  const handleSort = (column: 'title' | 'artist' | 'date' | 'quality' | 'state') => {
     if (sortBy === column) {
       // Toggle sort order if clicking the same column
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -309,7 +327,7 @@ export default function Albums() {
     }
   };
 
-  const SortableHeader = ({ column, children }: { column: 'title' | 'artist' | 'date'; children: React.ReactNode }) => {
+  const SortableHeader = ({ column, children }: { column: 'title' | 'artist' | 'date' | 'quality' | 'state'; children: React.ReactNode }) => {
     const isActive = sortBy === column;
     return (
       <th
@@ -446,9 +464,9 @@ export default function Albums() {
           <span>Filters</span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-4">
           {/* Search */}
-          <div className="relative w-full">
+          <div className="relative w-full max-w-md">
             <input
               type="text"
               placeholder="Search albums or artists..."
@@ -461,6 +479,128 @@ export default function Albums() {
                 <Loader2 className="h-4 w-4 animate-spin text-dark-text-secondary" />
               </div>
             )}
+          </div>
+
+          {/* Quality Filter - Only show on library tab */}
+          {activeTab === 'library' && (
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-dark-text-secondary">Filter by Quality:</label>
+              <div className="flex flex-wrap gap-2">
+                {(['unknown', 'mp3_192', 'vbr2', 'mp3_256', 'vbr0', 'mp3_320', 'lossless', 'hires_lossless'] as const).map((quality) => {
+                  const isSelected = qualityFilter.includes(quality);
+                  return (
+                    <button
+                      key={quality}
+                      onClick={() => {
+                        if (isSelected) {
+                          setQualityFilter(qualityFilter.filter(q => q !== quality));
+                        } else {
+                          setQualityFilter([...qualityFilter, quality]);
+                        }
+                        pagination.resetOffset();
+                      }}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium transition-all ${getQualityBadgeStyle(quality)} ${
+                        isSelected
+                          ? 'border-2'
+                          : 'border hover:border-2'
+                      }`}
+                    >
+                      {formatQuality(quality)}
+                    </button>
+                  );
+                })}
+                {qualityFilter.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setQualityFilter([]);
+                      pagination.resetOffset();
+                    }}
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium text-dark-text-tertiary hover:text-dark-error border border-dark-border hover:border-dark-error transition-colors"
+                  >
+                    <X className="h-3 w-3" />
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Status Filter */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-dark-text-secondary">Filter by Status:</label>
+            <div className="flex flex-wrap gap-2">
+              {(activeTab === 'unacquired'
+                ? (['Wanted', 'Failed', 'IdentificationFailed'] as AlbumState[])
+                : (['InLibrary'] as AlbumState[]).concat(['upgrading-combined' as any])
+              ).map((status) => {
+                // Special handling for library tab - combine Monitored and Upgrading into one "Upgrading" badge
+                if (status === 'upgrading-combined') {
+                  const isSelected = statusFilter.includes('Monitored') || statusFilter.includes('Upgrading');
+                  const config = stateConfig['Upgrading'];
+                  const Icon = config.icon;
+                  return (
+                    <button
+                      key="upgrading-combined"
+                      onClick={() => {
+                        if (isSelected) {
+                          // Remove both Monitored and Upgrading
+                          setStatusFilter(statusFilter.filter(s => s !== 'Monitored' && s !== 'Upgrading'));
+                        } else {
+                          // Add both Monitored and Upgrading
+                          setStatusFilter([...statusFilter, 'Monitored', 'Upgrading']);
+                        }
+                        pagination.resetOffset();
+                      }}
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium transition-all ${config.color} ${
+                        isSelected
+                          ? 'ring-2 ring-current ring-offset-2 ring-offset-dark-bg'
+                          : 'ring-1 ring-current ring-offset-1 ring-offset-dark-bg hover:ring-2 hover:ring-offset-2'
+                      }`}
+                    >
+                      <Icon className="h-3 w-3" />
+                      {config.label}
+                    </button>
+                  );
+                }
+
+                const isSelected = statusFilter.includes(status);
+                const config = stateConfig[status];
+                const Icon = config.icon;
+                return (
+                  <button
+                    key={status}
+                    onClick={() => {
+                      if (isSelected) {
+                        setStatusFilter(statusFilter.filter(s => s !== status));
+                      } else {
+                        setStatusFilter([...statusFilter, status]);
+                      }
+                      pagination.resetOffset();
+                    }}
+                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium transition-all ${config.color} ${
+                      isSelected
+                        ? 'ring-2 ring-current ring-offset-2 ring-offset-dark-bg'
+                        : 'ring-1 ring-current ring-offset-1 ring-offset-dark-bg hover:ring-2 hover:ring-offset-2'
+                    }`}
+                  >
+                    <Icon className="h-3 w-3" />
+                    {config.label}
+                  </button>
+                );
+              })}
+              {statusFilter.length > 0 && (
+                <button
+                  onClick={() => {
+                    setStatusFilter([]);
+                    pagination.resetOffset();
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium text-dark-text-tertiary hover:text-dark-error border border-dark-border hover:border-dark-error transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
         </div>
         </div>
@@ -569,7 +709,12 @@ export default function Albums() {
         </div>
       ) : (
         <>
-          <div className="card overflow-hidden">
+          <div className="card overflow-hidden relative">
+            {tableLoading && (
+              <div className="absolute inset-0 bg-dark-bg/50 backdrop-blur-sm z-10 flex items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-dark-accent" />
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-dark-border">
                 <thead className="bg-dark-bg-subtle">
@@ -596,15 +741,11 @@ export default function Albums() {
                       </th>
                     ) : (
                       <>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">
-                          Current Quality
-                        </th>
+                        <SortableHeader column="quality">Current Quality</SortableHeader>
                         <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">
                           Desired Quality
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">
-                          Status
-                        </th>
+                        <SortableHeader column="state">Status</SortableHeader>
                       </>
                     )}
                     <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">
