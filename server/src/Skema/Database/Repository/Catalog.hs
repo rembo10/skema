@@ -111,11 +111,11 @@ deleteCatalogArtist conn artistId =
 
 -- | Upsert a catalog album (insert or update if exists).
 -- NOTE: "wanted" status is no longer stored - it's computed from quality_profile_id + current_quality
-upsertCatalogAlbum :: SQLite.Connection -> Text -> Text -> Int64 -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe Int64 -> IO Int64
-upsertCatalogAlbum conn releaseGroupMBID title artistId artistMBID artistName albumType firstReleaseDate matchedClusterId =
+upsertCatalogAlbum :: SQLite.Connection -> Text -> Text -> Int64 -> Text -> Text -> Maybe Text -> Maybe Text -> IO Int64
+upsertCatalogAlbum conn releaseGroupMBID title artistId artistMBID artistName albumType firstReleaseDate =
   insertReturningId conn
-    "INSERT INTO catalog_albums (release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, matched_cluster_id) \
-    \VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+    "INSERT INTO catalog_albums (release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date) \
+    \VALUES (?, ?, ?, ?, ?, ?, ?) \
     \ON CONFLICT(release_group_mbid) DO UPDATE SET \
     \  title = excluded.title, \
     \  artist_id = excluded.artist_id, \
@@ -123,23 +123,22 @@ upsertCatalogAlbum conn releaseGroupMBID title artistId artistMBID artistName al
     \  artist_name = excluded.artist_name, \
     \  album_type = excluded.album_type, \
     \  first_release_date = excluded.first_release_date, \
-    \  matched_cluster_id = excluded.matched_cluster_id, \
     \  updated_at = CURRENT_TIMESTAMP \
     \RETURNING id"
-    (releaseGroupMBID, title, artistId, artistMBID, artistName, albumType, firstReleaseDate, matchedClusterId)
+    (releaseGroupMBID, title, artistId, artistMBID, artistName, albumType, firstReleaseDate)
 
 -- | Get all catalog albums.
 getCatalogAlbums :: SQLite.Connection -> IO [CatalogAlbumRecord]
 getCatalogAlbums conn =
   queryRows_ conn
-    "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, matched_cluster_id, quality_profile_id, current_quality, created_at, updated_at \
+    "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, quality_profile_id, current_quality, created_at, updated_at \
     \FROM catalog_albums ORDER BY created_at DESC"
 
 -- | Get catalog albums by internal artist ID.
 getCatalogAlbumsByArtistId :: SQLite.Connection -> Int64 -> IO [CatalogAlbumRecord]
 getCatalogAlbumsByArtistId conn artistId =
   queryRows conn
-    "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, matched_cluster_id, quality_profile_id, current_quality, created_at, updated_at \
+    "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, quality_profile_id, current_quality, created_at, updated_at \
     \FROM catalog_albums WHERE artist_id = ? ORDER BY first_release_date DESC"
     (Only artistId)
 
@@ -147,7 +146,7 @@ getCatalogAlbumsByArtistId conn artistId =
 getCatalogAlbumByReleaseGroupMBID :: SQLite.Connection -> Text -> IO (Maybe CatalogAlbumRecord)
 getCatalogAlbumByReleaseGroupMBID conn releaseGroupMBID = do
   results <- queryRows conn
-    "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, matched_cluster_id, quality_profile_id, current_quality, created_at, updated_at \
+    "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, quality_profile_id, current_quality, created_at, updated_at \
     \FROM catalog_albums WHERE release_group_mbid = ?"
     (Only releaseGroupMBID)
   pure $ viaNonEmpty head results

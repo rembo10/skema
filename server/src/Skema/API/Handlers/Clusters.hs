@@ -357,24 +357,8 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
       liftIO $ withConnection connPool $ \conn ->
         DB.updateClusterWithMBDataManual conn clusterId release confidence
 
-      -- Link catalog albums to this cluster based on release group ID
-      -- First lookup catalog album by MBID, then update using internal ID
-      case mbReleaseGroupId release of
-        Just releaseGroupId -> do
-          maybeAlbum <- liftIO $ withConnection connPool $ \conn ->
-            DB.getCatalogAlbumByReleaseGroupMBID conn (unMBID releaseGroupId)
-          case maybeAlbum of
-            Just album | isNothing (DBTypes.catalogAlbumMatchedClusterId album) -> do
-              -- Album exists and isn't already matched to another cluster
-              case DBTypes.catalogAlbumId album of
-                Just albumId -> liftIO $ withConnection connPool $ \conn -> do
-                  now <- getCurrentTime
-                  executeQuery conn
-                    "UPDATE catalog_albums SET matched_cluster_id = ?, updated_at = ? WHERE id = ?"
-                    (clusterId, now, albumId)
-                Nothing -> pure ()  -- Album has no ID (shouldn't happen)
-            _ -> pure ()  -- Album doesn't exist or already matched
-        Nothing -> pure ()
+      -- Note: Catalog albums are now linked to clusters implicitly via release_group_mbid
+      -- No explicit linkage update needed - the JOIN happens at query time
 
       -- Get updated cluster with tracks
       maybeResult <- liftIO $ withConnection connPool $ \conn ->

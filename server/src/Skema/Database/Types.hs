@@ -261,7 +261,7 @@ data CatalogArtistRecord = CatalogArtistRecord
   } deriving (Show, Eq, Generic)
 
 -- | Catalog album record.
--- NOTE: "wanted" status is NOT stored - it's computed from quality_profile_id + current_quality + matched_cluster_id
+-- NOTE: "wanted" status is NOT stored - it's computed from quality_profile_id + current_quality
 data CatalogAlbumRecord = CatalogAlbumRecord
   { catalogAlbumId :: Maybe Int64
   , catalogAlbumReleaseGroupMBID :: Text
@@ -273,7 +273,6 @@ data CatalogAlbumRecord = CatalogAlbumRecord
   , catalogAlbumFirstReleaseDate :: Maybe Text
   , catalogAlbumCoverUrl :: Maybe Text
   , catalogAlbumCoverThumbnailUrl :: Maybe Text
-  , catalogAlbumMatchedClusterId :: Maybe Int64
   , catalogAlbumQualityProfileId :: Maybe Int64
   , catalogAlbumCurrentQuality :: Maybe Text
   , catalogAlbumCreatedAt :: Maybe UTCTime
@@ -566,7 +565,7 @@ instance SQLite.FromRow CatalogAlbumRecord where
     <$> SQLite.field <*> SQLite.field <*> SQLite.field <*> SQLite.field
     <*> SQLite.field <*> SQLite.field <*> SQLite.field <*> SQLite.field
     <*> SQLite.field <*> SQLite.field <*> SQLite.field <*> SQLite.field
-    <*> SQLite.field <*> SQLite.field <*> SQLite.field
+    <*> SQLite.field <*> SQLite.field
 
 instance SQLite.FromRow DownloadRecord where
   fromRow = do

@@ -246,7 +246,6 @@ matchAndAddAlbum pool bus le mbClient _source artistName albumTitle = do
               (mbrgsArtistName rg)
               (mbrgsType rg)
               (mbrgsFirstReleaseDate rg)
-              Nothing
 
             -- Emit WantedAlbumAdded event
             publishAndLog bus le "source_evaluator" $ WantedAlbumAdded

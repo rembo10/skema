@@ -558,7 +558,6 @@ createSchema conn = do
     \  mb_candidates TEXT, \
     \  match_source TEXT, \
     \  match_locked INTEGER NOT NULL DEFAULT 0, \
-    \  quality TEXT, \
     \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
     \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
     \  last_identified_at TIMESTAMP \
@@ -567,7 +566,6 @@ createSchema conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_clusters_metadata_hash ON clusters(metadata_hash)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_clusters_mb_release_id ON clusters(mb_release_id)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_clusters_match_locked ON clusters(match_locked)"
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_clusters_quality ON clusters(quality)"
 
   -- Create metadata_change_history table
   executeQuery_ conn

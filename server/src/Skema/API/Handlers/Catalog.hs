@@ -348,7 +348,6 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           (createCatalogAlbumArtistName req)
           (createCatalogAlbumType req)
           (createCatalogAlbumFirstReleaseDate req)
-          Nothing  -- matched_cluster_id is not set on creation
 
       -- Fetch the created/updated album
       maybeAlbum <- liftIO $ withConnection connPool $ \conn ->
@@ -366,7 +365,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           let albumContext = Core.AlbumContext
                 { Core.acQualityProfile = maybeProfile
                 , Core.acCurrentQuality = DBTypes.catalogAlbumCurrentQuality album >>= textToQuality
-                , Core.acInLibrary = isJust (DBTypes.catalogAlbumMatchedClusterId album)
+                , Core.acInLibrary = isJust (DBTypes.catalogAlbumCurrentQuality album)
                 , Core.acActiveDownloadStatus = Nothing
                 }
               wanted = Core.isAlbumWanted albumContext
@@ -382,7 +381,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
             , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
             , catalogAlbumResponseWanted = wanted
-            , catalogAlbumResponseMatchedClusterId = DBTypes.catalogAlbumMatchedClusterId album
+            , catalogAlbumResponseMatchedClusterId = Nothing  -- No longer stored, derived from current_quality
             , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
             , catalogAlbumResponseScore = Nothing
             , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
@@ -430,7 +429,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             let oldContext = Core.AlbumContext
                   { Core.acQualityProfile = maybeOldProfile
                   , Core.acCurrentQuality = DBTypes.catalogAlbumCurrentQuality albumBefore >>= textToQuality
-                  , Core.acInLibrary = isJust (DBTypes.catalogAlbumMatchedClusterId albumBefore)
+                  , Core.acInLibrary = isJust (DBTypes.catalogAlbumCurrentQuality albumBefore)
                   , Core.acActiveDownloadStatus = Nothing
                   }
                 wasWanted' = Core.isAlbumWanted oldContext
@@ -439,7 +438,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             let newContext = Core.AlbumContext
                   { Core.acQualityProfile = maybeNewProfile
                   , Core.acCurrentQuality = DBTypes.catalogAlbumCurrentQuality albumBefore >>= textToQuality
-                  , Core.acInLibrary = isJust (DBTypes.catalogAlbumMatchedClusterId albumBefore)
+                  , Core.acInLibrary = isJust (DBTypes.catalogAlbumCurrentQuality albumBefore)
                   , Core.acActiveDownloadStatus = Nothing
                   }
                 newWanted = Core.isAlbumWanted newContext
@@ -491,7 +490,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
               let albumContext = Core.AlbumContext
                     { Core.acQualityProfile = maybeProfile
                     , Core.acCurrentQuality = DBTypes.catalogAlbumCurrentQuality album >>= textToQuality
-                    , Core.acInLibrary = isJust (DBTypes.catalogAlbumMatchedClusterId album)
+                    , Core.acInLibrary = isJust (DBTypes.catalogAlbumCurrentQuality album)
                     , Core.acActiveDownloadStatus = Nothing
                     }
                   wanted = Core.isAlbumWanted albumContext
@@ -507,7 +506,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
                 , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
                 , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
                 , catalogAlbumResponseWanted = wanted
-                , catalogAlbumResponseMatchedClusterId = DBTypes.catalogAlbumMatchedClusterId album
+                , catalogAlbumResponseMatchedClusterId = Nothing  -- No longer stored, derived from current_quality
                 , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
                 , catalogAlbumResponseScore = Nothing
                 , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
@@ -809,7 +808,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
               let albumContext = Core.AlbumContext
                     { Core.acQualityProfile = maybeProfile
                     , Core.acCurrentQuality = DBTypes.catalogAlbumCurrentQuality album >>= textToQuality
-                    , Core.acInLibrary = isJust (DBTypes.catalogAlbumMatchedClusterId album)
+                    , Core.acInLibrary = isJust (DBTypes.catalogAlbumCurrentQuality album)
                     , Core.acActiveDownloadStatus = Nothing
                     }
                   wanted = Core.isAlbumWanted albumContext
@@ -826,7 +825,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
                     , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
                     , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
                     , catalogAlbumResponseWanted = wanted
-                    , catalogAlbumResponseMatchedClusterId = DBTypes.catalogAlbumMatchedClusterId album
+                    , catalogAlbumResponseMatchedClusterId = Nothing  -- No longer stored, derived from current_quality
                     , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
                     , catalogAlbumResponseScore = Nothing
                     , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)

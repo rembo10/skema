@@ -377,49 +377,55 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
                 -- 10. Delete old files if this is an upgrade and replace_library_files is enabled
                 let downloadCfg = download config
                 when (downloadReplaceLibraryFiles downloadCfg) $ do
-                  -- Check if this catalog album already has a matched cluster (indicating an upgrade)
-                  case catalogAlbumMatchedClusterId catalogAlbum of
-                    Just existingClusterId -> do
-                      $(logTM) InfoS $ logStr $ ("Upgrading album - removing old files from cluster " <> show existingClusterId :: Text)
+                  -- Check if there's an existing cluster for this release group (indicating an upgrade)
+                  forM_ (mbReleaseGroupId (rmRelease match)) $ \releaseGroupMBID -> do
+                    existingClusters <- liftIO $ withConnection pool $ \conn ->
+                      queryRows conn
+                        "SELECT id FROM clusters WHERE mb_release_group_id = ? AND id != ?"
+                        (unMBID releaseGroupMBID, clusterId) :: IO [Only Int64]
 
-                      -- Get all tracks from the existing cluster
-                      existingTracks <- liftIO $ withConnection pool $ \conn ->
-                        queryRows conn
-                          "SELECT file_path FROM library_tracks WHERE cluster_id = ?"
-                          (Only existingClusterId) :: IO [Only Text]
+                    case viaNonEmpty head existingClusters of
+                      Just (Only existingClusterId) -> do
+                        $(logTM) InfoS $ logStr $ ("Upgrading album - removing old files from cluster " <> show existingClusterId :: Text)
 
-                      -- Delete or trash each old file based on config
-                      forM_ existingTracks $ \(Only trackPathText) -> do
-                        trackPath <- liftIO $ OP.encodeFS (toString trackPathText)
-                        trackPathStr <- liftIO $ OP.decodeUtf trackPath
-                        fileExists <- liftIO $ Dir.doesFileExist trackPathStr
-                        when fileExists $ do
-                          if downloadUseTrash downloadCfg
-                            then do
-                              $(logTM) InfoS $ logStr $ ("Moving old file to trash: " <> trackPathText :: Text)
-                              liftIO $ moveToTrash libraryBasePath trackPath
-                            else do
-                              $(logTM) InfoS $ logStr $ ("Permanently deleting old file: " <> trackPathText :: Text)
-                              liftIO $ Dir.removeFile trackPathStr
+                        -- Get all tracks from the existing cluster
+                        existingTracks <- liftIO $ withConnection pool $ \conn ->
+                          queryRows conn
+                            "SELECT file_path FROM library_tracks WHERE cluster_id = ?"
+                            (Only existingClusterId) :: IO [Only Text]
 
-                      -- Delete track records for old cluster
-                      liftIO $ withConnection pool $ \conn ->
-                        executeQuery conn
-                          "DELETE FROM library_tracks WHERE cluster_id = ?"
-                          (Only existingClusterId)
+                        -- Delete or trash each old file based on config
+                        forM_ existingTracks $ \(Only trackPathText) -> do
+                          trackPath <- liftIO $ OP.encodeFS (toString trackPathText)
+                          trackPathStr <- liftIO $ OP.decodeUtf trackPath
+                          fileExists <- liftIO $ Dir.doesFileExist trackPathStr
+                          when fileExists $ do
+                            if downloadUseTrash downloadCfg
+                              then do
+                                $(logTM) InfoS $ logStr $ ("Moving old file to trash: " <> trackPathText :: Text)
+                                liftIO $ moveToTrash libraryBasePath trackPath
+                              else do
+                                $(logTM) InfoS $ logStr $ ("Permanently deleting old file: " <> trackPathText :: Text)
+                                liftIO $ Dir.removeFile trackPathStr
 
-                      -- Delete the old cluster
-                      liftIO $ withConnection pool $ \conn ->
-                        executeQuery conn
-                          "DELETE FROM clusters WHERE id = ?"
-                          (Only existingClusterId)
+                        -- Delete track records for old cluster
+                        liftIO $ withConnection pool $ \conn ->
+                          executeQuery conn
+                            "DELETE FROM library_tracks WHERE cluster_id = ?"
+                            (Only existingClusterId)
 
-                      if downloadUseTrash downloadCfg
-                        then $(logTM) InfoS $ logStr $ ("Old files moved to trash (will be deleted after " <> show (downloadTrashRetentionDays downloadCfg) <> " days)" :: Text)
-                        else $(logTM) InfoS $ logStr ("Old files permanently deleted" :: Text)
+                        -- Delete the old cluster
+                        liftIO $ withConnection pool $ \conn ->
+                          executeQuery conn
+                            "DELETE FROM clusters WHERE id = ?"
+                            (Only existingClusterId)
 
-                    Nothing -> do
-                      $(logTM) DebugS $ logStr ("Not an upgrade - this is the first download for this album" :: Text)
+                        if downloadUseTrash downloadCfg
+                          then $(logTM) InfoS $ logStr $ ("Old files moved to trash (will be deleted after " <> show (downloadTrashRetentionDays downloadCfg) <> " days)" :: Text)
+                          else $(logTM) InfoS $ logStr ("Old files permanently deleted" :: Text)
+
+                      Nothing -> do
+                        $(logTM) DebugS $ logStr ("Not an upgrade - this is the first download for this album" :: Text)
 
                 -- 11. Move files to library and create track records with formatted filenames
                 $(logTM) InfoS $ logStr ("Moving files to library..." :: Text)

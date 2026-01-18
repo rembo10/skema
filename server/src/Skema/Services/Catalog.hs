@@ -145,7 +145,7 @@ handleCatalogArtistFollowed CatalogDeps{..} artistMBID artistName = do
                         Nothing -> do
                           -- New album - add to catalog (wanted status derived from quality profile)
                           albumId <- liftIO $ withConnection pool $ \conn ->
-                            upsertCatalogAlbum conn rgId title artistId artistMBID artistName albumType firstReleaseDate Nothing
+                            upsertCatalogAlbum conn rgId title artistId artistMBID artistName albumType firstReleaseDate
 
                           $(logTM) InfoS $ logStr $ ("Added album to catalog: " <> title :: Text)
 
@@ -257,7 +257,7 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                           $(logTM) ErrorS $ logStr $ ("Artist has no ID, skipping album: " <> title :: Text)
                         Just artistId -> do
                           albumId <- liftIO $ withConnection pool $ \conn ->
-                            upsertCatalogAlbum conn rgId title artistId artistMBID artistName albumType firstReleaseDate Nothing
+                            upsertCatalogAlbum conn rgId title artistId artistMBID artistName albumType firstReleaseDate
 
                           liftIO $ Data.IORef.modifyIORef' newAlbumsCount (+1)
                           $(logTM) InfoS $ logStr $ ("NEW album discovered: " <> title :: Text)
