@@ -24,6 +24,7 @@ import Control.Exception (try)
 import Katip
 import Database.SQLite.Simple (Only(..))
 import qualified Data.Text as T
+import qualified Data.Map.Strict as Map
 
 -- | Start the metadata writer service.
 --
@@ -53,7 +54,7 @@ startMetadataWriterService deps = do
       _ -> pure ()  -- Ignore other events
 
 -- | Process a metadata write request.
--- Processes diffs one at a time, emitting progress events as each file is written.
+-- Groups diffs by file and processes them in batches, emitting progress events as each file is written.
 processMetadataWrite :: MetadataWriterDeps -> [Int64] -> IO ()
 processMetadataWrite MetadataWriterDeps{..} diffIds = do
   let le = writerLogEnv
@@ -70,40 +71,32 @@ processMetadataWrite MetadataWriterDeps{..} diffIds = do
       { writeTotalChanges = length diffIds
       }
 
-    -- Process diffs one at a time, emitting progress as we go
-    results <- liftIO $ forM (zip [1..] diffIds) $ \(idx :: Int, diffId) -> do
-      -- Get diff info with track path
-      diffInfo <- withConnection pool $ \conn ->
-        queryRows conn
-          "SELECT d.id, d.track_id, d.field_name, d.file_value, d.mb_value, t.path \
-          \FROM metadata_diffs d \
-          \JOIN library_tracks t ON d.track_id = t.id \
-          \WHERE d.id = ?"
-          (Only diffId) :: IO [(Int64, Int64, Text, Maybe Text, Maybe Text, String)]
+    -- Group diffs by file (track_id)
+    diffsByFile <- liftIO $ groupDiffsByFile pool diffIds
 
-      case viaNonEmpty head diffInfo of
-        Nothing -> pure $ Left ("Diff not found: " <> show diffId)
-        Just (_, _trackId, _fieldName, _oldValue, _newValue, pathStr) -> do
-          -- Emit progress event BEFORE writing
-          publishAndLog bus le "writer" $ MetadataWriteProgress
-            { writeCurrentFile = toText pathStr
-            , writeChangesProcessed = idx
-            , writeTotalChanges = length diffIds
-            }
+    -- Process each file's diffs as a batch
+    let fileGroups = Map.toList diffsByFile
+    results <- liftIO $ forM (zip [1..] fileGroups) $ \(idx :: Int, (trackId, (filePath, fileDiffIds))) -> do
+      -- Emit progress event BEFORE writing
+      publishAndLog bus le "writer" $ MetadataWriteProgress
+        { writeCurrentFile = toText filePath
+        , writeChangesProcessed = sum [length diffs | (_, (_, diffs)) <- take (idx - 1) fileGroups] + 1
+        , writeTotalChanges = length diffIds
+        }
 
-          -- Apply this single diff
-          result <- DB.applyMetadataChanges pool [diffId]
-          case result of
-            Left err -> pure $ Left err
-            Right changes -> do
-              -- Emit applied event for each change
-              forM_ changes $ \change ->
-                case DBTypes.changeId change of
-                  Just cid -> publishAndLog bus le "writer" $ MetadataDiffApplied
-                    { diffId = cid
-                    }
-                  Nothing -> pure ()
-              pure $ Right changes
+      -- Apply all diffs for this file at once
+      result <- DB.applyMetadataChanges pool fileDiffIds
+      case result of
+        Left err -> pure $ Left err
+        Right changes -> do
+          -- Emit applied event for each change
+          forM_ changes $ \change ->
+            case DBTypes.changeId change of
+              Just cid -> publishAndLog bus le "writer" $ MetadataDiffApplied
+                { diffId = cid
+                }
+              Nothing -> pure ()
+          pure $ Right changes
 
     -- Collect results
     let (errors, successLists) = partitionEithers results
@@ -123,3 +116,24 @@ processMetadataWrite MetadataWriterDeps{..} diffIds = do
         { writeChangesApplied = totalChanges
         , writeErrors = 0
         }
+
+-- | Group diffs by their file (track_id) for batched processing.
+-- Returns a map from track_id to (file_path, [diff_ids])
+groupDiffsByFile :: ConnectionPool -> [Int64] -> IO (Map.Map Int64 (String, [Int64]))
+groupDiffsByFile pool diffIds = withConnection pool $ \conn -> do
+  -- Get all diff info with track paths
+  diffInfo <- forM diffIds $ \diffId -> do
+    results <- queryRows conn
+      "SELECT d.id, d.track_id, t.path \
+      \FROM metadata_diffs d \
+      \JOIN library_tracks t ON d.track_id = t.id \
+      \WHERE d.id = ?"
+      (Only diffId) :: IO [(Int64, Int64, String)]
+    pure $ viaNonEmpty head results
+
+  -- Group by track_id, collecting both the path and diff IDs
+  let validDiffs = catMaybes diffInfo
+  let grouped = Map.fromListWith (\(p1, ds1) (_, ds2) -> (p1, ds1 <> ds2))
+                  [(trackId, (path, [diffId])) | (diffId, trackId, path) <- validDiffs]
+
+  pure grouped
