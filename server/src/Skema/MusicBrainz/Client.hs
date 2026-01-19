@@ -84,10 +84,11 @@ mbGetJSON MBClientEnv{..} url =
 -- - "release:Nevermind AND artist:Nirvana"
 -- - "barcode:724384260552"
 --
+-- Uses dismax=true for better relevance ranking with unstructured queries.
 -- Automatically retries with exponential backoff via centralized HTTP client.
 searchReleases :: MBClientEnv -> Text -> Maybe Int -> Maybe Int -> IO (Either MBClientError MBReleaseSearch)
 searchReleases env@MBClientEnv{..} query limit offset = do
-  let params = [("query", query), ("fmt", "json")]
+  let params = [("query", query), ("fmt", "json"), ("dismax", "true")]
              <> maybe [] (\l -> [("limit", show l)]) limit
              <> maybe [] (\o -> [("offset", show o)]) offset
       url = buildMBUrl mbBaseUrl "release" params
