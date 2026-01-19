@@ -48,13 +48,13 @@ export default function Tracks() {
 
   useEffect(() => {
     loadData();
-  }, [pagination.offset, filterStatus]);
+  }, [pagination.offset, filterStatus, sortField, sortDirection]);
 
   const loadData = async () => {
     try {
       setLoading(true);
       const [tracksResponse, statsResponse] = await Promise.all([
-        api.getAllTracks(pagination.offset, ITEMS_PER_PAGE, filterStatus),
+        api.getAllTracks(pagination.offset, ITEMS_PER_PAGE, filterStatus, sortField, sortDirection),
         api.getTracksStats(),
       ]);
       setTracks(tracksResponse.tracks);
@@ -68,58 +68,22 @@ export default function Tracks() {
     }
   };
 
-  // Client-side search and sort (filter is now server-side)
-  const filteredAndSortedRows = useMemo(() => {
-    let filtered = tracks;
-
-    // Apply search filter (client-side)
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(track =>
-        track.title?.toLowerCase().includes(query) ||
-        track.artist?.toLowerCase().includes(query) ||
-        track.cluster_album?.toLowerCase().includes(query) ||
-        track.cluster_album_artist?.toLowerCase().includes(query) ||
-        track.mb_recording_title?.toLowerCase().includes(query) ||
-        track.path.toLowerCase().includes(query)
-      );
+  // Client-side search only (filter and sort are server-side)
+  const filteredRows = useMemo(() => {
+    if (!searchQuery) {
+      return tracks;
     }
 
-    // Apply sorting (client-side)
-    filtered.sort((a, b) => {
-      let aVal: any;
-      let bVal: any;
-
-      switch (sortField) {
-        case 'album':
-          aVal = a.cluster_album || '';
-          bVal = b.cluster_album || '';
-          break;
-        case 'artist':
-          aVal = a.artist || '';
-          bVal = b.artist || '';
-          break;
-        case 'track_title':
-          aVal = a.title || '';
-          bVal = b.title || '';
-          break;
-        case 'confidence':
-          aVal = a.mb_confidence ?? -1;
-          bVal = b.mb_confidence ?? -1;
-          break;
-        case 'status':
-          aVal = a.mb_release_id ? 1 : 0;
-          bVal = b.mb_release_id ? 1 : 0;
-          break;
-      }
-
-      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
-    });
-
-    return filtered;
-  }, [tracks, searchQuery, sortField, sortDirection]);
+    const query = searchQuery.toLowerCase();
+    return tracks.filter(track =>
+      track.title?.toLowerCase().includes(query) ||
+      track.artist?.toLowerCase().includes(query) ||
+      track.cluster_album?.toLowerCase().includes(query) ||
+      track.cluster_album_artist?.toLowerCase().includes(query) ||
+      track.mb_recording_title?.toLowerCase().includes(query) ||
+      track.path.toLowerCase().includes(query)
+    );
+  }, [tracks, searchQuery]);
 
   const handleFilterChange = (newFilter: FilterStatus) => {
     setFilterStatus(newFilter);
@@ -341,7 +305,7 @@ export default function Tracks() {
             </tr>
           </thead>
           <tbody>
-            {filteredAndSortedRows.map((track, index) => (
+            {filteredRows.map((track, index) => (
               <tr
                 key={`${track.cluster_id}-${track.id}`}
                 className={`border-b border-dark-border hover:bg-dark-bg-elevated transition-colors ${
@@ -435,7 +399,7 @@ export default function Tracks() {
           </tbody>
         </table>
 
-        {filteredAndSortedRows.length === 0 && (
+        {filteredRows.length === 0 && (
           <div className="p-12 text-center">
             <Filter className="mx-auto h-12 w-12 text-dark-text-tertiary" />
             <h3 className="mt-4 text-sm font-medium text-dark-text">No tracks found</h3>
@@ -453,7 +417,7 @@ export default function Tracks() {
         onPrevPage={pagination.prevPage}
         onNextPage={pagination.nextPage}
         itemName="tracks"
-        filteredCount={filteredAndSortedRows.length < tracks.length ? filteredAndSortedRows.length : undefined}
+        filteredCount={filteredRows.length < tracks.length ? filteredRows.length : undefined}
       />
 
       {/* Modals */}

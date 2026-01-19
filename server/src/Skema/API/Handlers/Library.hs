@@ -77,12 +77,14 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
       -- TODO: Fetch from database
       pure []
 
-    tracksHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Text -> Handler TracksResponse
-    tracksHandler authHeader maybeOffset maybeLimit maybeFilter = do
+    tracksHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Handler TracksResponse
+    tracksHandler authHeader maybeOffset maybeLimit maybeFilter maybeSort maybeOrder = do
       _ <- requireAuth configVar jwtSecret authHeader
       let offset = fromMaybe 0 maybeOffset
       let limit = fromMaybe 50 maybeLimit
       let filterStatus = fromMaybe "all" maybeFilter
+      let sortField = fromMaybe "album" maybeSort
+      let sortOrder = fromMaybe "asc" maybeOrder
 
       liftIO $ withConnection pool $ \conn -> do
         -- Build WHERE clause based on filter
@@ -92,13 +94,25 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
               "locked" -> "WHERE c.match_locked = 1" :: Text
               _ -> "" :: Text
 
+        -- Build ORDER BY clause based on sort field
+        let orderByClause = case sortField of
+              "album" -> "c.album"
+              "artist" -> "m.artist"
+              "track_title" -> "m.title"
+              "confidence" -> "c.mb_confidence"
+              "status" -> "CASE WHEN c.mb_release_id IS NOT NULL THEN 1 ELSE 0 END"
+              _ -> "c.album"  -- default to album
+
+        let direction = if sortOrder == "desc" then "DESC" else "ASC"
+        let orderBy = orderByClause <> " " <> direction <> ", m.disc_number, m.track_number"
+
         -- Get total count with filter
         [Only totalCount] <- queryRows conn
           ("SELECT COUNT(*) FROM library_tracks t \
           \LEFT JOIN clusters c ON t.cluster_id = c.id " <> whereClause)
           ()
 
-        -- Get paginated tracks with filter
+        -- Get paginated tracks with filter and sort
         tracks <- queryRows conn
           ("SELECT \
           \  t.id, t.path, m.title, m.artist, m.track_number, m.disc_number, m.duration_seconds, \
@@ -112,8 +126,8 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
           \LEFT JOIN library_track_metadata m ON t.id = m.track_id \
           \LEFT JOIN clusters c ON t.cluster_id = c.id " <>
           whereClause <>
-          " ORDER BY c.album, m.disc_number, m.track_number \
-          \LIMIT ? OFFSET ?")
+          " ORDER BY " <> orderBy <>
+          " LIMIT ? OFFSET ?")
           (limit, offset)
 
         pure $ TracksResponse
