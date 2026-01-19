@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { TrackWithCluster, Cluster, TracksStats } from '../types/api';
 import { api } from '../lib/api';
 import toast from 'react-hot-toast';
@@ -47,28 +47,62 @@ export default function Tracks() {
   } | null>(null);
   const [viewingTrack, setViewingTrack] = useState<TrackWithCluster | null>(null);
   const [recordingSearchQuery, setRecordingSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
 
+  // Debounce search query
   useEffect(() => {
-    loadData();
-  }, [pagination.offset, filterStatus, sortField, sortDirection, searchQuery]);
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+      pagination.resetOffset();
+    }, 300);
 
-  const loadData = async () => {
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Load stats once on mount
+  useEffect(() => {
+    loadStats();
+  }, []);
+
+  // Load tracks when parameters change
+  useEffect(() => {
+    loadTracks();
+  }, [pagination.offset, filterStatus, sortField, sortDirection, debouncedSearchQuery]);
+
+  const loadStats = async () => {
+    try {
+      const statsResponse = await api.getTracksStats();
+      setStats(statsResponse);
+    } catch (error) {
+      console.error('Failed to load stats:', error);
+      toast.error('Failed to load stats');
+    }
+  };
+
+  const loadTracks = async () => {
     try {
       setLoading(true);
-      const [tracksResponse, statsResponse] = await Promise.all([
-        api.getAllTracks(pagination.offset, ITEMS_PER_PAGE, filterStatus, sortField, sortDirection, searchQuery || undefined),
-        api.getTracksStats(),
-      ]);
+      const tracksResponse = await api.getAllTracks(
+        pagination.offset,
+        ITEMS_PER_PAGE,
+        filterStatus,
+        sortField,
+        sortDirection,
+        debouncedSearchQuery || undefined
+      );
       setTracks(tracksResponse.tracks);
-      setStats(statsResponse);
       pagination.setTotalCount(tracksResponse.pagination.total);
     } catch (error) {
-      console.error('Failed to load data:', error);
-      toast.error('Failed to load library data');
+      console.error('Failed to load tracks:', error);
+      toast.error('Failed to load tracks');
     } finally {
       setLoading(false);
     }
   };
+
+  const loadData = useCallback(async () => {
+    await Promise.all([loadTracks(), loadStats()]);
+  }, [loadTracks]);
 
   // Search is now handled server-side along with filter and sort
   const filteredRows = tracks;
@@ -89,7 +123,6 @@ export default function Tracks() {
 
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
-    pagination.resetOffset();
   };
 
   const getStatusDisplay = (track: TrackWithCluster) => {
