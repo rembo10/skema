@@ -50,13 +50,13 @@ export default function Tracks() {
 
   useEffect(() => {
     loadData();
-  }, [pagination.offset, filterStatus, sortField, sortDirection]);
+  }, [pagination.offset, filterStatus, sortField, sortDirection, searchQuery]);
 
   const loadData = async () => {
     try {
       setLoading(true);
       const [tracksResponse, statsResponse] = await Promise.all([
-        api.getAllTracks(pagination.offset, ITEMS_PER_PAGE, filterStatus, sortField, sortDirection),
+        api.getAllTracks(pagination.offset, ITEMS_PER_PAGE, filterStatus, sortField, sortDirection, searchQuery || undefined),
         api.getTracksStats(),
       ]);
       setTracks(tracksResponse.tracks);
@@ -70,22 +70,8 @@ export default function Tracks() {
     }
   };
 
-  // Client-side search only (filter and sort are server-side)
-  const filteredRows = useMemo(() => {
-    if (!searchQuery) {
-      return tracks;
-    }
-
-    const query = searchQuery.toLowerCase();
-    return tracks.filter(track =>
-      track.title?.toLowerCase().includes(query) ||
-      track.artist?.toLowerCase().includes(query) ||
-      track.cluster_album?.toLowerCase().includes(query) ||
-      track.cluster_album_artist?.toLowerCase().includes(query) ||
-      track.mb_recording_title?.toLowerCase().includes(query) ||
-      track.path.toLowerCase().includes(query)
-    );
-  }, [tracks, searchQuery]);
+  // Search is now handled server-side along with filter and sort
+  const filteredRows = tracks;
 
   const handleFilterChange = (newFilter: FilterStatus) => {
     setFilterStatus(newFilter);
@@ -99,6 +85,11 @@ export default function Tracks() {
       setSortField(field);
       setSortDirection('asc');
     }
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    pagination.resetOffset();
   };
 
   const getStatusDisplay = (track: TrackWithCluster) => {
@@ -210,7 +201,7 @@ export default function Tracks() {
             type="text"
             placeholder="Search tracks, albums, artists..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             className="w-full pl-9 pr-4 py-2 bg-dark-bg-elevated border border-dark-border rounded-lg text-sm text-dark-text placeholder-dark-text-tertiary focus:outline-none focus:border-dark-accent"
           />
         </div>

@@ -26,6 +26,7 @@ import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.Async (async)
 import Data.Aeson (toJSON, object, (.=))
 import Skema.API.Types.Tasks (TaskResponse(..))
+import qualified Data.Text as T
 
 -- | Library API handlers.
 libraryServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> TVar Cfg.Config -> Server LibraryAPI
@@ -77,22 +78,41 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
       -- TODO: Fetch from database
       pure []
 
-    tracksHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Handler TracksResponse
-    tracksHandler authHeader maybeOffset maybeLimit maybeFilter maybeSort maybeOrder = do
+    tracksHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler TracksResponse
+    tracksHandler authHeader maybeOffset maybeLimit maybeFilter maybeSort maybeOrder maybeSearch = do
       _ <- requireAuth configVar jwtSecret authHeader
       let offset = fromMaybe 0 maybeOffset
       let limit = fromMaybe 50 maybeLimit
       let filterStatus = fromMaybe "all" maybeFilter
       let sortField = fromMaybe "album" maybeSort
       let sortOrder = fromMaybe "asc" maybeOrder
+      let searchQuery = maybeSearch
 
       liftIO $ withConnection pool $ \conn -> do
         -- Build WHERE clause based on filter
-        let whereClause = case filterStatus of
-              "matched" -> "WHERE c.mb_release_id IS NOT NULL" :: Text
-              "unmatched" -> "WHERE c.mb_release_id IS NULL" :: Text
-              "locked" -> "WHERE c.match_locked = 1" :: Text
+        let filterClause = case filterStatus of
+              "matched" -> "c.mb_release_id IS NOT NULL" :: Text
+              "unmatched" -> "c.mb_release_id IS NULL" :: Text
+              "locked" -> "c.match_locked = 1" :: Text
               _ -> "" :: Text
+
+        -- Build search clause
+        let searchClause = case searchQuery of
+              Nothing -> "" :: Text
+              Just q ->
+                let pattern = "%" <> q <> "%"
+                in "(m.title LIKE " <> show pattern <> " OR " <>
+                   "m.artist LIKE " <> show pattern <> " OR " <>
+                   "c.album LIKE " <> show pattern <> " OR " <>
+                   "c.album_artist LIKE " <> show pattern <> " OR " <>
+                   "t.mb_recording_title LIKE " <> show pattern <> " OR " <>
+                   "t.path LIKE " <> show pattern <> ")" :: Text
+
+        -- Combine clauses
+        let whereClauses = filter (/= "") [filterClause, searchClause]
+        let whereClause = if null whereClauses
+                         then "" :: Text
+                         else "WHERE " <> T.intercalate " AND " whereClauses
 
         -- Build ORDER BY clause based on sort field
         let orderByClause = case sortField of
@@ -106,9 +126,10 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
         let direction = if sortOrder == "desc" then "DESC" else "ASC"
         let orderBy = orderByClause <> " " <> direction <> ", m.disc_number, m.track_number"
 
-        -- Get total count with filter
+        -- Get total count with filter and search
         [Only totalCount] <- queryRows conn
           ("SELECT COUNT(*) FROM library_tracks t \
+          \LEFT JOIN library_track_metadata m ON t.id = m.track_id \
           \LEFT JOIN clusters c ON t.cluster_id = c.id " <> whereClause)
           ()
 

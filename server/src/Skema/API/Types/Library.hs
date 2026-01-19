@@ -33,6 +33,7 @@ type LibraryAPI = "library" :> Header "Authorization" Text :>
     :> QueryParam "filter" Text
     :> QueryParam "sort" Text
     :> QueryParam "order" Text
+    :> QueryParam "search" Text
     :> Get '[JSON] TracksResponse
   :<|> "tracks" :> "stats" :> Get '[JSON] TracksStats
   :<|> "tracks" :> Capture "trackId" Int64 :> ReqBody '[JSON] UpdateTrackRequest :> Patch '[JSON] NoContent

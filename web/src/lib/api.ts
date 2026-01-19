@@ -383,7 +383,7 @@ export const api = {
     return fetchApi(`/clusters/${clusterId}`);
   },
 
-  async getAllTracks(offset: number = 0, limit: number = 50, filter?: string, sort?: string, order?: string): Promise<TracksResponse> {
+  async getAllTracks(offset: number = 0, limit: number = 50, filter?: string, sort?: string, order?: string, search?: string): Promise<TracksResponse> {
     const params = new URLSearchParams();
     params.append('offset', offset.toString());
     params.append('limit', limit.toString());
@@ -395,6 +395,9 @@ export const api = {
     }
     if (order) {
       params.append('order', order);
+    }
+    if (search) {
+      params.append('search', search);
     }
     return fetchApi<TracksResponse>(`/library/tracks?${params.toString()}`);
   },
