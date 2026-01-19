@@ -5,6 +5,8 @@ import type { CatalogArtist } from '../types/api';
 import { Music, ExternalLink, Calendar, Disc, UserMinus, RefreshCw, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
+import { ArtistCardSkeleton } from '../components/LoadingSkeleton';
+import { LoadingState } from '../components/LoadingState';
 
 const ITEMS_PER_PAGE = 50;
 
@@ -131,14 +133,6 @@ export default function FollowedArtists() {
     });
   };
 
-  if (initialLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-2 border-dark-border border-t-dark-accent"></div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
@@ -175,20 +169,26 @@ export default function FollowedArtists() {
 
       {/* Artists Grid */}
       <div className="relative">
-        {loading && (
-          <div className="absolute inset-0 bg-dark-bg/50 flex items-center justify-center z-10 rounded-lg">
-            <div className="animate-spin rounded-full h-12 w-12 border-2 border-dark-border border-t-dark-accent"></div>
-          </div>
-        )}
-        {displayedArtists.length === 0 ? (
-          <div className="card p-12 text-center">
-            <Music className="mx-auto h-12 w-12 text-dark-text-tertiary" />
-            <h3 className="mt-4 text-sm font-medium text-dark-text">No followed artists</h3>
-            <p className="mt-2 text-sm text-dark-text-secondary">
-              {searchQuery ? 'Try a different search term' : 'Use the universal search to find and follow artists'}
-            </p>
-          </div>
-        ) : (
+        <LoadingState
+          loading={initialLoading || loading}
+          empty={displayedArtists.length === 0}
+          skeleton={
+            <div className="space-y-4">
+              {[...Array(5)].map((_, i) => (
+                <ArtistCardSkeleton key={i} />
+              ))}
+            </div>
+          }
+          emptyState={
+            <div className="card p-12 text-center">
+              <Music className="mx-auto h-12 w-12 text-dark-text-tertiary" />
+              <h3 className="mt-4 text-sm font-medium text-dark-text">No followed artists</h3>
+              <p className="mt-2 text-sm text-dark-text-secondary">
+                {searchQuery ? 'Try a different search term' : 'Use the universal search to find and follow artists'}
+              </p>
+            </div>
+          }
+        >
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {displayedArtists.map((artist) => {
             const artistAlbums = getAlbumsForArtist(artist.mbid);
@@ -307,7 +307,7 @@ export default function FollowedArtists() {
             );
           })}
           </div>
-        )}
+        </LoadingState>
       </div>
 
       {/* Pagination Controls */}

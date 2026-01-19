@@ -6,6 +6,8 @@ import { IdentificationNav } from '../components/IdentificationNav';
 import { RematchModal } from '../components/identification/RematchModal';
 import { PaginationControls } from '../components/PaginationControls';
 import { usePagination } from '../hooks/usePagination';
+import { TableRowSkeleton, StatsGridSkeleton } from '../components/LoadingSkeleton';
+import { LoadingState } from '../components/LoadingState';
 import {
   Loader2,
   Search,
@@ -110,14 +112,6 @@ export default function Clusters() {
     return { total, matched, unmatched, locked };
   }, [clusters, pagination.totalCount]);
 
-  if (initialLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-12 h-12 text-dark-accent animate-spin" />
-      </div>
-    );
-  }
-
   return (
     <div className="h-full flex flex-col animate-fade-in">
       <IdentificationNav />
@@ -131,24 +125,31 @@ export default function Clusters() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <div className="card p-4">
-          <div className="text-2xl font-bold text-dark-text">{stats.total}</div>
-          <div className="text-sm text-dark-text-secondary">Total Clusters</div>
+      <LoadingState
+        loading={initialLoading || loading}
+        empty={false}
+        skeleton={<StatsGridSkeleton columns={4} />}
+        emptyState={null}
+      >
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="card p-4">
+            <div className="text-2xl font-bold text-dark-text">{stats.total}</div>
+            <div className="text-sm text-dark-text-secondary">Total Clusters</div>
+          </div>
+          <div className="card p-4">
+            <div className="text-2xl font-bold text-green-400">{stats.matched}</div>
+            <div className="text-sm text-dark-text-secondary">Matched</div>
+          </div>
+          <div className="card p-4">
+            <div className="text-2xl font-bold text-red-400">{stats.unmatched}</div>
+            <div className="text-sm text-dark-text-secondary">Unmatched</div>
+          </div>
+          <div className="card p-4">
+            <div className="text-2xl font-bold text-purple-400">{stats.locked}</div>
+            <div className="text-sm text-dark-text-secondary">Locked</div>
+          </div>
         </div>
-        <div className="card p-4">
-          <div className="text-2xl font-bold text-green-400">{stats.matched}</div>
-          <div className="text-sm text-dark-text-secondary">Matched</div>
-        </div>
-        <div className="card p-4">
-          <div className="text-2xl font-bold text-red-400">{stats.unmatched}</div>
-          <div className="text-sm text-dark-text-secondary">Unmatched</div>
-        </div>
-        <div className="card p-4">
-          <div className="text-2xl font-bold text-purple-400">{stats.locked}</div>
-          <div className="text-sm text-dark-text-secondary">Locked</div>
-        </div>
-      </div>
+      </LoadingState>
 
       {/* Controls */}
       <div className="flex gap-3 mb-4">
@@ -219,11 +220,6 @@ export default function Clusters() {
 
       {/* Table */}
       <div className="card overflow-auto relative">
-        {loading && (
-          <div className="absolute inset-0 bg-dark-bg/50 flex items-center justify-center z-10">
-            <Loader2 className="w-8 h-8 text-dark-accent animate-spin" />
-          </div>
-        )}
         <table className="w-full">
           <thead className="sticky top-0 bg-dark-bg-elevated border-b border-dark-border">
             <tr>
@@ -284,13 +280,37 @@ export default function Clusters() {
             </tr>
           </thead>
           <tbody>
-            {clusters.map((cluster, index) => (
-              <tr
-                key={cluster.id}
-                className={`hover:bg-dark-bg-elevated transition-colors border-b border-dark-border ${
-                  index % 2 === 0 ? 'bg-dark-bg' : 'bg-dark-bg/50'
-                }`}
-              >
+            <LoadingState
+              loading={loading || initialLoading}
+              empty={clusters.length === 0}
+              skeleton={
+                <>
+                  {[...Array(10)].map((_, i) => (
+                    <TableRowSkeleton key={i} columns={6} />
+                  ))}
+                </>
+              }
+              emptyState={
+                <tr>
+                  <td colSpan={6}>
+                    <div className="p-12 text-center">
+                      <Filter className="mx-auto h-12 w-12 text-dark-text-tertiary" />
+                      <h3 className="mt-4 text-sm font-medium text-dark-text">No clusters found</h3>
+                      <p className="mt-2 text-sm text-dark-text-secondary">
+                        {searchQuery ? 'Try a different search query' : 'No clusters match the current filter'}
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              }
+            >
+              {clusters.map((cluster, index) => (
+                <tr
+                  key={cluster.id}
+                  className={`hover:bg-dark-bg-elevated transition-colors border-b border-dark-border ${
+                    index % 2 === 0 ? 'bg-dark-bg' : 'bg-dark-bg/50'
+                  }`}
+                >
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     {getStatusIcon(cluster)}
@@ -401,19 +421,10 @@ export default function Clusters() {
                   </button>
                 </td>
               </tr>
-            ))}
+              ))}
+            </LoadingState>
           </tbody>
         </table>
-
-        {clusters.length === 0 && (
-          <div className="p-12 text-center">
-            <Filter className="mx-auto h-12 w-12 text-dark-text-tertiary" />
-            <h3 className="mt-4 text-sm font-medium text-dark-text">No clusters found</h3>
-            <p className="mt-2 text-sm text-dark-text-secondary">
-              {searchQuery ? 'Try a different search query' : 'No clusters match the current filter'}
-            </p>
-          </div>
-        )}
       </div>
 
       <PaginationControls

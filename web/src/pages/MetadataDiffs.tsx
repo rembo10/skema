@@ -209,8 +209,14 @@ export default function MetadataDiffs() {
       {/* Content */}
       {activeTab === 'diffs' ? (
         showDiffsLoading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-dark-text-secondary">Loading diffs...</div>
+          <div className="card p-12 text-center">
+            <div className="space-y-3">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="animate-pulse">
+                  <div className="h-16 bg-dark-bg-subtle rounded" />
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <>

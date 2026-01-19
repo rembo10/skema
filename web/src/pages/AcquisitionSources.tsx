@@ -4,6 +4,8 @@ import type { AcquisitionSource, CatalogArtist, WantedAlbum } from '../types/api
 import { Settings, CheckCircle, XCircle, Users, Music, Plus, Pencil, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SourceModal, type SourceFormData } from '../components/SourceModal';
+import { SourceCardSkeleton } from '../components/LoadingSkeleton';
+import { LoadingState } from '../components/LoadingState';
 
 export default function AcquisitionSources() {
   const [sources, setSources] = useState<AcquisitionSource[]>([]);
@@ -148,14 +150,6 @@ export default function AcquisitionSources() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-2 border-dark-border border-t-dark-accent"></div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
@@ -176,15 +170,26 @@ export default function AcquisitionSources() {
       </div>
 
       {/* Sources List */}
-      {sources.length === 0 ? (
-        <div className="card p-12 text-center">
-          <Settings className="mx-auto h-12 w-12 text-dark-text-tertiary" />
-          <h3 className="mt-4 text-sm font-medium text-dark-text">No sources configured</h3>
-          <p className="mt-2 text-sm text-dark-text-secondary">
-            Create your first source to start automatically following artists and albums
-          </p>
-        </div>
-      ) : (
+      <LoadingState
+        loading={loading}
+        empty={sources.length === 0}
+        skeleton={
+          <div className="space-y-4">
+            {[...Array(3)].map((_, i) => (
+              <SourceCardSkeleton key={i} />
+            ))}
+          </div>
+        }
+        emptyState={
+          <div className="card p-12 text-center">
+            <Settings className="mx-auto h-12 w-12 text-dark-text-tertiary" />
+            <h3 className="mt-4 text-sm font-medium text-dark-text">No sources configured</h3>
+            <p className="mt-2 text-sm text-dark-text-secondary">
+              Create your first source to start automatically following artists and albums
+            </p>
+          </div>
+        }
+      >
         <div className="space-y-4">
           {sources.map((source) => {
             const stats = getStatsForSource(source.id);
@@ -287,7 +292,7 @@ export default function AcquisitionSources() {
             );
           })}
         </div>
-      )}
+      </LoadingState>
 
       {/* Summary Stats */}
       {sources.length > 0 && (

@@ -4,6 +4,8 @@ import { api } from '../lib/api';
 import toast from 'react-hot-toast';
 import { PaginationControls } from '../components/PaginationControls';
 import { usePagination } from '../hooks/usePagination';
+import { TableRowSkeleton } from '../components/LoadingSkeleton';
+import { LoadingState } from '../components/LoadingState';
 import {
   AlbumState,
   CatalogAlbumOverview,
@@ -416,14 +418,6 @@ export default function Albums() {
   };
 
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-dark-accent" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Tabs */}
@@ -709,24 +703,54 @@ export default function Albums() {
       )}
 
       {/* Albums Table */}
-      {albums.length === 0 ? (
-        <div className="card p-12 text-center">
-          <Disc className="mx-auto h-12 w-12 text-dark-text-tertiary" />
-          <h3 className="mt-4 text-sm font-medium text-dark-text">No albums found</h3>
-          <p className="mt-2 text-sm text-dark-text-secondary">
-            {searchFilter
-              ? 'Try adjusting your search'
-              : 'No albums in catalog'}
-          </p>
-        </div>
-      ) : (
+      <LoadingState
+        loading={loading || tableLoading}
+        empty={albums.length === 0}
+        skeleton={
+          <div className="card overflow-hidden relative">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-dark-border">
+                <thead className="bg-dark-bg-subtle">
+                  <tr>
+                    <th className="px-6 py-3 text-left"><Square className="h-4 w-4" /></th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Album</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Artist</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Release Date</th>
+                    {activeTab === 'unacquired' ? (
+                      <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Quality Profile</th>
+                    ) : (
+                      <>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Current Quality</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Desired Quality</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Status</th>
+                      </>
+                    )}
+                    <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-dark-border">
+                  {[...Array(10)].map((_, i) => (
+                    <TableRowSkeleton key={i} columns={activeTab === 'unacquired' ? 6 : 8} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        }
+        emptyState={
+          <div className="card p-12 text-center">
+            <Disc className="mx-auto h-12 w-12 text-dark-text-tertiary" />
+            <h3 className="mt-4 text-sm font-medium text-dark-text">No albums found</h3>
+            <p className="mt-2 text-sm text-dark-text-secondary">
+              {searchFilter
+                ? 'Try adjusting your search'
+                : 'No albums in catalog'}
+            </p>
+          </div>
+        }
+      >
         <>
           <div className="card overflow-hidden relative">
-            {tableLoading && (
-              <div className="absolute inset-0 bg-dark-bg/50 backdrop-blur-sm z-10 flex items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-dark-accent" />
-              </div>
-            )}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-dark-border">
                 <thead className="bg-dark-bg-subtle">
@@ -929,7 +953,7 @@ export default function Albums() {
             itemName="albums"
           />
         </>
-      )}
+      </LoadingState>
 
       {/* Releases Modal */}
       {showReleasesModal && selectedAlbum && (

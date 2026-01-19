@@ -4,6 +4,8 @@ import type { CatalogAlbum, QualityProfile, CatalogArtist } from '../types/api';
 import { Disc, ExternalLink, Filter, X, Award } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
+import { TableRowSkeleton } from '../components/LoadingSkeleton';
+import { LoadingState } from '../components/LoadingState';
 
 export default function WantedAlbums() {
   const catalogAlbums = useAppStore((state) => state.catalogAlbums);
@@ -125,14 +127,6 @@ export default function WantedAlbums() {
       }
     });
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-2 border-dark-border border-t-dark-accent"></div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
@@ -174,17 +168,43 @@ export default function WantedAlbums() {
       </div>
 
       {/* Albums List */}
-      {filteredAlbums.length === 0 ? (
-        <div className="card p-12 text-center">
-          <Disc className="mx-auto h-12 w-12 text-dark-text-tertiary" />
-          <h3 className="mt-4 text-sm font-medium text-dark-text">No albums found</h3>
-          <p className="mt-2 text-sm text-dark-text-secondary">
-            {searchQuery
-              ? 'Try adjusting your search'
-              : 'Add albums to your wanted list from the universal search'}
-          </p>
-        </div>
-      ) : (
+      <LoadingState
+        loading={loading}
+        empty={filteredAlbums.length === 0}
+        skeleton={
+          <div className="card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-dark-border">
+                <thead className="bg-dark-bg-subtle">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Album</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Artist</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Release Date</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Quality</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-dark-border">
+                  {[...Array(10)].map((_, i) => (
+                    <TableRowSkeleton key={i} columns={5} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        }
+        emptyState={
+          <div className="card p-12 text-center">
+            <Disc className="mx-auto h-12 w-12 text-dark-text-tertiary" />
+            <h3 className="mt-4 text-sm font-medium text-dark-text">No albums found</h3>
+            <p className="mt-2 text-sm text-dark-text-secondary">
+              {searchQuery
+                ? 'Try adjusting your search'
+                : 'Add albums to your wanted list from the universal search'}
+            </p>
+          </div>
+        }
+      >
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-dark-border">
@@ -279,7 +299,7 @@ export default function WantedAlbums() {
             </table>
           </div>
         </div>
-      )}
+      </LoadingState>
     </div>
   );
 }

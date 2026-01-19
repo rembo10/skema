@@ -3,6 +3,8 @@ import { Plus, Trash2, Edit2, GripVertical, X, Check, Star } from 'lucide-react'
 import toast from 'react-hot-toast';
 import { api } from '../lib/api';
 import type { QualityProfile, QualityPreference, Quality } from '../types/api';
+import { ProfileCardSkeleton } from '../components/LoadingSkeleton';
+import { LoadingState } from '../components/LoadingState';
 import {
   DndContext,
   closestCenter,
@@ -463,14 +465,6 @@ export default function QualityProfiles() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-dark-text-secondary">Loading quality profiles...</div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -491,17 +485,28 @@ export default function QualityProfiles() {
       </div>
 
       {/* Profiles list */}
-      {profiles.length === 0 ? (
-        <div className="text-center py-12 bg-dark-bg-elevated rounded-lg border border-dark-border">
-          <div className="text-dark-text-secondary mb-4">No quality profiles yet</div>
-          <button
-            onClick={handleCreate}
-            className="px-4 py-2 bg-dark-accent text-dark-bg font-medium rounded-lg hover:bg-dark-accent/90 transition-colors"
-          >
-            Create Your First Profile
-          </button>
-        </div>
-      ) : (
+      <LoadingState
+        loading={loading}
+        empty={profiles.length === 0}
+        skeleton={
+          <div className="space-y-4">
+            {[...Array(3)].map((_, i) => (
+              <ProfileCardSkeleton key={i} />
+            ))}
+          </div>
+        }
+        emptyState={
+          <div className="text-center py-12 bg-dark-bg-elevated rounded-lg border border-dark-border">
+            <div className="text-dark-text-secondary mb-4">No quality profiles yet</div>
+            <button
+              onClick={handleCreate}
+              className="px-4 py-2 bg-dark-accent text-dark-bg font-medium rounded-lg hover:bg-dark-accent/90 transition-colors"
+            >
+              Create Your First Profile
+            </button>
+          </div>
+        }
+      >
         <div className="grid gap-4">
           {profiles
             .sort((a, b) => {
@@ -597,7 +602,7 @@ export default function QualityProfiles() {
             );
           })}
         </div>
-      )}
+      </LoadingState>
 
       {/* Modals */}
       {showModal && (

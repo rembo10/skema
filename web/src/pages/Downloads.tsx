@@ -4,6 +4,8 @@ import type { Download, DownloadStatus } from '../types/api';
 import { Download as DownloadIcon, Trash2, Clock, CheckCircle2, XCircle, Archive, Loader2, AlertCircle, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
+import { DownloadCardSkeleton } from '../components/LoadingSkeleton';
+import { LoadingState } from '../components/LoadingState';
 
 const ITEMS_PER_PAGE = 50;
 
@@ -250,14 +252,6 @@ export default function Downloads() {
     </div>
   );
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 text-dark-accent animate-spin" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Tabs */}
@@ -294,18 +288,25 @@ export default function Downloads() {
 
       {/* Downloads list */}
       <div className="space-y-3">
-        {currentDownloads.length === 0 ? (
-          <div className="text-center py-12">
-            <DownloadIcon className="w-12 h-12 text-dark-text-secondary mx-auto mb-4 opacity-50" />
-            <p className="text-dark-text-secondary">
-              {selectedTab === 'active' ? 'No active downloads' : 'No download history'}
-            </p>
-          </div>
-        ) : (
-          currentDownloads.map(download => (
+        <LoadingState
+          loading={loading}
+          empty={currentDownloads.length === 0}
+          skeleton={[...Array(5)].map((_, i) => (
+            <DownloadCardSkeleton key={i} />
+          ))}
+          emptyState={
+            <div className="text-center py-12">
+              <DownloadIcon className="w-12 h-12 text-dark-text-secondary mx-auto mb-4 opacity-50" />
+              <p className="text-dark-text-secondary">
+                {selectedTab === 'active' ? 'No active downloads' : 'No download history'}
+              </p>
+            </div>
+          }
+        >
+          {currentDownloads.map(download => (
             <DownloadItem key={download.id} download={download} />
-          ))
-        )}
+          ))}
+        </LoadingState>
       </div>
 
       {/* Pagination Controls */}
