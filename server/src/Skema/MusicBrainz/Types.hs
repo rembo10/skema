@@ -189,7 +189,8 @@ instance FromJSON MBMedium where
     mbMediumPosition <- o .:? "position" .!= 1
     mbMediumFormat <- o .:? "format"
     mbMediumTracks <- o .:? "tracks" .!= []
-    let mbMediumTrackCount = length mbMediumTracks
+    -- Use track-count field if present (from search API), otherwise count tracks array
+    mbMediumTrackCount <- o .:? "track-count" .!= length mbMediumTracks
     pure MBMedium{..}
 
 instance ToJSON MBMedium where

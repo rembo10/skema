@@ -429,7 +429,8 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
           , candidateArtist = mbReleaseArtist release
           , candidateDate = mbReleaseDate release
           , candidateCountry = mbReleaseCountry release
-          , candidateTrackCount = length (mbReleaseTracks release)
+          -- Sum track counts from all media (works for both search results and full releases)
+          , candidateTrackCount = sum (map mbMediumTrackCount (mbReleaseMedia release))
           , candidateConfidence = 0.0  -- Search results don't have confidence scores
           , candidateBarcode = mbReleaseBarcode release
           , candidateLabel = mbReleaseLabel release

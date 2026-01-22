@@ -714,7 +714,7 @@ export function RematchModal({ cluster, onClose, onUpdate }: RematchModalProps) 
                           <div className="flex items-center gap-3 mt-2 text-xs text-dark-text-tertiary flex-wrap">
                             {candidate.date && <span>{candidate.date}</span>}
                             {candidate.country && <span>{candidate.country}</span>}
-                            {candidate.track_count > 0 && <span>{candidate.track_count} tracks</span>}
+                            <span>{candidate.track_count} tracks</span>
                             {candidate.barcode && <span className="font-mono">🏷️ {candidate.barcode}</span>}
                             {candidate.label && <span>📀 {candidate.label}</span>}
                             {candidate.catalog_number && <span className="font-mono">#{candidate.catalog_number}</span>}
