@@ -109,7 +109,7 @@ identifyByReleaseId le mbEnv config fg releaseId = do
       -- Also search for alternative releases so users have options
       -- Build search query and fetch alternatives
       let query = buildSearchQuery fg
-      searchResult <- searchReleases mbEnv query (Just $ cfgSearchLimit config) Nothing
+      searchResult <- searchReleases mbEnv query (Just $ cfgSearchLimit config) Nothing False
 
       case searchResult of
         Left _searchErr -> do
@@ -161,8 +161,8 @@ identifyBySearch le mbEnv config fg = do
   -- Pure: Build search query from file group metadata
   let query = buildSearchQuery fg
 
-  -- IO: Search MusicBrainz for candidates
-  result <- searchReleases mbEnv query (Just $ cfgSearchLimit config) Nothing
+  -- IO: Search MusicBrainz for candidates (structured query, no dismax)
+  result <- searchReleases mbEnv query (Just $ cfgSearchLimit config) Nothing False
   case result of
     Left err -> pure $ Left err
     Right searchResult -> do
@@ -213,7 +213,17 @@ fetchCandidateDetails le mbEnv config candidates maxCandidates = do
   let releaseIds = take maxCandidates $ map mbReleaseId candidates
   results <- traverse (\releaseId -> getRelease mbEnv releaseId) releaseIds
   let successful = rights results
-  when (length successful < length releaseIds) $
+      failed = lefts results
+
+  -- Log each failure with details
+  unless (null failed) $
+    runKatipContextT le () "musicbrainz.identify" $ do
+      $(logTM) ErrorS $ logStr $ ("Failed to fetch details for " <> show (length failed) <> " out of " <> show (length releaseIds) <> " candidates" :: Text)
+      forM_ (zip releaseIds failed) $ \(releaseId, err) -> do
+        $(logTM) ErrorS $ logStr $ ("  Release " <> unMBID releaseId <> ": " <> prettyClientError err :: Text)
+
+  when (length successful < length releaseIds && not (null failed)) $
     runKatipContextT le () "musicbrainz.identify" $
-      $(logTM) WarningS $ logStr $ ("Only fetched " <> show (length successful) <> " out of " <> show (length releaseIds) <> " candidates" :: Text)
+      $(logTM) WarningS $ logStr $ ("Only fetched " <> show (length successful) <> " out of " <> show (length releaseIds) <> " candidates successfully" :: Text)
+
   pure $ map (normalizeRelease config) successful

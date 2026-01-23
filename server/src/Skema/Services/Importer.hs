@@ -227,7 +227,7 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
         identifyResult <- liftIO $ do
           -- First search MusicBrainz to see what we get
           let query = buildSearchQuery fileGroup
-          searchResult <- searchReleases mbClientEnv query (Just $ cfgSearchLimit identifyConfig) Nothing
+          searchResult <- searchReleases mbClientEnv query (Just $ cfgSearchLimit identifyConfig) Nothing False
 
           case searchResult of
             Left err -> do

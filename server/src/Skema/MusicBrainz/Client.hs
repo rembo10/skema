@@ -84,11 +84,20 @@ mbGetJSON MBClientEnv{..} url =
 -- - "release:Nevermind AND artist:Nirvana"
 -- - "barcode:724384260552"
 --
--- Uses dismax=true for better relevance ranking with unstructured queries.
+-- The 'useDismax' parameter controls query parsing:
+-- - False (default): Standard Lucene parsing for structured queries with field prefixes
+-- - True: DisjunctionMax parsing for unstructured user queries (better relevance ranking)
+--
+-- IMPORTANT: Use dismax=true ONLY for unstructured user input (like "automatic lumineers").
+-- For structured queries with field prefixes (like "release:X AND artist:Y"), dismax makes
+-- results WORSE and can return completely wrong matches.
+--
 -- Automatically retries with exponential backoff via centralized HTTP client.
-searchReleases :: MBClientEnv -> Text -> Maybe Int -> Maybe Int -> IO (Either MBClientError MBReleaseSearch)
-searchReleases env@MBClientEnv{..} query limit offset = do
-  let params = [("query", query), ("fmt", "json"), ("dismax", "true")]
+searchReleases :: MBClientEnv -> Text -> Maybe Int -> Maybe Int -> Bool -> IO (Either MBClientError MBReleaseSearch)
+searchReleases env@MBClientEnv{..} query limit offset useDismax = do
+  let dismaxParam = if useDismax then [("dismax", "true")] else []
+      params = [("query", query), ("fmt", "json")]
+             <> dismaxParam
              <> maybe [] (\l -> [("limit", show l)]) limit
              <> maybe [] (\o -> [("offset", show o)]) offset
       url = buildMBUrl mbBaseUrl "release" params

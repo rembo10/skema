@@ -414,8 +414,8 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
       let mbEnv = srMBClientEnv registry
       let limit = fromMaybe 10 maybeLimit
 
-      -- Search for releases
-      searchResult <- liftIO $ searchReleases mbEnv query (Just limit) Nothing
+      -- Search for releases (user input - use dismax for better relevance)
+      searchResult <- liftIO $ searchReleases mbEnv query (Just limit) Nothing True
       case searchResult of
         Left err -> throw500 $ "MusicBrainz search failed: " <> show err
         Right searchResp -> do
