@@ -78,6 +78,8 @@ export default function Albums() {
   const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
   const [defaultProfile, setDefaultProfile] = useState<QualityProfile | null>(null);
   const [selectedAlbumIds, setSelectedAlbumIds] = useState<Set<number>>(new Set());
+  // Track selected quality profile for unwanted albums (album.id -> 'default' | profileId)
+  const [unwantedAlbumSelections, setUnwantedAlbumSelections] = useState<Map<number, string>>(new Map());
 
   // Initialize filters from URL parameters on mount
   useEffect(() => {
@@ -850,27 +852,32 @@ export default function Albums() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <select
-                          value={album.quality_profile_id || 'default'}
+                          value={album.quality_profile_id || unwantedAlbumSelections.get(album.id) || 'default'}
                           onChange={(e) => {
                             const value = e.target.value;
-                            if (value === 'existing') {
-                              // Keep existing quality, no monitoring
-                              handleQualityProfileChange(album.id, null, true);
-                            } else if (value === 'default') {
-                              if (defaultProfile?.id) {
-                                handleQualityProfileChange(album.id, defaultProfile.id, false);
+                            if (album.quality_profile_id) {
+                              // Album is already wanted, apply the change immediately
+                              if (value === 'existing') {
+                                // Keep existing quality, no monitoring
+                                handleQualityProfileChange(album.id, null, true);
+                              } else if (value === 'default') {
+                                if (defaultProfile?.id) {
+                                  handleQualityProfileChange(album.id, defaultProfile.id, false);
+                                } else {
+                                  toast.error('No default quality profile configured');
+                                }
                               } else {
-                                toast.error('No default quality profile configured');
+                                const profileId = parseInt(value, 10);
+                                handleQualityProfileChange(album.id, profileId, false);
                               }
                             } else {
-                              const profileId = parseInt(value, 10);
-                              handleQualityProfileChange(album.id, profileId, false);
+                              // Album is not wanted, just update the selection state
+                              setUnwantedAlbumSelections(new Map(unwantedAlbumSelections.set(album.id, value)));
                             }
                           }}
                           className="text-sm bg-dark-bg-hover border border-dark-border rounded px-2 py-1 text-dark-text focus:outline-none focus:ring-2 focus:ring-dark-accent"
-                          disabled={!album.quality_profile_id}
                         >
-                          {(album.state === 'InLibrary' || album.state === 'Monitored') && (
+                          {(album.state === 'InLibrary' || album.state === 'Monitored') && !album.quality_profile_id && (
                             <option value="existing">Existing</option>
                           )}
                           <option value="default">
@@ -915,14 +922,22 @@ export default function Albums() {
                           ) : (
                             <button
                               onClick={() => {
-                                if (defaultProfile?.id) {
-                                  handleQualityProfileChange(album.id, defaultProfile.id, false);
+                                const selectedValue = unwantedAlbumSelections.get(album.id) || 'default';
+                                if (selectedValue === 'existing') {
+                                  handleQualityProfileChange(album.id, null, true);
+                                } else if (selectedValue === 'default') {
+                                  if (defaultProfile?.id) {
+                                    handleQualityProfileChange(album.id, defaultProfile.id, false);
+                                  } else {
+                                    toast.error('No default quality profile configured');
+                                  }
                                 } else {
-                                  toast.error('No default quality profile configured');
+                                  const profileId = parseInt(selectedValue, 10);
+                                  handleQualityProfileChange(album.id, profileId, false);
                                 }
                               }}
                               className="px-3 py-1.5 bg-dark-accent hover:bg-dark-accent-muted text-dark-bg rounded transition-colors flex items-center gap-1.5"
-                              title="Add to wanted list with default quality profile"
+                              title="Add to wanted list with selected quality profile"
                             >
                               <Heart className="h-4 w-4" />
                               <span>Want</span>
