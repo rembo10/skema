@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import type { CatalogArtist } from '../types/api';
-import { Music, ExternalLink, Calendar, Disc, UserMinus, RefreshCw, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { Music, ExternalLink, Calendar, Disc, UserMinus, RefreshCw, ChevronLeft, ChevronRight, Loader2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
 import { ArtistCardSkeleton } from '../components/LoadingSkeleton';
@@ -18,6 +18,8 @@ export default function FollowedArtists() {
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [sortField, setSortField] = useState<'name' | 'date_added' | 'completion'>('date_added');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [refreshing, setRefreshing] = useState(false);
   const [offset, setOffset] = useState(0);
 
@@ -33,21 +35,28 @@ export default function FollowedArtists() {
     return () => clearTimeout(timeoutId);
   }, [searchQuery]);
 
-  // Reset offset when search changes
+  // Reset offset when search or sort changes
   useEffect(() => {
     setOffset(0);
-  }, [debouncedSearchQuery]);
+  }, [debouncedSearchQuery, sortField, sortOrder]);
 
-  // Load data when offset changes
+  // Load data when offset, search, or sort changes
   useEffect(() => {
     loadData();
-  }, [offset]);
+  }, [offset, debouncedSearchQuery, sortField, sortOrder]);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      // Load followed artists with embedded album data
-      const artistsResponse = await api.getCatalogArtists(offset, ITEMS_PER_PAGE, true);
+      // Load followed artists with embedded album data, using backend search and sorting
+      const artistsResponse = await api.getCatalogArtists(
+        offset,
+        ITEMS_PER_PAGE,
+        true,
+        debouncedSearchQuery || undefined,
+        sortField,
+        sortOrder
+      );
       setArtists(artistsResponse.artists);
       setTotalCount(artistsResponse.pagination.total);
 
@@ -81,15 +90,8 @@ export default function FollowedArtists() {
     }
   };
 
-  // Client-side filtering for search (since backend doesn't support it)
-  const filteredArtists = useMemo(() => {
-    if (!debouncedSearchQuery) return artists;
-    return artists.filter(artist =>
-      artist.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
-    );
-  }, [artists, debouncedSearchQuery]);
-
-  const displayedArtists = filteredArtists;
+  // Backend now handles filtering and sorting, so we just display what we get
+  const displayedArtists = artists;
 
   const getAlbumsForArtist = (artistMBID: string) => {
     return catalogAlbums.filter(album => album.artist_mbid === artistMBID);
@@ -156,15 +158,39 @@ export default function FollowedArtists() {
         )}
       </div>
 
-      {/* Search */}
-      <div className="max-w-md">
-        <input
-          type="text"
-          placeholder="Search artists..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="input w-full"
-        />
+      {/* Search and Sort Controls */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex-1 max-w-md">
+          <input
+            type="text"
+            placeholder="Search artists..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="input w-full"
+          />
+        </div>
+
+        <div className="flex gap-2">
+          {/* Sort Field Selector */}
+          <select
+            value={sortField}
+            onChange={(e) => setSortField(e.target.value as 'name' | 'date_added' | 'completion')}
+            className="input min-w-[140px]"
+          >
+            <option value="date_added">Date Added</option>
+            <option value="name">Name</option>
+            <option value="completion">Completion</option>
+          </select>
+
+          {/* Sort Order Toggle */}
+          <button
+            onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+            className="px-3 py-2 bg-dark-bg-elevated hover:bg-dark-bg-subtle border border-dark-border rounded-lg transition-colors flex items-center gap-2"
+            title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+          >
+            {sortOrder === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+          </button>
+        </div>
       </div>
 
       {/* Artists Grid */}
@@ -311,7 +337,7 @@ export default function FollowedArtists() {
       </div>
 
       {/* Pagination Controls */}
-      {!debouncedSearchQuery && totalCount > ITEMS_PER_PAGE && (
+      {totalCount > ITEMS_PER_PAGE && (
         <div className="flex items-center justify-between border-t border-dark-border pt-4">
           <div className="text-sm text-dark-text-secondary">
             Showing {offset + 1}-{Math.min(offset + ITEMS_PER_PAGE, totalCount)} of {totalCount}

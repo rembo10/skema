@@ -43,6 +43,9 @@ type CatalogAPI = "catalog" :> Header "Authorization" Text :>
     :> QueryParam "offset" Int
     :> QueryParam "limit" Int
     :> QueryParam "followed" Bool
+    :> QueryParam "search" Text
+    :> QueryParam "sort" Text
+    :> QueryParam "order" Text
     :> Get '[JSON] ArtistsResponse
   :<|> "artists" :> ReqBody '[JSON] CreateCatalogArtistRequest :> PostCreated '[JSON] CatalogArtistResponse
   :<|> "artists" :> Capture "artistId" Int64 :> ReqBody '[JSON] UpdateCatalogArtistRequest :> Patch '[JSON] CatalogArtistResponse

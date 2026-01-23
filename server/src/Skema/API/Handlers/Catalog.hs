@@ -84,7 +84,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             _ <- async $ do
               -- Get artist by ID to find MBID
               maybeArtist <- withConnection connPool $ \conn -> do
-                artists <- DB.getCatalogArtists conn Nothing
+                artists <- DB.getCatalogArtists conn Nothing Nothing Nothing Nothing
                 pure $ find (\a -> DBTypes.catalogArtistId a == Just artistId) artists
               case maybeArtist of
                 Nothing -> do
@@ -112,7 +112,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             TM.updateTaskProgress tm taskId 0.2 (Just "Fetching followed artists...")
             -- Get all followed artists
             followedArtists <- withConnection connPool $ \conn ->
-              DB.getCatalogArtists conn (Just True)
+              DB.getCatalogArtists conn (Just True) Nothing Nothing Nothing
 
             let totalArtists = length followedArtists
             TM.updateTaskProgress tm taskId 0.4 (Just $ "Emitting refresh events for " <> show totalArtists <> " artists...")
@@ -172,15 +172,15 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         }
 
     -- Get catalog artists
-    getArtistsHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Bool -> Handler ArtistsResponse
-    getArtistsHandler authHeader maybeOffset maybeLimit maybeFollowed = do
+    getArtistsHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Text -> Maybe Text -> Maybe Text -> Handler ArtistsResponse
+    getArtistsHandler authHeader maybeOffset maybeLimit maybeFollowed maybeSearch maybeSort maybeOrder = do
       _ <- requireAuth configVar jwtSecret authHeader
 
       let offset = fromMaybe 0 maybeOffset
       let limit = fromMaybe 50 maybeLimit
 
       (allArtists, responses) <- liftIO $ withConnection connPool $ \conn -> do
-        all <- DB.getCatalogArtists conn maybeFollowed
+        all <- DB.getCatalogArtists conn maybeFollowed maybeSearch maybeSort maybeOrder
         let paginated = take limit $ drop offset $ all
         responses <- forM paginated $ \artist -> do
           -- For followed artists, include recent albums
@@ -280,7 +280,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
       -- Fetch the updated artist by ID
       maybeArtist <- liftIO $ withConnection connPool $ \conn -> do
-        artists <- DB.getCatalogArtists conn Nothing
+        artists <- DB.getCatalogArtists conn Nothing Nothing Nothing Nothing
         pure $ find (\a -> DBTypes.catalogArtistId a == Just artistId) artists
 
       case maybeArtist of

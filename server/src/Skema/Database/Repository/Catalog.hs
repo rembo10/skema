@@ -52,17 +52,75 @@ upsertCatalogArtist conn artistMBID artistName artistType imageUrl thumbnailUrl 
     \RETURNING id"
     (artistMBID, artistName, artistType, imageUrl, thumbnailUrl, followed, addedByRuleId, sourceClusterId, lastCheckedAt)
 
--- | Get catalog artists, optionally filtered by followed status.
-getCatalogArtists :: SQLite.Connection -> Maybe Bool -> IO [CatalogArtistRecord]
-getCatalogArtists conn maybeFollowed =
-  case maybeFollowed of
-    Nothing -> queryRows_ conn
-      "SELECT id, artist_mbid, artist_name, artist_type, image_url, thumbnail_url, followed, added_by_rule_id, source_cluster_id, last_checked_at, quality_profile_id, created_at, updated_at \
-      \FROM catalog_artists ORDER BY created_at DESC"
-    Just followed -> queryRows conn
-      "SELECT id, artist_mbid, artist_name, artist_type, image_url, thumbnail_url, followed, added_by_rule_id, source_cluster_id, last_checked_at, quality_profile_id, created_at, updated_at \
-      \FROM catalog_artists WHERE followed = ? ORDER BY created_at DESC"
-      (Only followed)
+-- | Get catalog artists, optionally filtered by followed status, with search and sorting.
+getCatalogArtists :: SQLite.Connection -> Maybe Bool -> Maybe Text -> Maybe Text -> Maybe Text -> IO [CatalogArtistRecord]
+getCatalogArtists conn maybeFollowed maybeSearch maybeSort maybeOrder = do
+  -- For completion sorting, we need a more complex query with subqueries
+  let needsCompletionCalc = maybeSort == Just "completion"
+
+  if needsCompletionCalc
+    then do
+      -- Complex query with completion calculation
+      let query = "SELECT ca.id, ca.artist_mbid, ca.artist_name, ca.artist_type, ca.image_url, ca.thumbnail_url, \
+                  \ca.followed, ca.added_by_rule_id, ca.source_cluster_id, ca.last_checked_at, ca.quality_profile_id, \
+                  \ca.created_at, ca.updated_at \
+                  \FROM catalog_artists ca \
+                  \LEFT JOIN ( \
+                  \  SELECT artist_id, \
+                  \    COUNT(*) as total_albums, \
+                  \    SUM(CASE WHEN current_quality IS NOT NULL THEN 1 ELSE 0 END) as albums_in_library \
+                  \  FROM catalog_albums \
+                  \  GROUP BY artist_id \
+                  \) album_stats ON ca.id = album_stats.artist_id \
+                  \WHERE 1=1 "
+
+      let (whereClause, params) = buildArtistFilters maybeFollowed maybeSearch
+
+      let orderClause = case maybeOrder of
+            Just "asc" -> " ORDER BY CAST(COALESCE(album_stats.albums_in_library, 0) AS REAL) / NULLIF(COALESCE(album_stats.total_albums, 1), 0) ASC"
+            _ -> " ORDER BY CAST(COALESCE(album_stats.albums_in_library, 0) AS REAL) / NULLIF(COALESCE(album_stats.total_albums, 1), 0) DESC"
+
+      queryRows conn (query <> whereClause <> orderClause) params
+    else do
+      -- Simple query without completion calculation
+      let baseQuery = "SELECT id, artist_mbid, artist_name, artist_type, image_url, thumbnail_url, followed, added_by_rule_id, source_cluster_id, last_checked_at, quality_profile_id, created_at, updated_at \
+                      \FROM catalog_artists WHERE 1=1 "
+
+      -- Build WHERE clause
+      let (whereClause, params) = buildArtistFilters maybeFollowed maybeSearch
+
+      -- Build ORDER BY clause
+      let orderClause = buildArtistSortClause maybeSort maybeOrder
+
+      let fullQuery = baseQuery <> whereClause <> orderClause
+
+      queryRows conn fullQuery params
+
+-- Helper function to build artist filter WHERE clauses
+buildArtistFilters :: Maybe Bool -> Maybe Text -> (Text, [SQLite.SQLData])
+buildArtistFilters maybeFollowed maybeSearch =
+  let (clauses, params) = mconcat
+        [ case maybeFollowed of
+            Nothing -> ([], [])
+            Just followed -> (["AND followed = ?"], [toField followed])
+        , case maybeSearch of
+            Nothing -> ([], [])
+            Just query -> (["AND artist_name LIKE ?"], [toField ("%" <> query <> "%")])
+        ]
+  in (T.unwords clauses, params)
+
+-- Helper function to build artist ORDER BY clause
+buildArtistSortClause :: Maybe Text -> Maybe Text -> Text
+buildArtistSortClause maybeSort maybeOrder =
+  let order = case maybeOrder of
+        Just "asc" -> " ASC"
+        Just "desc" -> " DESC"
+        _ -> " DESC"  -- Default to descending
+      sortField = case maybeSort of
+        Just "name" -> "artist_name"
+        Just "date_added" -> "created_at"
+        _ -> "created_at"  -- Default: by creation date
+  in " ORDER BY " <> sortField <> order
 
 -- | Get a catalog artist by MusicBrainz ID.
 getCatalogArtistByMBID :: SQLite.Connection -> Text -> IO (Maybe CatalogArtistRecord)

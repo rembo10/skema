@@ -510,11 +510,21 @@ export const api = {
     });
   },
 
-  async getCatalogArtists(offset: number = 0, limit: number = 50, followed?: boolean): Promise<ArtistsResponse> {
+  async getCatalogArtists(
+    offset: number = 0,
+    limit: number = 50,
+    followed?: boolean,
+    search?: string,
+    sort?: string,
+    order?: 'asc' | 'desc'
+  ): Promise<ArtistsResponse> {
     const params = new URLSearchParams();
     params.append('offset', offset.toString());
     params.append('limit', limit.toString());
     if (followed !== undefined) params.append('followed', followed.toString());
+    if (search) params.append('search', search);
+    if (sort) params.append('sort', sort);
+    if (order) params.append('order', order);
     return fetchApi<ArtistsResponse>(`/catalog/artists?${params.toString()}`);
   },
 
