@@ -257,7 +257,9 @@ export default function Albums() {
       setReleases(response.releases);
 
       if (response.releases.length === 0) {
-        toast.info('No releases found from indexers');
+        toast('No releases found from indexers', {
+          icon: 'ℹ️',
+        });
       } else {
         toast.success(`Found ${response.releases.length} release(s) in ${response.search_time.toFixed(1)}s`);
       }
