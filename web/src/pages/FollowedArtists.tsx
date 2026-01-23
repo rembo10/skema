@@ -140,7 +140,7 @@ export default function FollowedArtists() {
         <div>
           <h1 className="text-3xl font-bold text-dark-text">Followed Artists</h1>
           <p className="text-dark-text-secondary mt-2">
-            {totalCount} followed artist{totalCount !== 1 ? 's' : ''} • {catalogAlbums.filter(a => a.wanted).length} wanted album{catalogAlbums.filter(a => a.wanted).length !== 1 ? 's' : ''}
+            {totalCount} followed artist{totalCount !== 1 ? 's' : ''}
           </p>
         </div>
         {totalCount > 0 && (
