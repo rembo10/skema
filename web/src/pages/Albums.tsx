@@ -852,7 +852,7 @@ export default function Albums() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <select
-                          value={album.quality_profile_id || unwantedAlbumSelections.get(album.id) || 'default'}
+                          value={album.quality_profile_id || ((album.state === 'InLibrary' || album.state === 'Monitored') ? 'existing' : (unwantedAlbumSelections.get(album.id) || 'default'))}
                           onChange={(e) => {
                             const value = e.target.value;
                             if (album.quality_profile_id) {
