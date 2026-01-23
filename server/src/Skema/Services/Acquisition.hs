@@ -179,11 +179,10 @@ handleCatalogAlbumAdded AcquisitionDeps{..} releaseGroupMBID albumTitle artistMB
             Nothing -> do
               $(logTM) WarningS $ logStr $ ("Album not found in catalog: " <> albumTitle :: Text)
             Just album -> do
-              -- Check if user has explicitly marked this album as unwanted
-              -- NOTE: "user_unwanted" column no longer exists
-              -- Albums that are not wanted simply won't have a quality profile assigned
-              if isNothing (DB.catalogAlbumQualityProfileId album)
-                then $(logTM) DebugS $ logStr $ ("Album explicitly unwanted by user, skipping: " <> albumTitle :: Text)
+              -- Skip albums that already have a quality profile assigned
+              -- (either by user or by previous acquisition evaluation)
+              if isJust (DB.catalogAlbumQualityProfileId album)
+                then $(logTM) DebugS $ logStr $ ("Album already has quality profile, skipping: " <> albumTitle :: Text)
                 else do
                   -- Get the catalog artist to find which sources apply
                   artistRecord <- liftIO $ withConnection pool $ \conn ->
@@ -223,9 +222,27 @@ handleCatalogAlbumAdded AcquisitionDeps{..} releaseGroupMBID albumTitle artistMB
                               when shouldWant $ do
                                 $(logTM) InfoS $ logStr $ ("Album matches acquisition source, marking as wanted: " <> albumTitle :: Text)
 
-                                -- Emit WantedAlbumAdded event
+                                -- Get the quality profile to assign (artist's profile, or global default)
+                                let artistQualityProfileId = DB.catalogArtistQualityProfileId artist
+
+                                -- Determine which quality profile to use
+                                qualityProfileToAssign <- case artistQualityProfileId of
+                                  Just profileId -> pure (Just profileId)
+                                  Nothing -> liftIO $ withConnection pool $ \conn ->
+                                    getDefaultQualityProfileId conn
+
+                                -- Assign quality profile to album
                                 case DB.catalogAlbumId album of
                                   Just albumId -> do
+                                    case qualityProfileToAssign of
+                                      Just profileId -> do
+                                        liftIO $ withConnection pool $ \conn ->
+                                          updateCatalogAlbum conn albumId (Just qualityProfileToAssign)
+                                        $(logTM) InfoS $ logStr $ ("Assigned quality profile " <> show profileId <> " to album: " <> albumTitle :: Text)
+                                      Nothing -> do
+                                        $(logTM) WarningS $ logStr $ ("No quality profile available (artist or default), cannot mark as wanted: " <> albumTitle :: Text)
+
+                                    -- Emit WantedAlbumAdded event
                                     case DB.catalogArtistName <$> Just artist of
                                       Just artistName -> do
                                         liftIO $ publishAndLog bus le "acquisition" $ WantedAlbumAdded

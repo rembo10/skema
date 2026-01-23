@@ -7,6 +7,8 @@ import { useAppStore } from '../store';
 import type { LibraryStats } from '../types/api';
 import { RecentlyFollowedArtists } from '../components/RecentlyFollowedArtists';
 import { DashboardSkeleton } from '../components/LoadingSkeleton';
+import { UpcomingAlbums } from '../components/UpcomingAlbums';
+import { WantedAlbumsSummary } from '../components/WantedAlbumsSummary';
 
 // Format bytes to human-readable string
 const formatBytes = (bytes: number): string => {
@@ -256,6 +258,12 @@ export default function Dashboard() {
 
       {/* Recently followed artists */}
       <RecentlyFollowedArtists />
+
+      {/* Wanted Albums and Upcoming Albums */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <WantedAlbumsSummary />
+        <UpcomingAlbums />
+      </div>
 
       {/* Actions */}
       <div className="card p-6">

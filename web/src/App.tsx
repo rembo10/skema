@@ -161,8 +161,7 @@ const routeTitles: Record<string, string> = {
   '/identification/tracks': 'Tracks',
   '/artists': 'Artists',
   '/albums': 'Albums',
-  '/albums/unacquired': 'Unacquired Albums',
-  '/albums/library': 'Library Albums',
+  '/albums': 'Albums',
   '/downloads': 'Downloads',
   '/sources': 'Input Sources',
   '/quality': 'Quality Profiles',
@@ -292,8 +291,7 @@ function AppContent() {
               <Route path="/artists" element={<ProtectedRoute><FollowedArtists /></ProtectedRoute>} />
               <Route path="/artists/:id" element={<ProtectedRoute><ArtistDetail /></ProtectedRoute>} />
               <Route path="/albums" element={<ProtectedRoute><Albums /></ProtectedRoute>} />
-              <Route path="/albums/unacquired" element={<ProtectedRoute><Albums /></ProtectedRoute>} />
-              <Route path="/albums/library" element={<ProtectedRoute><Albums /></ProtectedRoute>} />
+              <Route path="/albums" element={<ProtectedRoute><Albums /></ProtectedRoute>} />
               <Route path="/sources" element={<ProtectedRoute><AcquisitionSources /></ProtectedRoute>} />
               <Route path="/downloads" element={<ProtectedRoute><Downloads /></ProtectedRoute>} />
               <Route path="/quality" element={<ProtectedRoute><QualityProfiles /></ProtectedRoute>} />

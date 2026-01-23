@@ -57,6 +57,8 @@ type CatalogAPI = "catalog" :> Header "Authorization" Text :>
     :> QueryParam "order" Text
     :> QueryParam "state" Text
     :> QueryParam "quality" Text
+    :> QueryParam "release_date_after" Text
+    :> QueryParam "release_date_before" Text
     :> Get '[JSON] AlbumOverviewResponse
   :<|> "albums" :> ReqBody '[JSON] CreateCatalogAlbumRequest :> PostCreated '[JSON] CatalogAlbumResponse
   :<|> "albums" :> Capture "albumId" Int64 :> ReqBody '[JSON] UpdateCatalogAlbumRequest :> Patch '[JSON] CatalogAlbumResponse

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import toast from 'react-hot-toast';
 import { PaginationControls } from '../components/PaginationControls';
@@ -32,6 +32,8 @@ import {
   List,
   Square,
   CheckSquare,
+  Heart,
+  Calendar,
 } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 50;
@@ -48,19 +50,13 @@ const stateConfig: Record<AlbumState, { label: string; icon: typeof Music; color
   Upgrading: { label: 'Upgrading', icon: ArrowUpCircle, color: 'text-purple-500' },
 };
 
-type TabView = 'unacquired' | 'library';
+type QuickFilter = 'all' | 'tracked' | 'unacquired' | 'library' | 'upcoming';
 
 export default function Albums() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // Determine active tab from URL path
-  const getTabFromPath = (pathname: string): TabView => {
-    if (pathname === '/albums/library') return 'library';
-    return 'unacquired';
-  };
-
-  const [activeTab, setActiveTab] = useState<TabView>(() => getTabFromPath(location.pathname));
   const [albums, setAlbums] = useState<CatalogAlbumOverview[]>([]);
   const [loading, setLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(false);
@@ -72,6 +68,8 @@ export default function Albums() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [qualityFilter, setQualityFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<AlbumState[]>([]);
+  const [upcomingFilter, setUpcomingFilter] = useState<boolean>(false);
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>('tracked');
   const pagination = usePagination(ITEMS_PER_PAGE);
   const [showReleasesModal, setShowReleasesModal] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<CatalogAlbumOverview | null>(null);
@@ -81,23 +79,30 @@ export default function Albums() {
   const [defaultProfile, setDefaultProfile] = useState<QualityProfile | null>(null);
   const [selectedAlbumIds, setSelectedAlbumIds] = useState<Set<number>>(new Set());
 
-  // Sync active tab with URL changes
+  // Initialize filters from URL parameters on mount
   useEffect(() => {
-    const newTab = getTabFromPath(location.pathname);
-    if (newTab !== activeTab) {
-      setActiveTab(newTab);
-      // Clear filters when switching tabs
-      setQualityFilter([]);
-      setStatusFilter([]);
-    }
-  }, [location.pathname]);
+    const stateParam = searchParams.get('state');
+    const releaseDateAfter = searchParams.get('release_date_after');
 
-  // Redirect /albums to /albums/unacquired
-  useEffect(() => {
-    if (location.pathname === '/albums') {
-      navigate('/albums/unacquired', { replace: true });
+    if (stateParam) {
+      const states = stateParam.split(',') as AlbumState[];
+      setStatusFilter(states);
+
+      // Determine quick filter based on states
+      if (states.includes('Wanted') || states.includes('Failed') || states.includes('IdentificationFailed')) {
+        setQuickFilter('unacquired');
+      } else if (states.includes('InLibrary') || states.includes('Monitored') || states.includes('Upgrading')) {
+        setQuickFilter('library');
+      } else {
+        setQuickFilter('tracked');
+      }
     }
-  }, [location.pathname, navigate]);
+
+    if (releaseDateAfter) {
+      setUpcomingFilter(true);
+      setQuickFilter('upcoming');
+    }
+  }, []); // Run only on mount
 
   // Debounce search input
   useEffect(() => {
@@ -115,9 +120,9 @@ export default function Albums() {
 
   useEffect(() => {
     loadAlbums();
-    // Clear selections when tab changes
+    // Clear selections when filters change
     setSelectedAlbumIds(new Set());
-  }, [activeTab, pagination.offset, searchFilter, sortBy, sortOrder, qualityFilter, statusFilter]);
+  }, [pagination.offset, searchFilter, sortBy, sortOrder, qualityFilter, statusFilter, upcomingFilter]);
 
   useEffect(() => {
     loadQualityProfiles();
@@ -145,15 +150,8 @@ export default function Albums() {
       setTableLoading(true);
     }
     try {
-      // Filter by state based on active tab
-      const baseStateFilter = activeTab === 'unacquired'
-        ? ['Wanted', 'Searching', 'Downloading', 'Failed', 'IdentificationFailed'] as AlbumState[]
-        : ['InLibrary', 'Monitored', 'Upgrading'] as AlbumState[];
-
-      // If user has selected specific statuses, use those instead (filtered by tab's base states)
-      const effectiveStateFilter = statusFilter.length > 0
-        ? statusFilter.filter(s => baseStateFilter.includes(s))
-        : baseStateFilter;
+      // Use status filter directly (no tab-based filtering)
+      const effectiveStateFilter = statusFilter.length > 0 ? statusFilter : undefined;
 
       const request: AlbumOverviewRequest = {
         offset: pagination.offset,
@@ -163,6 +161,7 @@ export default function Albums() {
         order: sortOrder,
         state: effectiveStateFilter,
         quality: qualityFilter.length > 0 ? qualityFilter : undefined,
+        release_date_after: upcomingFilter ? 'today' : undefined,
       };
 
       const response = await api.getAlbumOverview(request);
@@ -239,12 +238,12 @@ export default function Albums() {
       // - If quality_profile_id IS NOT NULL -> wanted = true (monitored, based on cutoff)
       await api.updateCatalogAlbum(albumId, profileId);
 
-      if (isExisting && activeTab === 'library') {
+      if (isExisting) {
         toast.success('Album set to keep existing quality - monitoring disabled');
-      } else if (activeTab === 'library') {
-        toast.success('Desired quality updated - album will be monitored for upgrades');
-      } else {
+      } else if (profileId) {
         toast.success('Quality profile updated');
+      } else {
+        toast.success('Album unwanted');
       }
       loadAlbums(); // Reload to reflect changes
     } catch (error) {
@@ -418,36 +417,93 @@ export default function Albums() {
   };
 
 
+  const handleQuickFilter = (filter: QuickFilter) => {
+    setQuickFilter(filter);
+    pagination.resetOffset();
+
+    switch (filter) {
+      case 'all':
+        // Show all albums in catalog (no state filter, no upcoming filter)
+        setStatusFilter([]);
+        setUpcomingFilter(false);
+        break;
+      case 'tracked':
+        // Show only albums with quality profiles (all states except NotWanted)
+        setStatusFilter(['Wanted', 'Searching', 'Downloading', 'Failed', 'IdentificationFailed', 'InLibrary', 'Monitored', 'Upgrading']);
+        setUpcomingFilter(false);
+        break;
+      case 'unacquired':
+        setStatusFilter(['Wanted', 'Searching', 'Downloading', 'Failed', 'IdentificationFailed']);
+        setUpcomingFilter(false);
+        break;
+      case 'library':
+        setStatusFilter(['InLibrary', 'Monitored', 'Upgrading']);
+        setUpcomingFilter(false);
+        break;
+      case 'upcoming':
+        setStatusFilter([]);
+        setUpcomingFilter(true);
+        break;
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Tabs */}
-      <div className="flex gap-2 border-b border-dark-border mb-6">
-        <button
-          onClick={() => {
-            navigate('/albums/unacquired');
-            pagination.resetOffset();
-          }}
-          className={`px-4 py-2 font-medium border-b-2 transition-colors ${
-            activeTab === 'unacquired'
-              ? 'border-dark-accent text-dark-accent'
-              : 'border-transparent text-dark-text-secondary hover:text-dark-text'
-          }`}
-        >
-          Unacquired Albums
-        </button>
-        <button
-          onClick={() => {
-            navigate('/albums/library');
-            pagination.resetOffset();
-          }}
-          className={`px-4 py-2 font-medium border-b-2 transition-colors ${
-            activeTab === 'library'
-              ? 'border-dark-accent text-dark-accent'
-              : 'border-transparent text-dark-text-secondary hover:text-dark-text'
-          }`}
-        >
-          Library Albums
-        </button>
+      {/* Header with Quick Filters */}
+      <div>
+        <h1 className="text-3xl font-bold text-dark-text mb-4">Albums</h1>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => handleQuickFilter('all')}
+            className={`px-4 py-2 rounded-lg font-medium transition-all ${
+              quickFilter === 'all'
+                ? 'bg-dark-accent text-white'
+                : 'bg-dark-bg-subtle text-dark-text-secondary hover:bg-dark-bg-hover'
+            }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => handleQuickFilter('tracked')}
+            className={`px-4 py-2 rounded-lg font-medium transition-all ${
+              quickFilter === 'tracked'
+                ? 'bg-dark-accent text-white'
+                : 'bg-dark-bg-subtle text-dark-text-secondary hover:bg-dark-bg-hover'
+            }`}
+          >
+            All Tracked
+          </button>
+          <button
+            onClick={() => handleQuickFilter('unacquired')}
+            className={`px-4 py-2 rounded-lg font-medium transition-all ${
+              quickFilter === 'unacquired'
+                ? 'bg-dark-accent text-white'
+                : 'bg-dark-bg-subtle text-dark-text-secondary hover:bg-dark-bg-hover'
+            }`}
+          >
+            Unacquired
+          </button>
+          <button
+            onClick={() => handleQuickFilter('library')}
+            className={`px-4 py-2 rounded-lg font-medium transition-all ${
+              quickFilter === 'library'
+                ? 'bg-dark-accent text-white'
+                : 'bg-dark-bg-subtle text-dark-text-secondary hover:bg-dark-bg-hover'
+            }`}
+          >
+            In Library
+          </button>
+          <button
+            onClick={() => handleQuickFilter('upcoming')}
+            className={`px-4 py-2 rounded-lg font-medium transition-all ${
+              quickFilter === 'upcoming'
+                ? 'bg-dark-accent text-white'
+                : 'bg-dark-bg-subtle text-dark-text-secondary hover:bg-dark-bg-hover'
+            }`}
+          >
+            Upcoming
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -475,10 +531,9 @@ export default function Albums() {
             )}
           </div>
 
-          {/* Quality Filter - Only show on library tab */}
-          {activeTab === 'library' && (
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-dark-text-secondary">Filter by Quality:</label>
+          {/* Quality Filter */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-dark-text-secondary">Filter by Quality:</label>
               <div className="flex flex-wrap gap-2">
                 {(['unknown', 'mp3_192', 'vbr2', 'mp3_256', 'vbr0', 'mp3_320', 'lossless', 'hires_lossless'] as const).map((quality) => {
                   const isSelected = qualityFilter.includes(quality);
@@ -517,17 +572,13 @@ export default function Albums() {
                 )}
               </div>
             </div>
-          )}
 
           {/* Status Filter */}
           <div className="space-y-2">
             <label className="text-xs font-medium text-dark-text-secondary">Filter by Status:</label>
             <div className="flex flex-wrap gap-2">
-              {(activeTab === 'unacquired'
-                ? (['Wanted', 'Failed', 'IdentificationFailed'] as AlbumState[])
-                : (['InLibrary'] as AlbumState[]).concat(['upgrading-combined' as any])
-              ).map((status) => {
-                // Special handling for library tab - combine Monitored and Upgrading into one "Upgrading" badge
+              {(['Wanted', 'Failed', 'IdentificationFailed', 'InLibrary', 'upgrading-combined', 'NotWanted'] as (AlbumState | 'upgrading-combined')[]).map((status) => {
+                // Special handling - combine Monitored and Upgrading into one "Upgrading" badge
                 if (status === 'upgrading-combined') {
                   const isSelected = statusFilter.includes('Monitored') || statusFilter.includes('Upgrading');
                   const config = stateConfig['Upgrading'];
@@ -596,6 +647,7 @@ export default function Albums() {
               )}
             </div>
           </div>
+
         </div>
         </div>
       </div>
@@ -610,77 +662,40 @@ export default function Albums() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {activeTab === 'unacquired' && (
-                <>
-                  <button
-                    onClick={handleBulkUnwant}
-                    className="px-3 py-1.5 bg-dark-bg-hover hover:bg-dark-error-muted text-dark-text-secondary hover:text-dark-error rounded transition-colors flex items-center gap-1.5 text-sm"
-                  >
-                    <X className="h-4 w-4" />
-                    <span>Unwant</span>
-                  </button>
-                  <select
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (value === 'default') {
-                        if (defaultProfile?.id) {
-                          handleBulkQualityChange(defaultProfile.id, false);
-                        } else {
-                          toast.error('No default quality profile configured');
-                        }
-                      } else if (value) {
-                        handleBulkQualityChange(parseInt(value, 10));
-                      }
-                      e.target.value = '';
-                    }}
-                    className="text-sm bg-dark-bg-hover border border-dark-border rounded px-3 py-1.5 text-dark-text focus:outline-none focus:ring-2 focus:ring-dark-accent"
-                    defaultValue=""
-                  >
-                    <option value="" disabled>Change Quality...</option>
-                    <option value="default">
-                      {defaultProfile ? `Default (${defaultProfile.name})` : 'Default'}
-                    </option>
-                    {qualityProfiles.map((profile) => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              )}
-
-              {activeTab === 'library' && (
-                <select
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (value === 'existing') {
-                      handleBulkQualityChange(null, true);
-                    } else if (value === 'default') {
-                      if (defaultProfile?.id) {
-                        handleBulkQualityChange(defaultProfile.id, false);
-                      } else {
-                        toast.error('No default quality profile configured');
-                      }
-                    } else if (value) {
-                      handleBulkQualityChange(parseInt(value, 10));
+              <button
+                onClick={handleBulkUnwant}
+                className="px-3 py-1.5 bg-dark-bg-hover hover:bg-dark-error-muted text-dark-text-secondary hover:text-dark-error rounded transition-colors flex items-center gap-1.5 text-sm"
+              >
+                <X className="h-4 w-4" />
+                <span>Unwant</span>
+              </button>
+              <select
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value === 'default') {
+                    if (defaultProfile?.id) {
+                      handleBulkQualityChange(defaultProfile.id, false);
+                    } else {
+                      toast.error('No default quality profile configured');
                     }
-                    e.target.value = '';
-                  }}
-                  className="text-sm bg-dark-bg-hover border border-dark-border rounded px-3 py-1.5 text-dark-text focus:outline-none focus:ring-2 focus:ring-dark-accent"
-                  defaultValue=""
-                >
-                  <option value="" disabled>Change Desired Quality...</option>
-                  <option value="existing">Existing</option>
-                  <option value="default">
-                    {defaultProfile ? `Default (${defaultProfile.name})` : 'Default'}
+                  } else if (value) {
+                    handleBulkQualityChange(parseInt(value, 10));
+                  }
+                  e.target.value = '';
+                }}
+                className="text-sm bg-dark-bg-hover border border-dark-border rounded px-3 py-1.5 text-dark-text focus:outline-none focus:ring-2 focus:ring-dark-accent"
+                defaultValue=""
+              >
+                <option value="" disabled>Change Target Quality...</option>
+                <option value="default">
+                  {defaultProfile ? `Default (${defaultProfile.name})` : 'Default'}
+                </option>
+                {qualityProfiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name}
                   </option>
-                  {qualityProfiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.name}
-                    </option>
-                  ))}
-                </select>
-              )}
+                ))}
+              </select>
 
               <button
                 onClick={handleBulkForceSearch}
@@ -716,21 +731,15 @@ export default function Albums() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Album</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Artist</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Release Date</th>
-                    {activeTab === 'unacquired' ? (
-                      <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Quality Profile</th>
-                    ) : (
-                      <>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Current Quality</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Desired Quality</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Status</th>
-                      </>
-                    )}
+                    <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">State</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Current Quality</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Target Quality</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-dark-border">
                   {[...Array(10)].map((_, i) => (
-                    <TableRowSkeleton key={i} columns={activeTab === 'unacquired' ? 6 : 8} />
+                    <TableRowSkeleton key={i} columns={8} />
                   ))}
                 </tbody>
               </table>
@@ -771,19 +780,11 @@ export default function Albums() {
                     <SortableHeader column="title">Album</SortableHeader>
                     <SortableHeader column="artist">Artist</SortableHeader>
                     <SortableHeader column="date">Release Date</SortableHeader>
-                    {activeTab === 'unacquired' ? (
-                      <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">
-                        Quality Profile
-                      </th>
-                    ) : (
-                      <>
-                        <SortableHeader column="quality">Current Quality</SortableHeader>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">
-                          Desired Quality
-                        </th>
-                        <SortableHeader column="state">Status</SortableHeader>
-                      </>
-                    )}
+                    <SortableHeader column="state">State</SortableHeader>
+                    <SortableHeader column="quality">Current Quality</SortableHeader>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">
+                      Target Quality
+                    </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-dark-text-tertiary uppercase tracking-wider">
                       Actions
                     </th>
@@ -837,76 +838,48 @@ export default function Albums() {
                           {formatDate(album.first_release_date)}
                         </div>
                       </td>
-                      {activeTab === 'unacquired' ? (
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <select
-                            value={album.quality_profile_id || 'default'}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              if (value === 'default') {
-                                if (defaultProfile?.id) {
-                                  handleQualityProfileChange(album.id, defaultProfile.id);
-                                } else {
-                                  toast.error('No default quality profile configured');
-                                }
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <StateBadge state={album.state} />
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {album.current_quality ? (
+                          <QualityBadge quality={album.current_quality} />
+                        ) : (
+                          <span className="text-sm text-dark-text-tertiary">—</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <select
+                          value={album.quality_profile_id || 'none'}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === 'none') {
+                              // Unwant the album
+                              handleUnwantAlbum(album.id);
+                            } else if (value === 'default') {
+                              if (defaultProfile?.id) {
+                                handleQualityProfileChange(album.id, defaultProfile.id, false);
                               } else {
-                                const profileId = parseInt(value, 10);
-                                handleQualityProfileChange(album.id, profileId);
+                                toast.error('No default quality profile configured');
                               }
-                            }}
-                            className="text-sm bg-dark-bg-hover border border-dark-border rounded px-2 py-1 text-dark-text focus:outline-none focus:ring-2 focus:ring-dark-accent"
-                          >
-                            <option value="default">
-                              {defaultProfile ? `Default (${defaultProfile.name})` : 'Default'}
+                            } else {
+                              const profileId = parseInt(value, 10);
+                              handleQualityProfileChange(album.id, profileId, false);
+                            }
+                          }}
+                          className="text-sm bg-dark-bg-hover border border-dark-border rounded px-2 py-1 text-dark-text focus:outline-none focus:ring-2 focus:ring-dark-accent"
+                        >
+                          <option value="none">None (Unwanted)</option>
+                          <option value="default">
+                            {defaultProfile ? `Default (${defaultProfile.name})` : 'Default'}
+                          </option>
+                          {qualityProfiles.map((profile) => (
+                            <option key={profile.id} value={profile.id}>
+                              {profile.name}
                             </option>
-                            {qualityProfiles.map((profile) => (
-                              <option key={profile.id} value={profile.id}>
-                                {profile.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                      ) : (
-                        <>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <QualityBadge quality={album.current_quality} />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <select
-                              value={album.wanted ? (album.quality_profile_id || 'default') : 'existing'}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                if (value === 'existing') {
-                                  handleQualityProfileChange(album.id, null, true);
-                                } else if (value === 'default') {
-                                  if (defaultProfile?.id) {
-                                    handleQualityProfileChange(album.id, defaultProfile.id, false);
-                                  } else {
-                                    toast.error('No default quality profile configured');
-                                  }
-                                } else {
-                                  const profileId = parseInt(value, 10);
-                                  handleQualityProfileChange(album.id, profileId, false);
-                                }
-                              }}
-                              className="text-sm bg-dark-bg-hover border border-dark-border rounded px-2 py-1 text-dark-text focus:outline-none focus:ring-2 focus:ring-dark-accent"
-                            >
-                              <option value="existing">Existing</option>
-                              <option value="default">
-                                {defaultProfile ? `Default (${defaultProfile.name})` : 'Default'}
-                              </option>
-                              {qualityProfiles.map((profile) => (
-                                <option key={profile.id} value={profile.id}>
-                                  {profile.name}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <StateBadge state={album.state} />
-                          </td>
-                        </>
-                      )}
+                          ))}
+                        </select>
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <button
@@ -917,23 +890,25 @@ export default function Albums() {
                             <List className="h-4 w-4" />
                             <span>Releases</span>
                           </button>
-                          <button
-                            onClick={() => handleForceSearch(album.id)}
-                            className="px-3 py-1.5 bg-dark-bg-hover hover:bg-dark-accent-muted text-dark-text-secondary hover:text-dark-accent rounded transition-colors flex items-center gap-1.5"
-                            title="Force search for this album"
-                          >
-                            <SearchIcon className="h-4 w-4" />
-                            <span>Search</span>
-                          </button>
-                          {activeTab === 'unacquired' && (
-                            <button
-                              onClick={() => handleUnwantAlbum(album.id)}
-                              className="px-3 py-1.5 bg-dark-bg-hover hover:bg-dark-error-muted text-dark-text-secondary hover:text-dark-error rounded transition-colors flex items-center gap-1.5"
-                              title="Remove from wanted list"
-                            >
-                              <X className="h-4 w-4" />
-                              <span>Unwant</span>
-                            </button>
+                          {album.quality_profile_id && (
+                            <>
+                              <button
+                                onClick={() => handleForceSearch(album.id)}
+                                className="px-3 py-1.5 bg-dark-bg-hover hover:bg-dark-accent-muted text-dark-text-secondary hover:text-dark-accent rounded transition-colors flex items-center gap-1.5"
+                                title="Force search for this album"
+                              >
+                                <SearchIcon className="h-4 w-4" />
+                                <span>Search</span>
+                              </button>
+                              <button
+                                onClick={() => handleUnwantAlbum(album.id)}
+                                className="px-3 py-1.5 bg-dark-bg-hover hover:bg-dark-error-muted text-dark-text-secondary hover:text-dark-error rounded transition-colors flex items-center gap-1.5"
+                                title="Remove from wanted list"
+                              >
+                                <X className="h-4 w-4" />
+                                <span>Unwant</span>
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>

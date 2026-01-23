@@ -637,6 +637,8 @@ export const api = {
     if (request.order) params.append('order', request.order);
     if (request.state && request.state.length > 0) params.append('state', request.state.join(','));
     if (request.quality && request.quality.length > 0) params.append('quality', request.quality.join(','));
+    if (request.release_date_after) params.append('release_date_after', request.release_date_after);
+    if (request.release_date_before) params.append('release_date_before', request.release_date_before);
 
     const queryString = params.toString();
     const url = queryString ? `/catalog/albums?${queryString}` : '/catalog/albums';

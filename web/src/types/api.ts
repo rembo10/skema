@@ -588,6 +588,8 @@ export interface AlbumOverviewRequest {
   sort?: 'title' | 'artist' | 'date' | 'quality' | 'state';
   order?: 'asc' | 'desc';
   wanted?: boolean;
+  release_date_after?: string; // Filter albums released after this date (e.g., "2025-01-01" or "today")
+  release_date_before?: string; // Filter albums released before this date (e.g., "2025-12-31" or "today")
 }
 
 export interface AlbumOverviewPagination {

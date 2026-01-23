@@ -263,8 +263,10 @@ getCatalogAlbumsOverview
   -> Maybe Text    -- ^ Search query
   -> Maybe Text    -- ^ Sort field
   -> Maybe Text    -- ^ Sort order (asc/desc)
+  -> Maybe Text    -- ^ Release date after (inclusive, e.g., "2025-01-01" or "today")
+  -> Maybe Text    -- ^ Release date before (inclusive, e.g., "2025-12-31" or "today")
   -> IO [CatalogAlbumOverviewRow]
-getCatalogAlbumsOverview conn limit offset maybeStates maybeQualities maybeArtistId maybeSearch maybeSort maybeOrder = do
+getCatalogAlbumsOverview conn limit offset maybeStates maybeQualities maybeArtistId maybeSearch maybeSort maybeOrder maybeReleaseDateAfter maybeReleaseDateBefore = do
   let baseQuery =
         "SELECT \
         \  ca.id, \
@@ -325,7 +327,7 @@ getCatalogAlbumsOverview conn limit offset maybeStates maybeQualities maybeArtis
         \WHERE 1=1 "
 
   -- Build filter conditions
-  let (whereClause, params) = buildOverviewFilters maybeQualities maybeArtistId maybeSearch
+  let (whereClause, params) = buildOverviewFilters maybeQualities maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore
 
   -- Wrap the base query in a subquery if we need to filter by state
   let (finalQuery, finalParams, sortClause) = case maybeStates of
@@ -425,9 +427,11 @@ getCatalogAlbumsOverviewCount
   -> Maybe [Text]  -- ^ Filter by quality
   -> Maybe Int64   -- ^ Filter by artist ID
   -> Maybe Text    -- ^ Search query
+  -> Maybe Text    -- ^ Release date after
+  -> Maybe Text    -- ^ Release date before
   -> IO Int
-getCatalogAlbumsOverviewCount conn maybeStates maybeQualities maybeArtistId maybeSearch = do
-  let (whereClause, params) = buildOverviewFilters maybeQualities maybeArtistId maybeSearch
+getCatalogAlbumsOverviewCount conn maybeStates maybeQualities maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore = do
+  let (whereClause, params) = buildOverviewFilters maybeQualities maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore
 
   let (fullQuery, finalParams) = case maybeStates of
         Nothing ->
@@ -472,8 +476,8 @@ getCatalogAlbumsOverviewStats conn = do
     \GROUP BY current_quality"
 
 -- Helper function to build filter WHERE clauses
-buildOverviewFilters :: Maybe [Text] -> Maybe Int64 -> Maybe Text -> (Text, [SQLite.SQLData])
-buildOverviewFilters maybeQualities maybeArtistId maybeSearch =
+buildOverviewFilters :: Maybe [Text] -> Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> (Text, [SQLite.SQLData])
+buildOverviewFilters maybeQualities maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore =
   let (clauses, params) = mconcat
         [ case maybeQualities of
             Nothing -> ([], [])
@@ -488,6 +492,18 @@ buildOverviewFilters maybeQualities maybeArtistId maybeSearch =
             Just query ->
               (["AND (ca.title LIKE ? OR ca.artist_name LIKE ?)"],
                [toField ("%" <> query <> "%"), toField ("%" <> query <> "%")])
+        , case maybeReleaseDateAfter of
+            Nothing -> ([], [])
+            Just dateValue ->
+              if dateValue == "today"
+                then (["AND date(ca.first_release_date) >= date('now')"], [])
+                else (["AND date(ca.first_release_date) >= ?"], [toField dateValue])
+        , case maybeReleaseDateBefore of
+            Nothing -> ([], [])
+            Just dateValue ->
+              if dateValue == "today"
+                then (["AND date(ca.first_release_date) <= date('now')"], [])
+                else (["AND date(ca.first_release_date) <= ?"], [toField dateValue])
         ]
   in (T.unwords clauses, params)
 

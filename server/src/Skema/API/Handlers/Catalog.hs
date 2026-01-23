@@ -187,7 +187,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           maybeAlbums <- case (DBTypes.catalogArtistFollowed artist, DBTypes.catalogArtistId artist) of
             (True, Just artistId) -> do
               -- Get albums for this artist (all albums, sorted by release date desc)
-              albumRows <- DB.getCatalogAlbumsOverview conn 999999 0 Nothing Nothing (Just artistId) Nothing (Just "first_release_date") (Just "desc")
+              albumRows <- DB.getCatalogAlbumsOverview conn 999999 0 Nothing Nothing (Just artistId) Nothing (Just "first_release_date") (Just "desc") Nothing Nothing
               pure $ Just $ map rowToResponse albumRows
             _ -> pure Nothing
 
@@ -408,7 +408,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
           -- Get active download info from overview
           maybeAlbumWithDownload <- liftIO $ withConnection connPool $ \conn -> do
-            overviews <- DB.getCatalogAlbumsOverview conn 1 0 Nothing Nothing Nothing Nothing Nothing Nothing
+            overviews <- DB.getCatalogAlbumsOverview conn 1 0 Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
             pure $ find (\row -> DB.caorAlbumId row == albumId) overviews
 
           let maybeActiveDownloadId = maybeAlbumWithDownload >>= DB.caorActiveDownloadId
@@ -522,8 +522,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       pure NoContent
 
     -- Get catalog albums with enhanced state information (replaces simple GET /albums)
-    albumOverviewHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler AlbumOverviewResponse
-    albumOverviewHandler authHeader maybeOffset maybeLimit _maybeWanted maybeArtistId maybeSearch maybeSort maybeOrder maybeStateFilter maybeQualityFilter = do
+    albumOverviewHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler AlbumOverviewResponse
+    albumOverviewHandler authHeader maybeOffset maybeLimit _maybeWanted maybeArtistId maybeSearch maybeSort maybeOrder maybeStateFilter maybeQualityFilter maybeReleaseDateAfter maybeReleaseDateBefore = do
       _ <- requireAuth configVar jwtSecret authHeader
 
       let offset = fromMaybe 0 maybeOffset
@@ -536,8 +536,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       -- Query database for albums with joined data
       -- State filtering now happens at the database level
       (overviewRows, totalCount, statsData) <- liftIO $ withConnection connPool $ \conn -> do
-        rows <- DB.getCatalogAlbumsOverview conn limit offset maybeStates maybeQualities maybeArtistId maybeSearch maybeSort maybeOrder
-        count <- DB.getCatalogAlbumsOverviewCount conn maybeStates maybeQualities maybeArtistId maybeSearch
+        rows <- DB.getCatalogAlbumsOverview conn limit offset maybeStates maybeQualities maybeArtistId maybeSearch maybeSort maybeOrder maybeReleaseDateAfter maybeReleaseDateBefore
+        count <- DB.getCatalogAlbumsOverviewCount conn maybeStates maybeQualities maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore
         stats <- DB.getCatalogAlbumsOverviewStats conn
         pure (rows, count, stats)
 
