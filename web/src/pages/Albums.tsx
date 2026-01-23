@@ -855,8 +855,12 @@ export default function Albums() {
                           value={album.quality_profile_id || ((album.state === 'InLibrary' || album.state === 'Monitored') ? 'existing' : (unwantedAlbumSelections.get(album.id) || 'default'))}
                           onChange={(e) => {
                             const value = e.target.value;
-                            if (album.quality_profile_id) {
-                              // Album is already wanted, apply the change immediately
+                            // Check if album is in library (has current_quality) rather than checking quality_profile_id
+                            // because "Existing" albums have NULL quality_profile_id but are still tracked
+                            const isTrackedAlbum = album.quality_profile_id !== null || album.current_quality !== null;
+
+                            if (isTrackedAlbum) {
+                              // Album is already tracked (either wanted or existing), apply the change immediately
                               if (value === 'existing') {
                                 // Keep existing quality, no monitoring
                                 handleQualityProfileChange(album.id, null, true);
@@ -871,7 +875,7 @@ export default function Albums() {
                                 handleQualityProfileChange(album.id, profileId, false);
                               }
                             } else {
-                              // Album is not wanted, just update the selection state
+                              // Album is not tracked at all, just update the selection state
                               setUnwantedAlbumSelections(new Map(unwantedAlbumSelections.set(album.id, value)));
                             }
                           }}
