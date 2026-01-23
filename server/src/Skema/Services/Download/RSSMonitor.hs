@@ -123,7 +123,7 @@ getRSSSettings pool = withConnection pool $ \conn -> do
 hasWantedAlbums :: ConnectionPool -> IO Bool
 hasWantedAlbums pool = withConnection pool $ \conn -> do
   results <- SQLite.query conn
-    "SELECT COUNT(*) FROM catalog_albums WHERE wanted = 1"
+    "SELECT COUNT(*) FROM catalog_albums WHERE quality_profile_id IS NOT NULL"
     () :: IO [Only Int]
   case results of
     [Only count] -> pure (count > 0)
@@ -176,7 +176,7 @@ data WantedAlbumInfo = WantedAlbumInfo
 getWantedAlbums :: ConnectionPool -> IO [WantedAlbumInfo]
 getWantedAlbums pool = withConnection pool $ \conn -> do
   results <- queryRows conn
-    "SELECT id, title, artist_name, current_quality FROM catalog_albums WHERE wanted = 1"
+    "SELECT id, title, artist_name, current_quality FROM catalog_albums WHERE quality_profile_id IS NOT NULL"
     () :: IO [(Int64, Text, Text, Maybe Text)]
 
   -- For each album, get its effective quality profile
