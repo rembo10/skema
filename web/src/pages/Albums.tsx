@@ -850,12 +850,15 @@ export default function Albums() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <select
-                          value={album.quality_profile_id || 'none'}
+                          value={album.quality_profile_id || (album.state === 'InLibrary' || album.state === 'Monitored' ? 'existing' : 'none')}
                           onChange={(e) => {
                             const value = e.target.value;
                             if (value === 'none') {
                               // Unwant the album
                               handleUnwantAlbum(album.id);
+                            } else if (value === 'existing') {
+                              // Keep existing quality, no monitoring
+                              handleQualityProfileChange(album.id, null, true);
                             } else if (value === 'default') {
                               if (defaultProfile?.id) {
                                 handleQualityProfileChange(album.id, defaultProfile.id, false);
@@ -869,6 +872,7 @@ export default function Albums() {
                           }}
                           className="text-sm bg-dark-bg-hover border border-dark-border rounded px-2 py-1 text-dark-text focus:outline-none focus:ring-2 focus:ring-dark-accent"
                         >
+                          <option value="existing">Existing</option>
                           <option value="none">None (Unwanted)</option>
                           <option value="default">
                             {defaultProfile ? `Default (${defaultProfile.name})` : 'Default'}
