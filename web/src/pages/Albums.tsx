@@ -1070,23 +1070,25 @@ export default function Albums() {
                                 </span>
                               </span>
                             )}
-                            {release.download_type === 'torrent' && (
-                              <>
-                                {release.seeders !== null && release.seeders !== undefined && (
-                                  <span className="flex items-center gap-1">
-                                    <span className="text-dark-text-tertiary">Seeders:</span>
-                                    <span className={`font-medium ${release.seeders > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                      {release.seeders}
-                                    </span>
-                                  </span>
-                                )}
-                                {release.peers !== null && release.peers !== undefined && (
-                                  <span className="flex items-center gap-1">
-                                    <span className="text-dark-text-tertiary">Peers:</span>
-                                    <span className="font-medium">{release.peers}</span>
-                                  </span>
-                                )}
-                              </>
+                            {release.download_type === 'torrent' && release.seeders !== null && release.seeders !== undefined && (
+                              <span className="flex items-center gap-1">
+                                <span className="text-dark-text-tertiary">Seeders:</span>
+                                <span className={`font-medium ${release.seeders > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                  {release.seeders}
+                                </span>
+                              </span>
+                            )}
+                            {release.download_type === 'torrent' && release.peers !== null && release.peers !== undefined && (
+                              <span className="flex items-center gap-1">
+                                <span className="text-dark-text-tertiary">Peers:</span>
+                                <span className="font-medium">{release.peers}</span>
+                              </span>
+                            )}
+                            {release.publish_date && (
+                              <span className="flex items-center gap-1">
+                                <span className="text-dark-text-tertiary">Uploaded:</span>
+                                <span className="font-medium">{formatDate(release.publish_date)}</span>
+                              </span>
                             )}
                             <span className="flex items-center gap-1">
                               <span className="text-dark-text-tertiary">Type:</span>
