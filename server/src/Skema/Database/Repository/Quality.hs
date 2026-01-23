@@ -125,14 +125,8 @@ updateAlbumQuality pool albumId newQuality = withConnection pool $ \conn -> do
         (qualityText, now, albumId)
 
     Just profile -> do
-      -- Determine new status based on quality and profile
-      let newStatus = if not (meetsProfile newQuality profile)
-                      then Wanted  -- Quality doesn't meet profile requirements
-                      else if needsUpgrade newQuality profile
-                      then Upgrading  -- Quality is acceptable but below cutoff
-                      else Acquired  -- Quality meets or exceeds cutoff
-
-      -- Update both quality and status
+      -- Just update the quality - the wanted status is now derived from
+      -- quality_profile_id + current_quality + matched_cluster_id
       executeQuery conn
-        "UPDATE catalog_albums SET current_quality = ?, wanted = ?, updated_at = ? WHERE id = ?"
-        (qualityText, newStatus == Wanted || newStatus == Upgrading, now, albumId)
+        "UPDATE catalog_albums SET current_quality = ?, updated_at = ? WHERE id = ?"
+        (qualityText, now, albumId)

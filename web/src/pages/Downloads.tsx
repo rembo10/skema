@@ -19,6 +19,9 @@ export default function Downloads() {
   const connectionStatus = useAppStore((state) => state.connectionStatus);
   const prevConnectionStatus = useRef(connectionStatus);
 
+  // Subscribe to store downloads for live updates
+  const storeDownloads = useAppStore((state) => state.downloads);
+
   // Load downloads on mount and when offset changes
   useEffect(() => {
     loadDownloads();
@@ -46,6 +49,13 @@ export default function Downloads() {
       setLoading(false);
     }
   };
+
+  // Merge loaded downloads with store downloads for live updates
+  // This ensures that downloads in the current view get real-time updates from SSE
+  const mergedDownloads = downloads.map(download => {
+    const storeDownload = storeDownloads.find(d => d.id === download.id);
+    return storeDownload || download;
+  });
 
   const handleDelete = async (download: Download) => {
     if (!confirm(`Delete ${download.title} from history?`)) return;
@@ -143,8 +153,8 @@ export default function Downloads() {
   };
 
   // Group downloads by status
-  const activeDownloads = downloads.filter(d => d.status === 'queued' || d.status === 'downloading');
-  const historyDownloads = downloads.filter(d => d.status !== 'queued' && d.status !== 'downloading');
+  const activeDownloads = mergedDownloads.filter(d => d.status === 'queued' || d.status === 'downloading');
+  const historyDownloads = mergedDownloads.filter(d => d.status !== 'queued' && d.status !== 'downloading');
 
   const currentDownloads = selectedTab === 'active' ? activeDownloads : historyDownloads;
 

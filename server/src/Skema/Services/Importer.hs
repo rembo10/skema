@@ -502,34 +502,10 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
                     \WHERE release_group_mbid = (SELECT mb_release_group_id FROM clusters WHERE id = ?)"
                     (maybeQualityText, clusterId)
 
-                -- 14a. Check if imported quality meets cutoff - if yes, set wanted=false (album is "Finished")
-                shouldStopMonitoring <- liftIO $ withConnection pool $ \conn -> do
-                  case maybeQuality of
-                    Nothing -> pure False  -- Unknown quality, keep monitoring
-                    Just importedQuality -> do
-                      -- Get album's quality profile (or default)
-                      let profileId = DB.catalogAlbumQualityProfileId catalogAlbum
-                      maybeProfile <- case profileId of
-                        Just pid -> getQualityProfile conn pid
-                        Nothing -> do
-                          -- Use default profile
-                          maybeDefaultId <- getDefaultQualityProfileId conn
-                          case maybeDefaultId of
-                            Just defaultId -> getQualityProfile conn defaultId
-                            Nothing -> pure Nothing
-
-                      -- Check if quality meets or exceeds cutoff
-                      case maybeProfile of
-                        Nothing -> pure False  -- No profile, keep monitoring
-                        Just profile -> pure $ meetsOrExceedsCutoff importedQuality profile
-
-                -- Update wanted status if quality meets cutoff
-                when shouldStopMonitoring $ do
-                  $(logTM) InfoS $ logStr ("Imported quality meets cutoff - setting album to Finished status" :: Text)
-                  liftIO $ withConnection pool $ \conn ->
-                    executeQuery conn
-                      "UPDATE catalog_albums SET wanted = ? WHERE id = ?"
-                      (False :: Bool, DB.catalogAlbumId catalogAlbum)
+                -- The current_quality is already updated above (step 14)
+                -- The wanted status will be automatically derived from:
+                -- quality_profile_id + current_quality + matched_cluster_id
+                -- The acquisition system will check if upgrades are still needed
 
                 -- 15. Mark download as imported
                 now <- liftIO getCurrentTime
