@@ -351,6 +351,12 @@ export function useSSE(enabled: boolean = true) {
         updateAlbumCover(data.release_group_mbid, data.cover_url, data.thumbnail_url);
       });
 
+      eventSource.addEventListener('CatalogAlbumUpdated', (e: MessageEvent) => {
+        const data = JSON.parse(e.data);
+        // Dispatch a custom event that the Albums page can listen to
+        window.dispatchEvent(new CustomEvent('catalog_album_updated', { detail: data }));
+      });
+
       // Config events
       eventSource.addEventListener('ConfigUpdated', (e: MessageEvent) => {
         const data = JSON.parse(e.data);

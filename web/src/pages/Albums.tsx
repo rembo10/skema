@@ -130,6 +130,44 @@ export default function Albums() {
     loadQualityProfiles();
   }, []);
 
+  // Listen for SSE updates to individual albums
+  useEffect(() => {
+    const handleAlbumUpdate = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const data = customEvent.detail;
+
+      // Update the album in the local state
+      setAlbums(prevAlbums => {
+        const albumIndex = prevAlbums.findIndex(a => a.id === data.album_id);
+        if (albumIndex === -1) {
+          // Album not in current view, ignore
+          return prevAlbums;
+        }
+
+        // Create updated album object
+        const updatedAlbum: CatalogAlbumOverview = {
+          ...prevAlbums[albumIndex],
+          state: data.state,
+          current_quality: data.current_quality,
+          quality_profile_id: data.quality_profile_id,
+          quality_profile_name: data.quality_profile_name,
+          cover_url: data.cover_url,
+          cover_thumbnail_url: data.cover_thumbnail_url,
+        };
+
+        // Replace the album in the array
+        const newAlbums = [...prevAlbums];
+        newAlbums[albumIndex] = updatedAlbum;
+        return newAlbums;
+      });
+    };
+
+    window.addEventListener('catalog_album_updated', handleAlbumUpdate);
+    return () => {
+      window.removeEventListener('catalog_album_updated', handleAlbumUpdate);
+    };
+  }, []);
+
   const loadQualityProfiles = async () => {
     try {
       const [profiles, defaultProf] = await Promise.all([
@@ -191,7 +229,7 @@ export default function Albums() {
       // Set quality_profile_id = null to unwant (remove from monitoring)
       await api.updateCatalogAlbum(albumId, null);
       toast.success('Album removed from wanted list');
-      loadAlbums(); // Reload to reflect changes
+      // SSE will update the album state automatically
     } catch (error) {
       console.error('Failed to unwant album:', error);
       toast.error('Failed to remove album from wanted list');
@@ -247,7 +285,7 @@ export default function Albums() {
       } else {
         toast.success('Album unwanted');
       }
-      loadAlbums(); // Reload to reflect changes
+      // SSE will update the album state automatically
     } catch (error) {
       console.error('Failed to update quality profile:', error);
       toast.error('Failed to update quality profile');
@@ -294,7 +332,7 @@ export default function Albums() {
       );
       toast.success(`Removed ${selectedAlbumIds.size} album(s) from wanted list`);
       setSelectedAlbumIds(new Set());
-      loadAlbums();
+      // SSE will update the album states automatically
     } catch (error) {
       console.error('Failed to unwant albums:', error);
       toast.error('Failed to remove albums from wanted list');
@@ -323,7 +361,7 @@ export default function Albums() {
       }
 
       setSelectedAlbumIds(new Set());
-      loadAlbums();
+      // SSE will update the album states automatically
     } catch (error) {
       console.error('Failed to update quality profiles:', error);
       toast.error('Failed to update quality profiles');

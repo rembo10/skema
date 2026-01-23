@@ -402,9 +402,13 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         Nothing -> throw404 $ "Album not found: " <> show albumId
         Just albumBefore -> do
           -- Determine the new quality profile ID
+          -- updateCatalogAlbumQualityProfileId is Maybe (Maybe Int64):
+          --   Nothing = no change (keep existing)
+          --   Just Nothing = clear profile (set to null/unwant)
+          --   Just (Just id) = set to specific profile ID
           let newProfileId = case updateCatalogAlbumQualityProfileId req of
-                Just newId -> newId  -- Use the new ID from request (might be Nothing to clear)
-                Nothing -> DBTypes.catalogAlbumQualityProfileId albumBefore  -- No change
+                Nothing -> DBTypes.catalogAlbumQualityProfileId albumBefore  -- No change, keep existing
+                Just maybeId -> maybeId  -- Use the new value (Nothing to clear, Just id to set)
 
           -- Get active download info from overview
           maybeAlbumWithDownload <- liftIO $ withConnection connPool $ \conn -> do
@@ -454,8 +458,9 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             pure (wasWanted', newWanted, shouldCancel')
 
           -- Update the quality profile (wanted is now computed, not stored)
+          -- Pass Just newProfileId to indicate we want to update the field
           liftIO $ withConnection connPool $ \conn ->
-            DB.updateCatalogAlbum conn albumId (updateCatalogAlbumQualityProfileId req)
+            DB.updateCatalogAlbum conn albumId (Just newProfileId)
 
           -- Cancel active download if Core logic says we should
           case (shouldCancel, maybeActiveDownloadId) of
@@ -481,6 +486,11 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           case maybeAlbum of
             Nothing -> throw404 $ "Album not found: " <> show albumId
             Just album -> do
+              -- Fetch overview data for complete state information
+              overviewRow <- liftIO $ withConnection connPool $ \conn -> do
+                overviews <- DB.getCatalogAlbumsOverview conn 1 0 Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+                pure $ find (\row -> DB.caorAlbumId row == albumId) overviews
+
               -- Re-compute wanted status for the response
               maybeProfile <- liftIO $ withConnection connPool $ \conn ->
                 case DBTypes.catalogAlbumQualityProfileId album of
@@ -494,6 +504,34 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
                     , Core.acActiveDownloadStatus = Nothing
                     }
                   wanted = Core.isAlbumWanted albumContext
+
+              -- Compute album state
+              let albumState = case overviewRow of
+                    Just row -> computeAlbumState
+                      (DB.caorQualityProfileId row)
+                      (DB.caorQualityProfileCutoff row)
+                      (DB.caorCurrentQuality row)
+                      (DB.caorMatchedClusterId row)
+                      (DB.caorActiveDownloadId row)
+                      (DB.caorActiveDownloadStatus row)
+                    Nothing -> if wanted then Wanted else NotWanted
+
+              -- Emit CatalogAlbumUpdated event
+              liftIO $ EventBus.publishAndLog bus le "api.catalog" $ Events.CatalogAlbumUpdated
+                { Events.updatedAlbumId = albumId
+                , Events.updatedAlbumReleaseGroupMBID = DBTypes.catalogAlbumReleaseGroupMBID album
+                , Events.updatedAlbumTitle = DBTypes.catalogAlbumTitle album
+                , Events.updatedAlbumArtistMBID = DBTypes.catalogAlbumArtistMBID album
+                , Events.updatedAlbumArtistName = DBTypes.catalogAlbumArtistName album
+                , Events.updatedAlbumType = DBTypes.catalogAlbumType album
+                , Events.updatedAlbumFirstReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
+                , Events.updatedAlbumState = show albumState
+                , Events.updatedAlbumCurrentQuality = DBTypes.catalogAlbumCurrentQuality album
+                , Events.updatedAlbumQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
+                , Events.updatedAlbumQualityProfileName = fmap Qual.qfName maybeProfile
+                , Events.updatedAlbumCoverUrl = DBTypes.catalogAlbumCoverUrl album
+                , Events.updatedAlbumCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
+                }
 
               pure $ CatalogAlbumResponse
                 { catalogAlbumResponseId = DBTypes.catalogAlbumId album

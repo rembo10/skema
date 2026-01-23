@@ -31,7 +31,8 @@ module Skema.API.Types.Catalog
   ) where
 
 import Skema.API.Types.Tasks (TaskResponse)
-import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
+import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2, withObject, (.:))
+import qualified Data.Aeson.KeyMap as KM
 import GHC.Generics ()
 import Servant
 
@@ -240,7 +241,16 @@ instance ToJSON UpdateCatalogAlbumRequest where
   toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
 
 instance FromJSON UpdateCatalogAlbumRequest where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
+  parseJSON = withObject "UpdateCatalogAlbumRequest" $ \o -> do
+    -- Explicitly handle the quality_profile_id field to distinguish between:
+    -- - Field missing -> Nothing (no change)
+    -- - Field present with null -> Just Nothing (clear/unwant)
+    -- - Field present with value -> Just (Just value) (set profile)
+    let profileIdField = "quality_profile_id"
+    maybeProfileId <- if profileIdField `KM.member` o
+      then Just <$> o .: profileIdField
+      else pure Nothing
+    pure $ UpdateCatalogAlbumRequest maybeProfileId
 
 -- | Request to create a catalog task.
 data CatalogTaskRequest = CatalogTaskRequest

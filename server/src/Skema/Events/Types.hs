@@ -112,6 +112,21 @@ data Event
       , catalogAlbumFirstReleaseDate :: Maybe Text
       , catalogAlbumWanted :: Bool
       }
+  | CatalogAlbumUpdated
+      { updatedAlbumId :: Int64
+      , updatedAlbumReleaseGroupMBID :: Text
+      , updatedAlbumTitle :: Text
+      , updatedAlbumArtistMBID :: Text
+      , updatedAlbumArtistName :: Text
+      , updatedAlbumType :: Maybe Text
+      , updatedAlbumFirstReleaseDate :: Maybe Text
+      , updatedAlbumState :: Text
+      , updatedAlbumCurrentQuality :: Maybe Text
+      , updatedAlbumQualityProfileId :: Maybe Int64
+      , updatedAlbumQualityProfileName :: Maybe Text
+      , updatedAlbumCoverUrl :: Maybe Text
+      , updatedAlbumCoverThumbnailUrl :: Maybe Text
+      }
   | ArtistImageFetched
       { artistImageId :: Int64
       , artistImageMBID :: Text
@@ -432,6 +447,21 @@ eventToJSON = \case
     , "album_type" .= catalogAlbumType
     , "first_release_date" .= catalogAlbumFirstReleaseDate
     , "wanted" .= catalogAlbumWanted
+    ]
+  CatalogAlbumUpdated{..} -> object
+    [ "album_id" .= updatedAlbumId
+    , "release_group_mbid" .= updatedAlbumReleaseGroupMBID
+    , "album_title" .= updatedAlbumTitle
+    , "artist_mbid" .= updatedAlbumArtistMBID
+    , "artist_name" .= updatedAlbumArtistName
+    , "album_type" .= updatedAlbumType
+    , "first_release_date" .= updatedAlbumFirstReleaseDate
+    , "state" .= updatedAlbumState
+    , "current_quality" .= updatedAlbumCurrentQuality
+    , "quality_profile_id" .= updatedAlbumQualityProfileId
+    , "quality_profile_name" .= updatedAlbumQualityProfileName
+    , "cover_url" .= updatedAlbumCoverUrl
+    , "cover_thumbnail_url" .= updatedAlbumCoverThumbnailUrl
     ]
   ArtistImageFetched{..} -> object
     [ "artist_id" .= artistImageId
