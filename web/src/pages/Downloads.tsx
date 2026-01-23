@@ -81,6 +81,17 @@ export default function Downloads() {
     }
   };
 
+  const handleRetry = async (download: Download) => {
+    try {
+      await api.retryDownload(download.id);
+      toast.success(`Retrying ${download.title}...`);
+      await loadDownloads();
+    } catch (error) {
+      toast.error('Failed to retry download');
+      console.error('Error retrying download:', error);
+    }
+  };
+
   const formatBytes = (bytes: number | null) => {
     if (!bytes) return 'Unknown size';
     const gb = bytes / (1024 * 1024 * 1024);
@@ -195,6 +206,15 @@ export default function Downloads() {
 
             {/* Action buttons */}
             <div className="flex items-center gap-2">
+              {download.status === 'failed' && (
+                <button
+                  onClick={() => handleRetry(download)}
+                  className="p-2 rounded-lg hover:bg-dark-bg-hover text-dark-accent hover:text-dark-accent/80 transition-colors"
+                  title="Retry download"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              )}
               {download.status === 'identification_failure' && (
                 <button
                   onClick={() => handleReidentify(download)}

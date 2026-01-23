@@ -32,6 +32,7 @@ import Katip
 import Database.SQLite.Simple (Only(..))
 import qualified Data.Map.Strict as Map
 import qualified Control.Concurrent.STM as STM
+import qualified Data.Text as T
 
 -- | Throw a 404 Not Found error.
 throw404 :: Text -> Handler a
@@ -72,6 +73,86 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
               [ "message" .= ("Download reidentification requested" :: Text)
               , "download_id" .= downloadId
               ])
+
+          pure taskResp
+
+        "retry" -> liftIO $ do
+          -- Create the task
+          taskResp <- TM.createTask tm DownloadsResource (Just downloadId) "retry"
+          let taskId = taskResponseId taskResp
+
+          -- Spawn async worker to retry the download
+          _ <- async $ do
+            TM.updateTaskProgress tm taskId 0.2 (Just "Looking up download...")
+
+            -- Get the download record to determine what stage it failed at
+            downloads <- withConnection connPool $ \conn ->
+              queryRows conn
+                "SELECT id, catalog_album_id, indexer_name, download_url, download_client, \
+                \download_client_id, status, download_path, title, size_bytes, quality, \
+                \format, seeders, progress, error_message, queued_at, started_at, \
+                \completed_at, imported_at, updated_at, \
+                \matched_cluster_id, library_path \
+                \FROM downloads WHERE id = ?"
+                (Only downloadId) :: IO [DBTypes.DownloadRecord]
+
+            case viaNonEmpty head downloads of
+              Nothing -> do
+                TM.failTask tm taskId "Download not found"
+              Just download -> do
+                let status = DBTypes.downloadStatus download
+                    hasPath = isJust (DBTypes.downloadPath download) && not (T.null $ T.strip $ fromMaybe "" $ DBTypes.downloadPath download)
+
+                TM.updateTaskProgress tm taskId 0.5 (Just "Retrying download...")
+
+                case status of
+                  -- If download failed during download phase, reset to queued
+                  DBTypes.DownloadFailed | not hasPath -> do
+                    -- Reset download to queued state
+                    withConnection connPool $ \conn ->
+                      executeQuery conn
+                        "UPDATE downloads SET status = ?, error_message = NULL, progress = 0 WHERE id = ?"
+                        ("queued" :: Text, downloadId)
+                    TM.completeTask tm taskId (Just $ toJSON $ object
+                      [ "message" .= ("Download reset to queued - will be picked up by download monitor" :: Text)
+                      , "download_id" .= downloadId
+                      ])
+
+                  -- If download completed but import failed, retry import
+                  DBTypes.DownloadFailed | hasPath -> do
+                    -- Clear error and re-emit DownloadCompleted event
+                    withConnection connPool $ \conn ->
+                      executeQuery conn
+                        "UPDATE downloads SET error_message = NULL WHERE id = ?"
+                        (Only downloadId)
+                    EventBus.publishAndLog bus le "api.downloads.task" $ Events.DownloadCompleted
+                      { Events.downloadId = downloadId
+                      , Events.downloadTitle = DBTypes.downloadTitle download
+                      , Events.downloadPath = DBTypes.downloadPath download
+                      }
+                    TM.completeTask tm taskId (Just $ toJSON $ object
+                      [ "message" .= ("Import retry requested" :: Text)
+                      , "download_id" .= downloadId
+                      ])
+
+                  -- For identification failures, use reidentify instead
+                  DBTypes.DownloadIdentificationFailure -> do
+                    withConnection connPool $ \conn ->
+                      executeQuery conn
+                        "UPDATE downloads SET error_message = NULL WHERE id = ?"
+                        (Only downloadId)
+                    EventBus.publishAndLog bus le "api.downloads.task" $ Events.DownloadCompleted
+                      { Events.downloadId = downloadId
+                      , Events.downloadTitle = DBTypes.downloadTitle download
+                      , Events.downloadPath = DBTypes.downloadPath download
+                      }
+                    TM.completeTask tm taskId (Just $ toJSON $ object
+                      [ "message" .= ("Retrying identification" :: Text)
+                      , "download_id" .= downloadId
+                      ])
+
+                  _ -> do
+                    TM.failTask tm taskId $ "Cannot retry download with status: " <> show status
 
           pure taskResp
 

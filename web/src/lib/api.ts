@@ -718,6 +718,16 @@ export const api = {
     });
   },
 
+  async retryDownload(downloadId: number): Promise<Task> {
+    return fetchApi<Task>('/downloads/tasks', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'retry',
+        download_id: downloadId,
+      }),
+    });
+  },
+
   // Filesystem browsing
   async browseFilesystem(path?: string): Promise<FilesystemBrowseResponse> {
     const params = path ? `?path=${encodeURIComponent(path)}` : '';

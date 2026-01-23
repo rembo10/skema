@@ -2,6 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Importer service - imports completed downloads into the library.
 --
@@ -158,6 +159,31 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
     downloadPath <- liftIO $ stringToOsPath (toString downloadPathText)
     $(logTM) InfoS $ logStr $ ("Scanning download directory: " <> downloadPathText :: Text)
 
+    -- Check if directory exists and is readable
+    dirExists <- liftIO $ Dir.doesDirectoryExist (toString downloadPathText)
+    $(logTM) InfoS $ logStr $ ("Directory exists: " <> show dirExists :: Text)
+
+    unless dirExists $ do
+      $(logTM) ErrorS $ logStr $ ("Download directory does not exist: " <> downloadPathText :: Text)
+      liftIO $ throwIO $ ImportException $ "Download directory does not exist: '" <> downloadPathText <>
+              "'. The directory may have been deleted, moved, or is on an unmounted volume."
+
+    -- Check permissions by attempting to list directory
+    listResult <- liftIO $ try @SomeException $ Dir.listDirectory (toString downloadPathText)
+    case listResult of
+      Left err -> do
+        $(logTM) ErrorS $ logStr $ ("Cannot read download directory (permission denied?): " <> downloadPathText :: Text)
+        $(logTM) ErrorS $ logStr $ ("Error: " <> show err :: Text)
+        liftIO $ throwIO $ ImportException $ "Cannot read download directory '" <> downloadPathText <>
+                "'. Permission denied or I/O error: " <> show err
+      Right entries -> do
+        $(logTM) InfoS $ logStr $ ("Directory is readable, contains " <> show (length entries) <> " entries" :: Text)
+        -- Log first few entries for debugging
+        forM_ (take 5 entries) $ \entry -> do
+          $(logTM) DebugS $ logStr $ ("  Entry: " <> toText entry :: Text)
+        when (length entries > 5) $ do
+          $(logTM) DebugS $ logStr $ ("  ... and " <> show (length entries - 5) <> " more entries" :: Text)
+
     -- 2. Scan and parse metadata from all files (shared with Scanner)
     metadataResult <- liftIO $ scanAndParseMetadata downloadPath
 
@@ -165,21 +191,29 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
         failedCount = length (mrFailedFiles metadataResult)
         totalFiles = mrTotalFiles metadataResult
 
-    $(logTM) InfoS $ logStr $ ("Found " <> show totalFiles <> " files in download directory" :: Text)
+    $(logTM) InfoS $ logStr $ ("Scanned directory: found " <> show totalFiles <> " audio files (by extension)" :: Text)
 
     -- Log parse failures for debugging
     unless (null (mrFailedFiles metadataResult)) $ do
+      $(logTM) WarningS $ logStr $ ("Failed to parse metadata for " <> show failedCount <> " files:" :: Text)
       forM_ (mrFailedFiles metadataResult) $ \(path, err) -> do
         pathStr <- liftIO $ osPathToString path
-        $(logTM) DebugS $ logStr $ ("Failed to parse metadata: " <> toText pathStr <> " - " <> toText err :: Text)
+        $(logTM) WarningS $ logStr $ ("  Failed: " <> toText pathStr <> " - " <> toText err :: Text)
 
     when (null validFiles) $ do
-      $(logTM) ErrorS $ logStr $ ("No valid audio files found in " <> downloadPathText <>
-                                  ": scanned " <> show totalFiles <>
-                                  " files, all failed metadata parsing" :: Text)
-      liftIO $ throwIO $ ImportException $ "No valid audio files found in download directory '" <> downloadPathText <>
-              "'. Scanned " <> show totalFiles <>
-              " files but none had parseable audio metadata. Check if files are corrupt or in unsupported formats."
+      if totalFiles == 0
+        then do
+          $(logTM) ErrorS $ logStr $ ("No audio files found in directory: " <> downloadPathText :: Text)
+          $(logTM) ErrorS $ logStr $ ("Supported extensions: .mp3, .flac, .m4a, .aac, .alac, .ogg, .opus" :: Text)
+          liftIO $ throwIO $ ImportException $ "No audio files found in download directory '" <> downloadPathText <>
+                  "'. The directory may contain non-audio files or files with unsupported extensions. " <>
+                  "Supported formats: MP3, FLAC, M4A, AAC, ALAC, OGG, OPUS."
+        else do
+          $(logTM) ErrorS $ logStr $ ("All " <> show totalFiles <> " audio files failed metadata parsing in " <> downloadPathText :: Text)
+          $(logTM) ErrorS $ logStr $ ("This may indicate corrupt files or permission issues" :: Text)
+          liftIO $ throwIO $ ImportException $ "No valid audio files found in download directory '" <> downloadPathText <>
+                  "'. Scanned " <> show totalFiles <>
+                  " files but none had parseable audio metadata. Check if files are corrupt, incomplete, or have permission issues."
 
     $(logTM) InfoS $ logStr $ ("Found " <> show (length validFiles) <> " valid audio files" <>
                                (if failedCount > 0
