@@ -327,8 +327,6 @@ data DownloadConfig = DownloadConfig
     -- ^ NZB download client (SABnzbd or NZBGet)
   , downloadTorrentClient :: Maybe DownloadClient
     -- ^ Torrent download client (Transmission or qBittorrent)
-  , downloadDirectory :: Text
-    -- ^ Directory for completed downloads (before import)
   , downloadCheckInterval :: Int
     -- ^ How often to check for completed downloads (in seconds)
   , downloadAutoImport :: Bool
@@ -349,7 +347,6 @@ instance FromJSON DownloadConfig where
   parseJSON = withObject "DownloadConfig" $ \o -> do
     nzbClient <- o .:? "nzb_client"
     torrentClient <- o .:? "torrent_client"
-    dir <- o .:? "directory" .!= "~/Downloads/skema"
     checkInterval <- o .:? "check_interval" .!= 60
     autoImport <- o .:? "auto_import" .!= True
     minSeeders <- o .:? "min_seeders"
@@ -357,15 +354,12 @@ instance FromJSON DownloadConfig where
     replaceFiles <- o .:? "replace_library_files" .!= False
     useTrash <- o .:? "use_trash" .!= True
     trashRetentionDays <- o .:? "trash_retention_days" .!= 30
-    -- Expand tilde and env vars in directory
-    let expandedDir = unsafePerformIO $ PathExpansion.expandPathIO dir
-    pure $ DownloadConfig nzbClient torrentClient expandedDir checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays
+    pure $ DownloadConfig nzbClient torrentClient checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays
 
 instance ToJSON DownloadConfig where
-  toJSON (DownloadConfig nzbClient torrentClient dir checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays) = object
+  toJSON (DownloadConfig nzbClient torrentClient checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays) = object
     [ "nzb_client" .= nzbClient
     , "torrent_client" .= torrentClient
-    , "directory" .= dir
     , "check_interval" .= checkInterval
     , "auto_import" .= autoImport
     , "min_seeders" .= minSeeders
@@ -687,7 +681,6 @@ defaultDownloadConfig :: DownloadConfig
 defaultDownloadConfig = DownloadConfig
   { downloadNzbClient = Nothing
   , downloadTorrentClient = Nothing
-  , downloadDirectory = "~/Downloads/skema"
   , downloadCheckInterval = 5  -- Check every 5 seconds
   , downloadAutoImport = True
   , downloadMinSeeders = Just 1

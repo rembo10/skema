@@ -37,7 +37,6 @@ export interface ServerConfig {
 export interface DownloadConfig {
   nzb_client?: any;
   torrent_client?: any;
-  directory: string | null;
   check_interval: number;
   auto_import: boolean;
   min_seeders: number;

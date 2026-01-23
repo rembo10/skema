@@ -300,7 +300,6 @@ export interface ServerConfig {
 export interface DownloadConfig {
   nzb_client: DownloadClient | null;
   torrent_client: DownloadClient | null;
-  directory: string | null;
   check_interval: number;
   auto_import: boolean;
   min_seeders: number | null;

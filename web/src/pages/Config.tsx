@@ -491,20 +491,10 @@ export default function Config() {
               <div className="px-6 py-5 border-b border-dark-border">
                 <h2 className="text-lg font-medium text-dark-text">Download Settings</h2>
                 <p className="mt-1 text-sm text-dark-text-secondary">
-                  Configure download behavior and directory
+                  Configure download behavior
                 </p>
               </div>
               <div className="px-6 py-5 space-y-6">
-                <PathInput
-                  id="download_directory"
-                  label="Download Directory"
-                  value={formData.download.directory || ''}
-                  onChange={(value) => handleChange('download', 'directory', value)}
-                  type="directory"
-                  placeholder="/path/to/downloads"
-                  description="Directory where completed downloads are stored before import"
-                />
-
                 <div>
                   <label htmlFor="download_check_interval" className="block text-sm font-medium text-dark-text mb-2">
                     Check Interval (seconds)
