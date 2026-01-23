@@ -850,13 +850,10 @@ export default function Albums() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <select
-                          value={album.quality_profile_id || (album.state === 'InLibrary' || album.state === 'Monitored' ? 'existing' : 'none')}
+                          value={album.quality_profile_id || 'default'}
                           onChange={(e) => {
                             const value = e.target.value;
-                            if (value === 'none') {
-                              // Unwant the album
-                              handleUnwantAlbum(album.id);
-                            } else if (value === 'existing') {
+                            if (value === 'existing') {
                               // Keep existing quality, no monitoring
                               handleQualityProfileChange(album.id, null, true);
                             } else if (value === 'default') {
@@ -871,9 +868,11 @@ export default function Albums() {
                             }
                           }}
                           className="text-sm bg-dark-bg-hover border border-dark-border rounded px-2 py-1 text-dark-text focus:outline-none focus:ring-2 focus:ring-dark-accent"
+                          disabled={!album.quality_profile_id}
                         >
-                          <option value="existing">Existing</option>
-                          <option value="none">None (Unwanted)</option>
+                          {(album.state === 'InLibrary' || album.state === 'Monitored') && (
+                            <option value="existing">Existing</option>
+                          )}
                           <option value="default">
                             {defaultProfile ? `Default (${defaultProfile.name})` : 'Default'}
                           </option>
@@ -894,7 +893,7 @@ export default function Albums() {
                             <List className="h-4 w-4" />
                             <span>Releases</span>
                           </button>
-                          {album.quality_profile_id && (
+                          {album.quality_profile_id ? (
                             <>
                               <button
                                 onClick={() => handleForceSearch(album.id)}
@@ -913,6 +912,21 @@ export default function Albums() {
                                 <span>Unwant</span>
                               </button>
                             </>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                if (defaultProfile?.id) {
+                                  handleQualityProfileChange(album.id, defaultProfile.id, false);
+                                } else {
+                                  toast.error('No default quality profile configured');
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-dark-accent hover:bg-dark-accent-muted text-dark-bg rounded transition-colors flex items-center gap-1.5"
+                              title="Add to wanted list with default quality profile"
+                            >
+                              <Heart className="h-4 w-4" />
+                              <span>Want</span>
+                            </button>
                           )}
                         </div>
                       </td>
