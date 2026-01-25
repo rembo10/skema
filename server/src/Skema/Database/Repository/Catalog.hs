@@ -30,17 +30,37 @@ import Database.SQLite.Simple (Only(..))
 import Database.SQLite.Simple.ToField (toField)
 import qualified Database.SQLite.Simple as SQLite
 import qualified Data.Text as T
+import Data.Char (isAlphaNum)
+import qualified Data.Text.ICU.Normalize as ICU
+
+-- * Helper functions
+
+-- | Normalize text for search by:
+-- 1. Decomposing accented characters (NFD normalization)
+-- 2. Removing diacritical marks
+-- 3. Converting to lowercase
+-- 4. Keeping only alphanumeric characters and spaces (removes punctuation)
+-- 5. Collapsing multiple spaces into one
+normalizeForSearch :: Text -> Text
+normalizeForSearch text =
+  let decomposed = ICU.normalize ICU.NFD text  -- Decompose accents
+      lowered = T.toLower decomposed
+      stripped = T.filter (\c -> isAlphaNum c || c == ' ') lowered  -- Keep alphanumeric and spaces
+      collapsed = T.unwords $ T.words stripped  -- Collapse multiple spaces
+  in collapsed
 
 -- * Catalog artist operations
 
 -- | Upsert a catalog artist (insert or update if exists).
 upsertCatalogArtist :: SQLite.Connection -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe Text -> Bool -> Maybe Int64 -> Maybe Int64 -> Maybe UTCTime -> IO Int64
 upsertCatalogArtist conn artistMBID artistName artistType imageUrl thumbnailUrl followed addedByRuleId sourceClusterId lastCheckedAt =
-  insertReturningId conn
-    "INSERT INTO catalog_artists (artist_mbid, artist_name, artist_type, image_url, thumbnail_url, followed, added_by_rule_id, source_cluster_id, last_checked_at) \
-    \VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
+  let normalizedName = normalizeForSearch artistName
+  in insertReturningId conn
+    "INSERT INTO catalog_artists (artist_mbid, artist_name, artist_name_normalized, artist_type, image_url, thumbnail_url, followed, added_by_rule_id, source_cluster_id, last_checked_at) \
+    \VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
     \ON CONFLICT(artist_mbid) DO UPDATE SET \
     \  artist_name = excluded.artist_name, \
+    \  artist_name_normalized = excluded.artist_name_normalized, \
     \  artist_type = excluded.artist_type, \
     \  image_url = COALESCE(excluded.image_url, catalog_artists.image_url), \
     \  thumbnail_url = COALESCE(excluded.thumbnail_url, catalog_artists.thumbnail_url), \
@@ -50,7 +70,7 @@ upsertCatalogArtist conn artistMBID artistName artistType imageUrl thumbnailUrl 
     \  last_checked_at = COALESCE(excluded.last_checked_at, catalog_artists.last_checked_at), \
     \  updated_at = CURRENT_TIMESTAMP \
     \RETURNING id"
-    (artistMBID, artistName, artistType, imageUrl, thumbnailUrl, followed, addedByRuleId, sourceClusterId, lastCheckedAt)
+    (artistMBID, artistName, normalizedName, artistType, imageUrl, thumbnailUrl, followed, addedByRuleId, sourceClusterId, lastCheckedAt)
 
 -- | Get catalog artists, optionally filtered by followed status, with search and sorting.
 getCatalogArtists :: SQLite.Connection -> Maybe Bool -> Maybe Text -> Maybe Text -> Maybe Text -> IO [CatalogArtistRecord]
@@ -105,7 +125,15 @@ buildArtistFilters maybeFollowed maybeSearch =
             Just followed -> (["AND followed = ?"], [toField followed])
         , case maybeSearch of
             Nothing -> ([], [])
-            Just query -> (["AND artist_name LIKE ?"], [toField ("%" <> query <> "%")])
+            Just query ->
+              -- Split query into words and search for each word independently
+              let words = T.words query
+                  normalizedWords = filter (not . T.null) $ map normalizeForSearch words
+                  wordClauses = map (\_ -> "artist_name_normalized LIKE ?") normalizedWords
+                  wordParams = map (\w -> toField ("%" <> w <> "%")) normalizedWords
+              in if null normalizedWords
+                   then ([], [])
+                   else (["AND (" <> T.intercalate " AND " wordClauses <> ")"], wordParams)
         ]
   in (T.unwords clauses, params)
 
@@ -171,19 +199,23 @@ deleteCatalogArtist conn artistId =
 -- NOTE: "wanted" status is no longer stored - it's computed from quality_profile_id + current_quality
 upsertCatalogAlbum :: SQLite.Connection -> Text -> Text -> Int64 -> Text -> Text -> Maybe Text -> Maybe Text -> IO Int64
 upsertCatalogAlbum conn releaseGroupMBID title artistId artistMBID artistName albumType firstReleaseDate =
-  insertReturningId conn
-    "INSERT INTO catalog_albums (release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date) \
-    \VALUES (?, ?, ?, ?, ?, ?, ?) \
+  let normalizedTitle = normalizeForSearch title
+      normalizedArtistName = normalizeForSearch artistName
+  in insertReturningId conn
+    "INSERT INTO catalog_albums (release_group_mbid, title, title_normalized, artist_id, artist_mbid, artist_name, artist_name_normalized, album_type, first_release_date) \
+    \VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
     \ON CONFLICT(release_group_mbid) DO UPDATE SET \
     \  title = excluded.title, \
+    \  title_normalized = excluded.title_normalized, \
     \  artist_id = excluded.artist_id, \
     \  artist_mbid = excluded.artist_mbid, \
     \  artist_name = excluded.artist_name, \
+    \  artist_name_normalized = excluded.artist_name_normalized, \
     \  album_type = excluded.album_type, \
     \  first_release_date = excluded.first_release_date, \
     \  updated_at = CURRENT_TIMESTAMP \
     \RETURNING id"
-    (releaseGroupMBID, title, artistId, artistMBID, artistName, albumType, firstReleaseDate)
+    (releaseGroupMBID, title, normalizedTitle, artistId, artistMBID, artistName, normalizedArtistName, albumType, firstReleaseDate)
 
 -- | Get all catalog albums.
 getCatalogAlbums :: SQLite.Connection -> IO [CatalogAlbumRecord]
@@ -548,8 +580,15 @@ buildOverviewFilters maybeQualities maybeArtistId maybeSearch maybeReleaseDateAf
         , case maybeSearch of
             Nothing -> ([], [])
             Just query ->
-              (["AND (ca.title LIKE ? OR ca.artist_name LIKE ?)"],
-               [toField ("%" <> query <> "%"), toField ("%" <> query <> "%")])
+              -- Split query into words and search for each word in either title or artist
+              let words = T.words query
+                  normalizedWords = filter (not . T.null) $ map normalizeForSearch words
+                  -- Each word must match in either title or artist
+                  wordClauses = map (\_ -> "(ca.title_normalized LIKE ? OR ca.artist_name_normalized LIKE ?)") normalizedWords
+                  wordParams = concatMap (\w -> [toField ("%" <> w <> "%"), toField ("%" <> w <> "%")]) normalizedWords
+              in if null normalizedWords
+                   then ([], [])
+                   else (["AND (" <> T.intercalate " AND " wordClauses <> ")"], wordParams)
         , case maybeReleaseDateAfter of
             Nothing -> ([], [])
             Just dateValue ->

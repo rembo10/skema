@@ -14,6 +14,9 @@ import Skema.Database.Types (sourceTypeToText, SourceType(..))
 import Katip
 import Database.SQLite.Simple (Only(..))
 import qualified Database.SQLite.Simple as SQLite
+import qualified Data.Text as T
+import Data.Char (isAlphaNum)
+import qualified Data.Text.ICU.Normalize as ICU
 
 -- | Run all pending migrations.
 runMigrations :: LogEnv -> ConnectionPool -> IO ()
@@ -441,6 +444,76 @@ runIncrementalMigrations le conn = do
 
         recordMigration conn "005_add_quality_to_clusters"
       $(logTM) InfoS "Completed migration: 005_add_quality_to_clusters"
+
+    -- Migration 006: Add normalized search columns for artists and albums
+    applied006 <- liftIO $ migrationApplied conn "006_add_normalized_search_columns"
+    unless applied006 $ do
+      $(logTM) InfoS "Running migration: 006_add_normalized_search_columns"
+      liftIO $ do
+        -- Add normalized search column to catalog_artists
+        artistSearchExists <- columnExists conn "catalog_artists" "artist_name_normalized"
+        unless artistSearchExists $ do
+          executeQuery_ conn
+            "ALTER TABLE catalog_artists ADD COLUMN artist_name_normalized TEXT"
+
+        -- Always backfill normalized names for existing artists (in case normalization changed)
+        artists <- queryRows conn
+          "SELECT id, artist_name FROM catalog_artists WHERE artist_name_normalized IS NULL OR artist_name_normalized = ''"
+          () :: IO [(Int64, Text)]
+        forM_ artists $ \(artistId, artistName) -> do
+          let normalized = normalizeForSearch artistName
+          executeQuery conn
+            "UPDATE catalog_artists SET artist_name_normalized = ? WHERE id = ?"
+            (normalized, artistId)
+
+        -- Create index for fast searching
+        executeQuery_ conn
+          "CREATE INDEX IF NOT EXISTS idx_catalog_artists_search ON catalog_artists(artist_name_normalized)"
+
+        -- Add normalized search columns to catalog_albums
+        albumTitleSearchExists <- columnExists conn "catalog_albums" "title_normalized"
+        unless albumTitleSearchExists $ do
+          executeQuery_ conn
+            "ALTER TABLE catalog_albums ADD COLUMN title_normalized TEXT"
+
+        albumArtistSearchExists <- columnExists conn "catalog_albums" "artist_name_normalized"
+        unless albumArtistSearchExists $ do
+          executeQuery_ conn
+            "ALTER TABLE catalog_albums ADD COLUMN artist_name_normalized TEXT"
+
+        -- Always backfill normalized titles for existing albums (in case normalization changed)
+        albums <- queryRows conn
+          "SELECT id, title, artist_name FROM catalog_albums WHERE title_normalized IS NULL OR title_normalized = '' OR artist_name_normalized IS NULL OR artist_name_normalized = ''"
+          () :: IO [(Int64, Text, Text)]
+        forM_ albums $ \(albumId, title, artistName) -> do
+          let normalizedTitle = normalizeForSearch title
+          let normalizedArtist = normalizeForSearch artistName
+          executeQuery conn
+            "UPDATE catalog_albums SET title_normalized = ?, artist_name_normalized = ? WHERE id = ?"
+            (normalizedTitle, normalizedArtist, albumId)
+
+        -- Create indexes for fast searching
+        executeQuery_ conn
+          "CREATE INDEX IF NOT EXISTS idx_catalog_albums_title_search ON catalog_albums(title_normalized)"
+        executeQuery_ conn
+          "CREATE INDEX IF NOT EXISTS idx_catalog_albums_artist_search ON catalog_albums(artist_name_normalized)"
+
+        recordMigration conn "006_add_normalized_search_columns"
+      $(logTM) InfoS "Completed migration: 006_add_normalized_search_columns"
+
+-- | Normalize text for search by:
+-- 1. Decomposing accented characters (NFD normalization)
+-- 2. Removing diacritical marks
+-- 3. Converting to lowercase
+-- 4. Keeping only alphanumeric characters and spaces (removes punctuation)
+-- 5. Collapsing multiple spaces into one
+normalizeForSearch :: Text -> Text
+normalizeForSearch text =
+  let decomposed = ICU.normalize ICU.NFD text  -- Decompose accents
+      lowered = T.toLower decomposed
+      stripped = T.filter (\c -> isAlphaNum c || c == ' ') lowered  -- Keep alphanumeric and spaces
+      collapsed = T.unwords $ T.words stripped  -- Collapse multiple spaces
+  in collapsed
 
 
 -- | Create the complete database schema.

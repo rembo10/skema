@@ -189,6 +189,7 @@ library
     , monatone
     , containers >= 0.6 && < 0.9
     , text >= 2.1 && < 2.2
+    , text-icu >= 0.8 && < 0.9
     , bytestring >= 0.11 && < 0.13
     , time >= 1.12 && < 1.15
     , filepath >= 1.4 && < 1.6
