@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 -- | Pure business logic for catalog album states and download decisions.
 --
@@ -36,6 +37,8 @@ import Skema.Domain.Quality
   , isBetterQuality
   , needsUpgrade
   )
+import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON)
+import GHC.Generics (Generic)
 
 -- ============================================================================
 -- TYPES
@@ -53,7 +56,10 @@ data AlbumState
   | InLibrary              -- ^ No profile (or satisfied), exists in library
   | Monitored              -- ^ Has profile, in library, monitoring for upgrades
   | Upgrading              -- ^ Has profile, in library, upgrade download active
-  deriving (Show, Eq, Ord, Enum, Bounded)
+  deriving (Show, Eq, Ord, Enum, Bounded, Generic)
+
+instance ToJSON AlbumState
+instance FromJSON AlbumState
 
 -- | Convert AlbumState to Text representation.
 albumStateToText :: AlbumState -> Text

@@ -16,26 +16,13 @@ function UpcomingAlbumsComponent() {
     try {
       setLoading(true);
       const response = await api.getAlbumOverview({
-        wanted: true,
-        limit: 1000,
+        release_date_after: 'today',
+        limit: 5,
+        sort: 'first_release_date',
+        order: 'asc',
       });
 
-      // Filter for upcoming albums (release date in future)
-      const now = new Date();
-      const upcomingAlbums = response.albums
-        .filter((album) => {
-          if (!album.first_release_date) return false;
-          const releaseDate = new Date(album.first_release_date);
-          return releaseDate > now;
-        })
-        .sort((a, b) => {
-          // Sort by release date, earliest first
-          if (!a.first_release_date || !b.first_release_date) return 0;
-          return new Date(a.first_release_date).getTime() - new Date(b.first_release_date).getTime();
-        })
-        .slice(0, 6); // Show top 6 upcoming
-
-      setAlbums(upcomingAlbums);
+      setAlbums(response.albums);
     } catch (error) {
       console.error('Failed to load upcoming albums:', error);
     } finally {

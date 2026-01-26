@@ -1,51 +1,46 @@
 import { useState, useEffect, memo } from 'react';
 import { Link } from 'react-router-dom';
-import { Heart, Disc, Download, CheckCircle, AlertCircle } from 'lucide-react';
+import { Heart, Disc, ExternalLink } from 'lucide-react';
 import { api } from '../lib/api';
-import type { AlbumOverviewStats } from '../types/api';
-
-interface WantedStats {
-  total: number;
-  wanted: number;
-  searching: number;
-  downloading: number;
-  inLibrary: number;
-  failed: number;
-}
+import type { CatalogAlbumOverview } from '../types/api';
 
 function WantedAlbumsSummaryComponent() {
-  const [stats, setStats] = useState<WantedStats | null>(null);
+  const [albums, setAlbums] = useState<CatalogAlbumOverview[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadStats();
+    loadWantedAlbums();
   }, []);
 
-  const loadStats = async () => {
+  const loadWantedAlbums = async () => {
     try {
       setLoading(true);
       const response = await api.getAlbumOverview({
-        wanted: true,
-        limit: 0, // Just get stats
+        state: ['Wanted'],
+        limit: 5,
+        sort: 'created_at',
+        order: 'desc',
       });
 
-      // Process stats from response
-      const statsByState = new Map(response.stats.by_state);
-
-      const wantedStats: WantedStats = {
-        total: response.pagination.total,
-        wanted: (statsByState.get('Wanted') || 0) + (statsByState.get('Monitored') || 0),
-        searching: statsByState.get('Searching') || 0,
-        downloading: (statsByState.get('Downloading') || 0) + (statsByState.get('Upgrading') || 0),
-        inLibrary: statsByState.get('InLibrary') || 0,
-        failed: (statsByState.get('Failed') || 0) + (statsByState.get('IdentificationFailed') || 0),
-      };
-
-      setStats(wantedStats);
+      setAlbums(response.albums);
     } catch (error) {
-      console.error('Failed to load wanted albums stats:', error);
+      console.error('Failed to load wanted albums:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return null;
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    } catch {
+      return dateString;
     }
   };
 
@@ -57,10 +52,13 @@ function WantedAlbumsSummaryComponent() {
           <h2 className="text-lg font-semibold text-dark-text">Wanted Albums</h2>
         </div>
         <div className="space-y-3">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="animate-pulse flex justify-between">
-              <div className="h-4 bg-dark-bg-subtle rounded w-1/3" />
-              <div className="h-4 bg-dark-bg-subtle rounded w-12" />
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="animate-pulse flex gap-3">
+              <div className="w-12 h-12 bg-dark-bg-subtle rounded" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 bg-dark-bg-subtle rounded w-3/4" />
+                <div className="h-3 bg-dark-bg-subtle rounded w-1/2" />
+              </div>
             </div>
           ))}
         </div>
@@ -68,7 +66,7 @@ function WantedAlbumsSummaryComponent() {
     );
   }
 
-  if (!stats || stats.total === 0) {
+  if (albums.length === 0) {
     return (
       <div className="card p-6">
         <div className="flex items-center gap-3 mb-5">
@@ -97,93 +95,74 @@ function WantedAlbumsSummaryComponent() {
             <h2 className="text-lg font-semibold text-dark-text">Wanted Albums</h2>
           </div>
           <p className="mt-1 text-sm text-dark-text-secondary">
-            Monitoring {stats.total} album{stats.total !== 1 ? 's' : ''}
+            Recently added to monitoring
           </p>
         </div>
-        <Link to="/albums?state=Wanted,Failed,IdentificationFailed" className="link text-sm">View all →</Link>
+        <Link to="/albums?state=Wanted" className="link text-sm">View all →</Link>
       </div>
 
       <div className="space-y-3">
-        {/* Wanted */}
-        {stats.wanted > 0 && (
-          <Link
-            to="/albums?state=Wanted,Failed,IdentificationFailed"
-            className="flex items-center justify-between p-3 rounded-lg hover:bg-dark-bg-hover transition-colors"
+        {albums.map((album) => (
+          <div
+            key={album.id}
+            className="flex items-center gap-4 p-3 rounded-lg hover:bg-dark-bg-hover transition-colors"
           >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-dark-accent/10 rounded-lg flex items-center justify-center border border-dark-accent/30">
-                <Heart className="w-4 h-4 text-dark-accent" />
+            {/* Album Cover */}
+            <div className="w-12 h-12 flex-shrink-0 relative">
+              {album.cover_thumbnail_url ? (
+                <img
+                  src={album.cover_thumbnail_url}
+                  alt={album.title}
+                  className="w-full h-full object-cover rounded border border-dark-border"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                    (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+                  }}
+                />
+              ) : null}
+              <div className={`absolute inset-0 bg-dark-bg-subtle rounded border border-dark-border flex items-center justify-center ${album.cover_thumbnail_url ? 'hidden' : ''}`}>
+                <Disc className="w-6 h-6 text-dark-text-tertiary" />
               </div>
-              <span className="text-sm text-dark-text">Wanted</span>
             </div>
-            <span className="text-lg font-bold text-dark-accent tabular-nums">
-              {stats.wanted}
-            </span>
-          </Link>
-        )}
 
-        {/* Searching */}
-        {stats.searching > 0 && (
-          <div className="flex items-center justify-between p-3 rounded-lg bg-dark-bg-subtle">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-dark-info/10 rounded-lg flex items-center justify-center border border-dark-info/30">
-                <Disc className="w-4 h-4 text-dark-info animate-spin" />
-              </div>
-              <span className="text-sm text-dark-text">Searching</span>
+            {/* Album Info */}
+            <div className="flex-1 min-w-0">
+              <Link
+                to={`/artists/${album.artist_id}`}
+                className="font-medium text-dark-text hover:text-dark-accent transition-colors truncate block"
+              >
+                {album.title}
+              </Link>
+              <p className="text-sm text-dark-text-secondary truncate">
+                {album.artist_name}
+              </p>
             </div>
-            <span className="text-lg font-bold text-dark-info tabular-nums">
-              {stats.searching}
-            </span>
+
+            {/* Quality Profile & Release Date */}
+            <div className="flex-shrink-0 text-right">
+              <div className="text-sm font-medium text-dark-accent">
+                {album.quality_profile_name || 'No Profile'}
+              </div>
+              {album.first_release_date && (
+                <div className="text-xs text-dark-text-tertiary">
+                  {formatDate(album.first_release_date)}
+                </div>
+              )}
+            </div>
+
+            {/* MusicBrainz Link */}
+            <a
+              href={`https://musicbrainz.org/release-group/${album.release_group_mbid}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-shrink-0 text-dark-text-tertiary hover:text-dark-accent transition-colors"
+              onClick={(e) => e.stopPropagation()}
+              title="View on MusicBrainz"
+            >
+              <ExternalLink className="w-4 h-4" />
+            </a>
           </div>
-        )}
-
-        {/* Downloading */}
-        {stats.downloading > 0 && (
-          <Link
-            to="/downloads"
-            className="flex items-center justify-between p-3 rounded-lg hover:bg-dark-bg-hover transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-dark-info/10 rounded-lg flex items-center justify-center border border-dark-info/30">
-                <Download className="w-4 h-4 text-dark-info" />
-              </div>
-              <span className="text-sm text-dark-text">Downloading</span>
-            </div>
-            <span className="text-lg font-bold text-dark-info tabular-nums">
-              {stats.downloading}
-            </span>
-          </Link>
-        )}
-
-        {/* In Library */}
-        {stats.inLibrary > 0 && (
-          <div className="flex items-center justify-between p-3 rounded-lg bg-dark-success/5">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-dark-success/10 rounded-lg flex items-center justify-center border border-dark-success/30">
-                <CheckCircle className="w-4 h-4 text-dark-success" />
-              </div>
-              <span className="text-sm text-dark-text">In Library</span>
-            </div>
-            <span className="text-lg font-bold text-dark-success tabular-nums">
-              {stats.inLibrary}
-            </span>
-          </div>
-        )}
-
-        {/* Failed */}
-        {stats.failed > 0 && (
-          <div className="flex items-center justify-between p-3 rounded-lg bg-dark-error/5">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-dark-error/10 rounded-lg flex items-center justify-center border border-dark-error/30">
-                <AlertCircle className="w-4 h-4 text-dark-error" />
-              </div>
-              <span className="text-sm text-dark-text">Failed</span>
-            </div>
-            <span className="text-lg font-bold text-dark-error tabular-nums">
-              {stats.failed}
-            </span>
-          </div>
-        )}
+        ))}
       </div>
     </div>
   );

@@ -38,6 +38,8 @@ import Katip
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime)
 import qualified Data.Text as Text
 import qualified Control.Concurrent.STM as STM
+import qualified Data.Map.Strict as Map
+import Data.List (foldl')
 
 -- | Throw a 400 Bad Request error.
 throw400 :: Text -> Handler a
@@ -507,13 +509,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
               -- Compute album state
               let albumState = case overviewRow of
-                    Just row -> computeAlbumState
-                      (DB.caorQualityProfileId row)
-                      (DB.caorQualityProfileCutoff row)
-                      (DB.caorCurrentQuality row)
-                      (DB.caorMatchedClusterId row)
-                      (DB.caorActiveDownloadId row)
-                      (DB.caorActiveDownloadStatus row)
+                    Just row -> rowToAlbumState row
                     Nothing -> if wanted then Wanted else NotWanted
 
               -- Emit CatalogAlbumUpdated event
@@ -589,9 +585,20 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             , albumOverviewPaginationLimit = limit
             }
 
+      -- Compute state stats by grouping all albums by their state
+      -- We need to fetch ALL albums (not just the paginated ones) to get accurate stats
+      -- Ignore the state and quality filters for stats computation to get global stats
+      allOverviewRows <- liftIO $ withConnection connPool $ \conn -> do
+        DB.getCatalogAlbumsOverview conn 999999 0 Nothing Nothing maybeArtistId maybeSearch Nothing Nothing maybeReleaseDateAfter maybeReleaseDateBefore
+
+      let statsByState = foldl' (\acc row ->
+            let albumState = rowToAlbumState row
+            in Map.insertWith (+) albumState 1 acc
+            ) Map.empty allOverviewRows
+
       -- Build stats
       let stats = AlbumOverviewStats
-            { albumOverviewStatsByState = []  -- TODO: Compute from data
+            { albumOverviewStatsByState = Map.toList statsByState
             , albumOverviewStatsByQuality = statsData
             }
 
@@ -601,16 +608,30 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         , albumOverviewResponseAlbums = responses
         }
 
+    -- Helper function to compute album state from database row
+    rowToAlbumState :: DB.CatalogAlbumOverviewRow -> AlbumState
+    rowToAlbumState row =
+      let maybeProfile = case (DB.caorQualityProfileId row, DB.caorQualityProfileName row, DB.caorQualityProfileCutoff row) of
+            (Just profileId, Just name, Just cutoff) -> Just $ Qual.QualityProfile
+              { Qual.qfId = Just profileId
+              , Qual.qfName = name
+              , Qual.qfCutoffQuality = fromMaybe Qual.Unknown (textToQuality cutoff)
+              , Qual.qfQualityPreferences = []  -- Not needed for state computation
+              , Qual.qfUpgradeAutomatically = False  -- Not needed for state computation
+              }
+            _ -> Nothing
+          context = Core.AlbumContext
+            { Core.acQualityProfile = maybeProfile
+            , Core.acCurrentQuality = DB.caorCurrentQuality row >>= textToQuality
+            , Core.acInLibrary = isJust (DB.caorMatchedClusterId row)
+            , Core.acActiveDownloadStatus = DB.caorActiveDownloadStatus row
+            }
+      in Core.computeAlbumState context
+
     -- Helper function to convert a database row to a response object
     rowToResponse :: DB.CatalogAlbumOverviewRow -> CatalogAlbumOverviewResponse
     rowToResponse row =
-      let albumState = computeAlbumState
-            (DB.caorQualityProfileId row)
-            (DB.caorQualityProfileCutoff row)
-            (DB.caorCurrentQuality row)
-            (DB.caorMatchedClusterId row)
-            (DB.caorActiveDownloadId row)
-            (DB.caorActiveDownloadStatus row)
+      let albumState = rowToAlbumState row
 
           activeDownload = case DB.caorActiveDownloadId row of
             Nothing -> Nothing
@@ -651,48 +672,6 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         , catalogAlbumOverviewImportedAt = DB.caorImportedAt row
         }
 
-    -- Helper function to compute album state from database fields
-    -- Derives "wanted" status from: has profile && (no cluster || quality < cutoff)
-    computeAlbumState :: Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Int64 -> Maybe Int64 -> Maybe Text -> AlbumState
-    computeAlbumState maybeProfileId maybeCutoff maybeCurrentQuality maybeClusterId maybeActiveDownloadId maybeDownloadStatus =
-      let
-        -- Derive wanted status: has profile AND (not in library OR quality needs upgrade)
-        isWanted = case maybeProfileId of
-          Nothing -> False  -- No profile = not monitoring ("Existing" quality)
-          Just _ -> case maybeClusterId of
-            Nothing -> True  -- Has profile but not in library yet = wanted
-            Just _ -> case (maybeCurrentQuality, maybeCutoff) of
-              (Just currentQ, Just cutoffQ) ->
-                -- In library: wanted if current < cutoff
-                textToQuality currentQ < textToQuality cutoffQ
-              _ -> False  -- Missing quality info, assume satisfied
-      in
-      case (isWanted, maybeClusterId, maybeActiveDownloadId, maybeDownloadStatus) of
-        -- Not wanted, no cluster -> NotWanted
-        (False, Nothing, _, _) -> NotWanted
-
-        -- Not wanted, has cluster -> InLibrary (Finished)
-        (False, Just _, _, _) -> InLibrary
-
-        -- Wanted, no cluster, no download -> Wanted (ready for search)
-        (True, Nothing, Nothing, _) -> Wanted
-
-        -- Wanted, no cluster, has active download
-        (True, Nothing, Just _, Just status)
-          | status == "queued" -> Searching
-          | status == "downloading" -> Downloading
-          | status == "processing" -> Downloading
-          | status == "failed" -> Failed
-          | status == "identification_failed" -> IdentificationFailed
-          | otherwise -> Wanted
-
-        (True, Nothing, Just _, Nothing) -> Downloading  -- Default if no status
-
-        -- Wanted, has cluster, no download -> Monitored (in library, monitoring for upgrades)
-        (True, Just _, Nothing, _) -> Monitored
-
-        -- Wanted, has cluster, has active download -> Upgrading
-        (True, Just _, Just _, _) -> Upgrading
 
     -- Helper function to parse AlbumState from Text
     textToAlbumState :: Text -> Maybe AlbumState

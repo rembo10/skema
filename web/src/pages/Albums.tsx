@@ -61,6 +61,7 @@ export default function Albums() {
   const [loading, setLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(false);
   const initialLoadComplete = useRef(false);
+  const urlParamsInitialized = useRef(false);
   const [searching, setSearching] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [searchFilter, setSearchFilter] = useState('');
@@ -81,7 +82,7 @@ export default function Albums() {
   // Track selected quality profile for unwanted albums (album.id -> 'default' | profileId)
   const [unwantedAlbumSelections, setUnwantedAlbumSelections] = useState<Map<number, string>>(new Map());
 
-  // Initialize filters from URL parameters on mount
+  // Initialize filters from URL parameters
   useEffect(() => {
     const stateParam = searchParams.get('state');
     const releaseDateAfter = searchParams.get('release_date_after');
@@ -89,6 +90,8 @@ export default function Albums() {
     if (stateParam) {
       const states = stateParam.split(',') as AlbumState[];
       setStatusFilter(states);
+      setUpcomingFilter(false);
+      pagination.resetOffset();
 
       // Determine quick filter based on states
       if (states.includes('Wanted') || states.includes('Failed') || states.includes('IdentificationFailed')) {
@@ -98,13 +101,23 @@ export default function Albums() {
       } else {
         setQuickFilter('tracked');
       }
-    }
-
-    if (releaseDateAfter) {
+    } else if (releaseDateAfter) {
+      setStatusFilter([]);
       setUpcomingFilter(true);
       setQuickFilter('upcoming');
+      pagination.resetOffset();
+    } else {
+      // No URL params - apply default 'tracked' filter
+      setStatusFilter(['Wanted', 'Searching', 'Downloading', 'Failed', 'IdentificationFailed', 'InLibrary', 'Monitored', 'Upgrading']);
+      setUpcomingFilter(false);
+      pagination.resetOffset();
     }
-  }, []); // Run only on mount
+  }, [searchParams]); // React to URL param changes
+
+  // Set initialized flag after filters are updated
+  useEffect(() => {
+    urlParamsInitialized.current = true;
+  }, [statusFilter, upcomingFilter]);
 
   // Debounce search input
   useEffect(() => {
@@ -121,10 +134,13 @@ export default function Albums() {
   }, [searchInput]);
 
   useEffect(() => {
+    // Don't load until URL params have been initialized
+    if (!urlParamsInitialized.current) return;
+
     loadAlbums();
     // Clear selections when filters change
     setSelectedAlbumIds(new Set());
-  }, [pagination.offset, searchFilter, sortBy, sortOrder, qualityFilter, statusFilter, upcomingFilter]);
+  }, [searchParams, pagination.offset, searchFilter, sortBy, sortOrder, qualityFilter, statusFilter, upcomingFilter]);
 
   useEffect(() => {
     loadQualityProfiles();
@@ -190,8 +206,25 @@ export default function Albums() {
       setTableLoading(true);
     }
     try {
-      // Use status filter directly (no tab-based filtering)
-      const effectiveStateFilter = statusFilter.length > 0 ? statusFilter : undefined;
+      // Read filters from URL params directly to avoid state sync issues
+      const stateParam = searchParams.get('state');
+      const releaseDateAfter = searchParams.get('release_date_after');
+
+      let effectiveStateFilter: AlbumState[] | undefined = undefined;
+      let effectiveUpcomingFilter: string | undefined = undefined;
+
+      if (stateParam) {
+        effectiveStateFilter = stateParam.split(',') as AlbumState[];
+      } else if (releaseDateAfter) {
+        effectiveUpcomingFilter = 'today';
+      } else if (statusFilter.length > 0) {
+        // Use state filter if no URL params
+        effectiveStateFilter = statusFilter;
+      }
+
+      if (upcomingFilter && !releaseDateAfter) {
+        effectiveUpcomingFilter = 'today';
+      }
 
       const request: AlbumOverviewRequest = {
         offset: pagination.offset,
@@ -201,7 +234,7 @@ export default function Albums() {
         order: sortOrder,
         state: effectiveStateFilter,
         quality: qualityFilter.length > 0 ? qualityFilter : undefined,
-        release_date_after: upcomingFilter ? 'today' : undefined,
+        release_date_after: effectiveUpcomingFilter,
       };
 
       const response = await api.getAlbumOverview(request);

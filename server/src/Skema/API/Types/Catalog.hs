@@ -31,6 +31,7 @@ module Skema.API.Types.Catalog
   ) where
 
 import Skema.API.Types.Tasks (TaskResponse)
+import Skema.Core.Catalog (AlbumState(..))
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2, withObject, (.:))
 import qualified Data.Aeson.KeyMap as KM
 import GHC.Generics ()
@@ -271,20 +272,7 @@ instance FromJSON CatalogTaskRequest where
 -- ============================================================================
 
 -- | Album state (computed from catalog + downloads + library).
-data AlbumState
-  = NotWanted          -- ^ wanted=0, no cluster
-  | Wanted             -- ^ wanted=1, no download, no cluster
-  | Searching          -- ^ wanted=1, searching for releases
-  | Downloading        -- ^ wanted=1, download in progress, no cluster
-  | Failed             -- ^ wanted=1, latest download failed, no cluster
-  | IdentificationFailed -- ^ wanted=1, download failed MB matching
-  | InLibrary          -- ^ has cluster, wanted=0
-  | Monitored          -- ^ has cluster, wanted=1, no download
-  | Upgrading          -- ^ has cluster, wanted=1, download in progress
-  deriving (Show, Eq, Generic)
-
-instance ToJSON AlbumState
-instance FromJSON AlbumState
+-- AlbumState is now imported from Skema.Core.Catalog
 
 -- | Active download information.
 data ActiveDownloadInfo = ActiveDownloadInfo
