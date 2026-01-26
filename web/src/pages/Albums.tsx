@@ -609,7 +609,7 @@ export default function Albums() {
           {/* Quality Filter */}
           <div className="space-y-2">
             <label className="text-xs font-medium text-dark-text-secondary">Filter by Quality:</label>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-3">
                 {(['unknown', 'mp3_192', 'vbr2', 'mp3_256', 'vbr0', 'mp3_320', 'lossless', 'hires_lossless'] as const).map((quality) => {
                   const isSelected = qualityFilter.includes(quality);
                   return (
@@ -625,8 +625,8 @@ export default function Albums() {
                       }}
                       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium transition-all ${getQualityBadgeStyle(quality)} ${
                         isSelected
-                          ? 'border-2'
-                          : 'border hover:border-2'
+                          ? 'ring-2 ring-current shadow-md'
+                          : 'border hover:brightness-110 hover:-translate-y-0.5'
                       }`}
                     >
                       {formatQuality(quality)}
@@ -651,7 +651,7 @@ export default function Albums() {
           {/* Status Filter */}
           <div className="space-y-2">
             <label className="text-xs font-medium text-dark-text-secondary">Filter by Status:</label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-3">
               {(['Wanted', 'Failed', 'IdentificationFailed', 'InLibrary', 'upgrading-combined', 'NotWanted'] as (AlbumState | 'upgrading-combined')[]).map((status) => {
                 // Special handling - combine Monitored and Upgrading into one "Upgrading" badge
                 if (status === 'upgrading-combined') {
@@ -673,8 +673,8 @@ export default function Albums() {
                       }}
                       className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium transition-all ${config.color} ${
                         isSelected
-                          ? 'ring-2 ring-current ring-offset-2 ring-offset-dark-bg'
-                          : 'ring-1 ring-current ring-offset-1 ring-offset-dark-bg hover:ring-2 hover:ring-offset-2'
+                          ? 'ring-2 ring-current shadow-md'
+                          : 'opacity-75 hover:opacity-100 hover:-translate-y-0.5'
                       }`}
                     >
                       <Icon className="h-3 w-3" />
@@ -699,8 +699,8 @@ export default function Albums() {
                     }}
                     className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium transition-all ${config.color} ${
                       isSelected
-                        ? 'ring-2 ring-current ring-offset-2 ring-offset-dark-bg'
-                        : 'ring-1 ring-current ring-offset-1 ring-offset-dark-bg hover:ring-2 hover:ring-offset-2'
+                        ? 'ring-2 ring-current shadow-md'
+                        : 'opacity-75 hover:opacity-100 hover:-translate-y-0.5'
                     }`}
                   >
                     <Icon className="h-3 w-3" />
