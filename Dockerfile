@@ -60,7 +60,7 @@ RUN apt-get update && apt-get install -y \
     libsqlite3-0 \
     libffi8 \
     zlib1g \
-    libicu72 \
+    libicu76 \
     ca-certificates \
     wget \
     locales \
