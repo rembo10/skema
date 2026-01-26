@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 import { useAppStore } from '../store';
 import type { LibraryStats } from '../types/api';
 import { RecentlyFollowedArtists } from '../components/RecentlyFollowedArtists';
+import { RecentlyReleasedAlbums } from '../components/RecentlyReleasedAlbums';
 import { DashboardSkeleton } from '../components/LoadingSkeleton';
 import { UpcomingAlbums } from '../components/UpcomingAlbums';
 import { WantedAlbumsSummary } from '../components/WantedAlbumsSummary';
@@ -264,6 +265,9 @@ export default function Dashboard() {
         <WantedAlbumsSummary />
         <UpcomingAlbums />
       </div>
+
+      {/* Recently Released Albums */}
+      <RecentlyReleasedAlbums />
 
       {/* Actions */}
       <div className="card p-6">
