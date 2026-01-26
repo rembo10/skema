@@ -624,6 +624,7 @@ buildSortClauseInternal maybeSort maybeOrder inSubquery =
         Just "title" -> if inSubquery then "title" else "ca.title"
         Just "artist" -> if inSubquery then "artist_name" else "ca.artist_name"
         Just "date" -> if inSubquery then "first_release_date" else "ca.first_release_date"
+        Just "first_release_date" -> if inSubquery then "first_release_date" else "ca.first_release_date"
         Just "quality" -> if inSubquery then "current_quality" else "ca.current_quality"
         Just "state" -> if inSubquery then "id" else "ca.id"
         _ -> if inSubquery then "id" else "ca.id"  -- Default: by ID
