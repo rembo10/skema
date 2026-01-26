@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y \
     libsqlite3-dev \
     libffi-dev \
     zlib1g-dev \
+    libicu-dev \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build/server
@@ -58,6 +60,7 @@ RUN apt-get update && apt-get install -y \
     libsqlite3-0 \
     libffi8 \
     zlib1g \
+    libicu72 \
     ca-certificates \
     wget \
     locales \
