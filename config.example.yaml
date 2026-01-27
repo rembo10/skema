@@ -42,6 +42,8 @@ server:
   host: 0.0.0.0
   # Server port
   port: 8182
+  # Web root path for hosting at subpaths (e.g., /skema or /)
+  web_root: /
   # JWT signing secret (auto-generated if not provided)
   jwt_secret: null
   # JWT token expiration time in hours

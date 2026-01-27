@@ -328,6 +328,17 @@ export function ServerConfigSection({ config, onChange, showAdvanced = false }: 
       />
       <ConfigField
         section="server"
+        field="web_root"
+        value={section.web_root}
+        onChange={onChange}
+        type="string"
+        description="Web root path for hosting at subpaths (e.g., /skema or /)"
+        advanced
+        showAdvanced={showAdvanced}
+        sectionValues={section}
+      />
+      <ConfigField
+        section="server"
         field="jwt_secret"
         value={section.jwt_secret}
         onChange={onChange}

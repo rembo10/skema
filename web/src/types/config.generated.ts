@@ -28,6 +28,7 @@ export interface SystemConfig {
 export interface ServerConfig {
   host: string;
   port: number;
+  web_root: string;
   jwt_secret: string;
   jwt_expiration_hours: number;
   username: string;
@@ -37,6 +38,7 @@ export interface ServerConfig {
 export interface DownloadConfig {
   nzb_client?: any;
   torrent_client?: any;
+  directory: string | null;
   check_interval: number;
   auto_import: boolean;
   min_seeders: number;
@@ -222,6 +224,13 @@ export const serverSchema: SectionMeta = {
       name: 'port',
       description: 'Server port',
       type: 'integer'
+    }
+
+,
+    {
+      name: 'web_root',
+      description: 'Web root path for hosting at subpaths (e.g., /skema or /)',
+      type: 'string'
     }
 
 ,

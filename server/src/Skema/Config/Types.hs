@@ -205,6 +205,8 @@ data ServerConfig = ServerConfig
     -- ^ Server host to bind to
   , serverPort :: Int
     -- ^ HTTP API server port
+  , serverWebRoot :: Text
+    -- ^ Web root path for hosting at subpaths (e.g., "/skema" or "/"). Default: "/"
   , serverUsername :: Maybe Text
     -- ^ Username for API authentication (can be overridden by SKEMA_USERNAME env var)
   , serverPassword :: Maybe Text
@@ -219,16 +221,18 @@ instance FromJSON ServerConfig where
   parseJSON = withObject "ServerConfig" $ \o -> do
     host <- o .:? "host" .!= "127.0.0.1"
     port <- o .:? "port" .!= 8182
+    webRoot <- o .:? "web_root" .!= "/"
     username <- o .:? "username"
     password <- o .:? "password"
     jwtSecret <- o .:? "jwt_secret"
     jwtExpHours <- o .:? "jwt_expiration_hours" .!= 24
-    pure $ ServerConfig host port username password jwtSecret jwtExpHours
+    pure $ ServerConfig host port webRoot username password jwtSecret jwtExpHours
 
 instance ToJSON ServerConfig where
-  toJSON (ServerConfig host port username password jwtSecret jwtExpHours) = object
+  toJSON (ServerConfig host port webRoot username password jwtSecret jwtExpHours) = object
     [ "host" .= host
     , "port" .= port
+    , "web_root" .= webRoot
     , "username" .= username
     , "password" .= password
     -- Note: password is now included since it's bcrypt hashed
@@ -670,6 +674,7 @@ defaultServerConfig :: ServerConfig
 defaultServerConfig = ServerConfig
   { serverHost = "127.0.0.1"
   , serverPort = 8182
+  , serverWebRoot = "/"
   , serverUsername = Nothing
   , serverPassword = Nothing
   , serverJwtSecret = Nothing  -- Auto-generated on first run

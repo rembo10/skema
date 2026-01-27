@@ -3,6 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Set base path dynamically - can be overridden by backend or detected from URL
+      (function() {
+        var basePath = window.SKEMA_BASE_PATH || '/';
+        var baseTag = document.createElement('base');
+        baseTag.href = basePath;
+        document.head.appendChild(baseTag);
+      })();
+    </script>
     <title>skema :: declarative music library manager</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />

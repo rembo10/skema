@@ -27,7 +27,7 @@ export default defineConfig({
     distPath: {
       root: 'dist',
     },
-    // Use relative paths for assets to support deployment at any subpath
-    assetPrefix: './',
+    // Use absolute paths for assets to ensure they load correctly from any route
+    assetPrefix: '/',
   },
 });

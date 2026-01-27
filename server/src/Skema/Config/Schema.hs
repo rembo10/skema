@@ -829,6 +829,9 @@ serverSchema = schema "server" "HTTP server configuration"
   , "port" .:: "Server port"
       & intField
       & example "8182"
+  , "web_root" .:: "Web root path for hosting at subpaths (e.g., /skema or /)"
+      & example "/"
+      & advanced
   , "jwt_secret" .:: "JWT signing secret (auto-generated if not provided)"
       & sensitive
       & advanced

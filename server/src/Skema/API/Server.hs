@@ -107,7 +107,7 @@ server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDi
    :<|> qualityProfilesServer serverCfg jwtSecret connPool configVar
    :<|> tasksServer jwtSecret tm configVar)
   :<|> staticFileServer cacheDir
-  :<|> frontendServer
+  :<|> frontendServer configVar
 
 -- | Start a background worker that emits heartbeat events periodically.
 -- This keeps SSE connections alive during quiet periods.
