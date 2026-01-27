@@ -17,17 +17,34 @@ COPY web/ ./
 RUN npm run build
 
 # Stage 2: Build backend
-FROM haskell:9.10.3 AS backend-builder
+FROM debian:trixie AS backend-builder
 
-# Install system dependencies
+# Install GHC and build tools
 RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
     libgmp-dev \
     libsqlite3-dev \
     libffi-dev \
     zlib1g-dev \
     libicu-dev \
+    libnuma-dev \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
+
+# Install GHCup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | \
+    BOOTSTRAP_HASKELL_NONINTERACTIVE=1 \
+    BOOTSTRAP_HASKELL_MINIMAL=1 \
+    sh
+
+ENV PATH="/root/.ghcup/bin:${PATH}"
+
+# Install GHC 9.10.3 and cabal
+RUN ghcup install ghc 9.10.3 && \
+    ghcup set ghc 9.10.3 && \
+    ghcup install cabal latest && \
+    ghcup set cabal latest
 
 WORKDIR /build/server
 
@@ -52,15 +69,16 @@ RUN cabal build exe:skema -j$(nproc)
 RUN find dist-newstyle -name skema -type f -executable -exec cp {} /build/skema \;
 
 # Stage 3: Runtime
-FROM debian:stable-slim
+FROM debian:trixie-slim
 
-# Install runtime dependencies
+# Install runtime dependencies (Debian Trixie has ICU 76)
 RUN apt-get update && apt-get install -y \
     libgmp10 \
     libsqlite3-0 \
     libffi8 \
     zlib1g \
     libicu76 \
+    libnuma1 \
     ca-certificates \
     wget \
     locales \
@@ -89,6 +107,7 @@ ENV SKEMA_WEB_ROOT=/usr/share/skema/web
 ENV SKEMA_PORT=8182
 ENV SKEMA_DATA_DIR=/data
 ENV SKEMA_CACHE_DIR=/cache
+ENV SKEMA_HOST=0.0.0.0
 
 # Switch to non-root user
 USER skema

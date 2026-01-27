@@ -3,11 +3,9 @@
 .gitignore
 .github
 
-# Nix
+# Nix build artifacts (but keep flake files for nix-based builds)
 result
 result-*
-*.nix
-flake.lock
 .direnv
 .envrc
 

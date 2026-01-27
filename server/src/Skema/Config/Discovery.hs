@@ -17,6 +17,9 @@ import Skema.Config.Safe (safeWriteConfig)
 import Skema.Auth.JWT (generateJWTSecretString)
 import System.Directory (doesFileExist, createDirectoryIfMissing, getXdgDirectory, XdgDirectory(..))
 import System.FilePath (takeDirectory)
+import Text.Read (readMaybe)
+import Data.Maybe (fromMaybe)
+import Control.Applicative ((<|>))
 
 -- | Find the config file in standard locations.
 --
@@ -71,8 +74,10 @@ getOrCreateConfig explicitPath maybePort = do
           case result of
             Left err -> pure $ Left err
             Right config -> do
+              -- Apply environment variable overrides
+              configWithEnv <- applyPortToConfig maybePort config
               -- Ensure JWT secret exists
-              resultWithSecret <- ensureJWTSecret configPath config
+              resultWithSecret <- ensureJWTSecret configPath configWithEnv
               pure $ fmap (\cfg -> (configPath, cfg)) resultWithSecret
         else do
           -- Config path specified but doesn't exist, create it there
@@ -114,15 +119,19 @@ getOrCreateConfig explicitPath maybePort = do
 -- environment variables are persisted to the config.
 applyPortToConfig :: Maybe Int -> Config -> IO Config
 applyPortToConfig maybePort config = do
-  -- Check for directory environment variables
+  -- Check for environment variables
   envDataDir <- lookupEnv "SKEMA_DATA_DIR"
   envCacheDir <- lookupEnv "SKEMA_CACHE_DIR"
+  envHost <- lookupEnv "SKEMA_HOST"
+  envPort <- lookupEnv "SKEMA_PORT"
 
-  -- Apply port override
+  -- Apply port override (CLI arg takes precedence over env var)
   let srvConfig = server config
-  let updatedServerConfig = case maybePort of
-        Just port -> srvConfig { serverPort = port }
-        Nothing -> srvConfig
+  let portToUse = maybePort <|> (envPort >>= readMaybe)
+  let updatedServerConfig = srvConfig
+        { serverPort = fromMaybe (serverPort srvConfig) portToUse
+        , serverHost = maybe (serverHost srvConfig) toText envHost
+        }
 
   -- Apply directory overrides
   let sysConfig = system config

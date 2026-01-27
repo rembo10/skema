@@ -21,7 +21,7 @@
           # Use nodejs 24 instead of default nodejs (22)
           nodejs = pkgs.nodejs_24;
 
-          npmDepsHash = "sha256-l0NgdCZ8epPs1kPUaHty3tOxAapablMPsljh1hf6Ap0=";
+          npmDepsHash = "sha256-tj9W+v7mrjZiXKw6oTjIOyfSejXrZwSecPy1TKZ1vl8=";
 
           # Use npm ci for reproducible builds
           npmBuildScript = "build";
