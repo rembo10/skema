@@ -42,13 +42,13 @@ staticFileServer cacheDir = Tagged $ app
 -- Serves the built frontend with fallback to index.html for client-side routing.
 -- Injects web_root configuration into HTML at runtime.
 -- Checks multiple locations in order:
---   1. SKEMA_WEB_ROOT environment variable (for nix builds)
+--   1. SKEMA_FRONTEND_DIR environment variable (for nix/docker builds)
 --   2. ../web/dist (for development)
 frontendServer :: TVar Config -> Server Raw
 frontendServer configVar = Tagged $ \req sendResponse -> do
   -- Determine frontend directory at request time
   -- This allows the path to be resolved dynamically
-  maybeFrontendRoot <- Env.lookupEnv "SKEMA_WEB_ROOT"
+  maybeFrontendRoot <- Env.lookupEnv "SKEMA_FRONTEND_DIR"
   let frontendDir = case maybeFrontendRoot of
         Just root -> root
         Nothing -> ".." </> "web" </> "dist"  -- Development fallback

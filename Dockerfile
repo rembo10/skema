@@ -103,7 +103,7 @@ COPY --from=backend-builder /build/skema /usr/local/bin/skema
 COPY --from=frontend-builder /build/web/dist /usr/share/skema/web
 
 # Set environment variables for Docker deployment
-ENV SKEMA_WEB_ROOT=/usr/share/skema/web
+ENV SKEMA_FRONTEND_DIR=/usr/share/skema/web
 ENV SKEMA_PORT=8182
 ENV SKEMA_DATA_DIR=/data
 ENV SKEMA_CACHE_DIR=/cache
