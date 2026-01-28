@@ -46,6 +46,7 @@ config.yaml
 skema.db
 node_modules/
 *.log
+docker-compose.override.yml
 
 # Development data directories (used by dev.sh)
 /data/
