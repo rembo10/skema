@@ -84,7 +84,7 @@ instance DownloadClientAPI QBittorrentClient where
     request <- parseRequest url
     let request' = request
           { method = "POST"
-          , requestBody = RequestBodyBS $ "urls=" <> TE.encodeUtf8 adrUrl
+          , requestBody = RequestBodyBS $ "urls=" <> urlEncode True (TE.encodeUtf8 adrUrl)
           , requestHeaders = [(hContentType, "application/x-www-form-urlencoded")]
           , cookieJar = cookieJar
           }
