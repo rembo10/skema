@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import toast from 'react-hot-toast';
 import { PaginationControls } from '../components/PaginationControls';
@@ -21,7 +21,6 @@ import {
   XCircle,
   Loader2,
   AlertCircle,
-  Eye,
   ArrowUpCircle,
   Filter,
   X,
@@ -33,7 +32,6 @@ import {
   Square,
   CheckSquare,
   Heart,
-  Calendar,
 } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 50;
@@ -53,9 +51,7 @@ const stateConfig: Record<AlbumState, { label: string; icon: typeof Music; color
 type QuickFilter = 'all' | 'tracked' | 'unacquired' | 'library' | 'upcoming';
 
 export default function Albums() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
 
   const [albums, setAlbums] = useState<CatalogAlbumOverview[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,6 +72,9 @@ export default function Albums() {
   const [selectedAlbum, setSelectedAlbum] = useState<CatalogAlbumOverview | null>(null);
   const [searchingReleases, setSearchingReleases] = useState(false);
   const [releases, setReleases] = useState<AlbumRelease[]>([]);
+  const [searchingSources, setSearchingSources] = useState<Set<string>>(new Set());
+  const [queueingRelease, setQueueingRelease] = useState<string | null>(null); // Track which release is being queued (by download_url)
+  const eventSourceRef = useRef<EventSource | null>(null);
   const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
   const [defaultProfile, setDefaultProfile] = useState<QualityProfile | null>(null);
   const [selectedAlbumIds, setSelectedAlbumIds] = useState<Set<number>>(new Set());
@@ -269,7 +268,7 @@ export default function Albums() {
     }
   };
 
-  const handleForceSearch = async (albumId: number) => {
+  const handleForceSearch = async (_albumId: number) => {
     try {
       // TODO: Implement force search API call
       toast.success('Search triggered for album');
@@ -279,30 +278,83 @@ export default function Albums() {
     }
   };
 
-  const handleShowReleases = async (album: CatalogAlbumOverview) => {
+  const handleShowReleases = (album: CatalogAlbumOverview) => {
     setSelectedAlbum(album);
     setShowReleasesModal(true);
     setSearchingReleases(true);
     setReleases([]);
+    setSearchingSources(new Set());
+    setQueueingRelease(null);
 
-    try {
-      const response = await api.getAlbumReleases(album.id);
-      setReleases(response.releases);
+    // Track count via ref to avoid stale closure
+    let releaseCount = 0;
 
-      if (response.releases.length === 0) {
-        toast('No releases found from indexers', {
-          icon: 'ℹ️',
-        });
-      } else {
-        toast.success(`Found ${response.releases.length} release(s) in ${response.search_time.toFixed(1)}s`);
-      }
-    } catch (error) {
-      console.error('Failed to search for releases:', error);
-      toast.error('Failed to search for releases');
-    } finally {
-      setSearchingReleases(false);
+    // Close any existing connection
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
     }
+
+    // Start streaming search
+    const eventSource = api.streamAlbumReleases(album.id, {
+      onStarted: (source) => {
+        setSearchingSources(prev => new Set([...prev, source]));
+      },
+      onRelease: (_source, release) => {
+        releaseCount++;
+        setReleases(prev => [...prev, release]);
+      },
+      onCompleted: (source, _count) => {
+        setSearchingSources(prev => {
+          const next = new Set(prev);
+          next.delete(source);
+          return next;
+        });
+      },
+      onError: (source, error) => {
+        console.error(`Search error from ${source}:`, error);
+        setSearchingSources(prev => {
+          const next = new Set(prev);
+          next.delete(source);
+          return next;
+        });
+      },
+      onDone: (totalTime) => {
+        setSearchingReleases(false);
+        setSearchingSources(new Set());
+        if (releaseCount === 0) {
+          toast('No releases found', { icon: 'ℹ️' });
+        } else {
+          toast.success(`Found ${releaseCount} release(s) in ${totalTime.toFixed(1)}s`);
+        }
+      },
+    });
+
+    eventSourceRef.current = eventSource;
+
+    // Handle connection errors
+    eventSource.onerror = () => {
+      setSearchingReleases(false);
+      setSearchingSources(new Set());
+      toast.error('Connection lost while searching');
+    };
   };
+
+  // Cleanup EventSource on unmount or modal close
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
+  }, []);
+
+  // Close EventSource when modal closes
+  useEffect(() => {
+    if (!showReleasesModal && eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+  }, [showReleasesModal]);
 
   const handleQualityProfileChange = async (albumId: number, profileId: number | null, isExisting: boolean = false) => {
     try {
@@ -377,7 +429,7 @@ export default function Albums() {
   const handleBulkForceSearch = async () => {
     if (selectedAlbumIds.size === 0) return;
 
-    toast.info(`Force search for ${selectedAlbumIds.size} album(s) - feature coming soon`);
+    toast(`Force search for ${selectedAlbumIds.size} album(s) - feature coming soon`);
     // TODO: Implement bulk force search API call
   };
 
@@ -1062,11 +1114,28 @@ export default function Albums() {
 
             {/* Modal Body */}
             <div className="flex-1 overflow-y-auto p-6">
-              {searchingReleases ? (
-                <div className="flex items-center justify-center h-64">
-                  <Loader2 className="h-8 w-8 animate-spin text-dark-accent" />
+              {/* Search status bar */}
+              {searchingReleases && (
+                <div className="mb-4 flex items-center gap-2 text-sm text-dark-text-secondary">
+                  <Loader2 className="h-4 w-4 animate-spin text-dark-accent" />
+                  <span>Searching</span>
+                  {searchingSources.size > 0 && (
+                    <span className="flex gap-1">
+                      {[...searchingSources].map(source => (
+                        <span key={source} className="px-2 py-0.5 bg-dark-bg rounded text-xs">
+                          {source}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                  {releases.length > 0 && (
+                    <span className="ml-2">• {releases.length} found</span>
+                  )}
                 </div>
-              ) : releases.length === 0 ? (
+              )}
+
+              {/* No results (only show after search is done) */}
+              {!searchingReleases && releases.length === 0 ? (
                 <div className="text-center py-12">
                   <Disc className="mx-auto h-12 w-12 text-dark-text-tertiary" />
                   <h3 className="mt-4 text-sm font-medium text-dark-text">No releases found</h3>
@@ -1130,8 +1199,13 @@ export default function Albums() {
                           </div>
                         </div>
                         <button
-                          className="btn-primary px-4 py-2 flex-shrink-0"
+                          className={`btn-primary px-4 py-2 flex-shrink-0 ${
+                            queueingRelease === release.download_url ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
+                          disabled={queueingRelease === release.download_url}
                           onClick={async () => {
+                            if (queueingRelease !== null) return; // Prevent clicking other buttons while one is queuing
+                            setQueueingRelease(release.download_url);
                             try {
                               const response = await api.queueDownload({
                                 catalog_album_id: selectedAlbum.id,
@@ -1142,6 +1216,8 @@ export default function Albums() {
                                 quality: release.quality,
                                 format: release.download_type.toUpperCase(),
                                 seeders: release.seeders,
+                                slskd_username: release.slskd_username,
+                                slskd_files: release.slskd_files,
                               });
 
                               if (response.success) {
@@ -1153,11 +1229,22 @@ export default function Albums() {
                             } catch (error) {
                               console.error('Failed to queue download:', error);
                               toast.error('Failed to queue download');
+                            } finally {
+                              setQueueingRelease(null);
                             }
                           }}
                         >
-                          <Download className="h-4 w-4 mr-2" />
-                          Download
+                          {queueingRelease === release.download_url ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Queuing...
+                            </>
+                          ) : (
+                            <>
+                              <Download className="h-4 w-4 mr-2" />
+                              Download
+                            </>
+                          )}
                         </button>
                       </div>
                     </div>

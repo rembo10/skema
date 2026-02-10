@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { getJWT, setAuthRequired, getApiBase } from '../lib/api';
 import { useAppStore } from '../store';
+import type { Cluster, CatalogArtist } from '../types/api';
 
 /**
  * Hook to connect to SSE endpoint and keep state updated.
@@ -9,9 +10,9 @@ import { useAppStore } from '../store';
  */
 export function useSSE(enabled: boolean = true) {
   const eventSourceRef = useRef<EventSource | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldReconnectRef = useRef(true);
-  const statusTimeoutRef = useRef<NodeJS.Timeout>();
+  const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const {
     setCurrentStatus,
     setConnectionStatus,
@@ -55,7 +56,7 @@ export function useSSE(enabled: boolean = true) {
       // Clear any pending reconnection
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = undefined;
+        reconnectTimeoutRef.current = null;
       }
     };
 
@@ -114,8 +115,7 @@ export function useSSE(enabled: boolean = true) {
       };
 
       // Library scan events
-      eventSource.addEventListener('LibraryScanRequested', (e: MessageEvent) => {
-        const data = JSON.parse(e.data);
+      eventSource.addEventListener('LibraryScanRequested', (_e: MessageEvent) => {
         setCurrentStatus({
           type: 'in_progress',
           message: 'Starting library scan...',
@@ -188,12 +188,12 @@ export function useSSE(enabled: boolean = true) {
         try {
           const data = JSON.parse(e.data);
           const { api } = await import('../lib/api');
-          const updatedCluster = await api.getClusters().then(clusters =>
-            clusters.find(c => c.id === data.cluster_id)
+          const updatedCluster = await api.getClusters().then((clusters: Cluster[]) =>
+            clusters.find((c: Cluster) => c.id === data.cluster_id)
           );
           if (updatedCluster) {
             const clusters = useAppStore.getState().clusters;
-            if (clusters.some(c => c.id === updatedCluster.id)) {
+            if (clusters.some((c: Cluster) => c.id === updatedCluster.id)) {
               updateCluster(updatedCluster.id, updatedCluster);
             } else {
               addCluster(updatedCluster);
@@ -289,18 +289,22 @@ export function useSSE(enabled: boolean = true) {
           const data = JSON.parse(e.data);
           // Add the new artist with complete data including ID
           // Image will be null initially and updated via ArtistImageFetched event
-          const artistData = {
+          const artistData: CatalogArtist = {
             id: data.artist_id,
             mbid: data.artist_mbid,
             name: data.artist_name,
+            type: null,
             image_url: null,
             thumbnail_url: null,
             followed: true,
+            quality_profile_id: null,
             added_by_source_id: 0,
             source_cluster_id: data.cluster_id,
             last_checked_at: null,
+            score: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
+            albums: null,
           };
           addFollowedArtist(artistData);
         } catch (error) {
@@ -418,10 +422,12 @@ export function useSSE(enabled: boolean = true) {
 
       eventSource.addEventListener('DownloadProgress', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        // Update progress in the store
+        // Update progress in the store (upserts if not exists)
         updateDownload(data.download_id, {
+          title: data.download_title,
           progress: data.download_progress * 100, // Convert 0-1 to 0-100
           size_bytes: data.download_size_bytes,
+          status: 'downloading',
         });
         // Update status line with current progress
         setCurrentStatus({
@@ -433,8 +439,9 @@ export function useSSE(enabled: boolean = true) {
 
       eventSource.addEventListener('DownloadCompleted', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        // Update status to completed
+        // Update status to completed (upserts if not exists)
         updateDownload(data.download_id, {
+          title: data.download_title,
           status: 'completed',
           progress: 100,
           download_path: data.download_path,
@@ -449,8 +456,9 @@ export function useSSE(enabled: boolean = true) {
 
       eventSource.addEventListener('DownloadFailed', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        // Update status to failed
+        // Update status to failed (upserts if not exists)
         updateDownload(data.download_id, {
+          title: data.download_title,
           status: 'failed',
           error_message: data.download_error,
         });
@@ -458,8 +466,9 @@ export function useSSE(enabled: boolean = true) {
 
       eventSource.addEventListener('DownloadImported', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        // Update status to imported
+        // Update status to imported (upserts if not exists)
         updateDownload(data.download_id, {
+          title: data.download_title,
           status: 'imported',
           imported_at: new Date().toISOString(),
         });

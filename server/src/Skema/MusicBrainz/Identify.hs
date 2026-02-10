@@ -180,8 +180,22 @@ identifyBySearch le mbEnv config fg = do
 
           -- Check if we successfully fetched any candidate details
           if null candidateDetails
-            then pure $ Right $ IdentificationResult Nothing []
+            then do
+              runKatipContextT le () "musicbrainz.identify" $
+                $(logTM) WarningS $ logStr $ ("All " <> show (length candidates) <> " candidate fetches failed - no releases to score" :: Text)
+              pure $ Right $ IdentificationResult Nothing []
             else do
+              -- Log what we fetched vs what we have
+              let userFileCount = length (fgFiles fg)
+              runKatipContextT le () "musicbrainz.identify" $ do
+                $(logTM) InfoS $ logStr $ ("Fetched " <> show (length candidateDetails) <> " releases, user has " <> show userFileCount <> " files" :: Text)
+                forM_ candidateDetails $ \release -> do
+                  let trackCount = length (mbReleaseTracks release)
+                      title = mbReleaseTitle release
+                      passesFilter = trackCount >= userFileCount
+                  $(logTM) InfoS $ logStr $ ("  \"" <> title <> "\": " <> show trackCount <> " tracks" <>
+                                             (if passesFilter then " (passes)" else " (FILTERED - needs >= " <> show userFileCount <> ")") :: Text)
+
               -- Pure: Rank candidates by metadata only (no limit - we'll use Hungarian to pick best)
               -- We already fetched full details for all candidates, so run Hungarian on all of them
               let rankedCandidates = rankReleaseCandidates (length candidateDetails) fg candidateDetails
@@ -190,15 +204,15 @@ identifyBySearch le mbEnv config fg = do
               -- This runs Hungarian algorithm on each to do track-by-track matching
               let detailedMatches = map (computeReleaseMatch fg candidateDetails) rankedCandidates
 
-              -- Log confidence scores when we have multiple candidates (helps diagnose close matches)
-              when (length detailedMatches > 1) $
-                runKatipContextT le () "musicbrainz.identify" $ do
-                  $(logTM) DebugS $ logStr $ ("Evaluating " <> show (length detailedMatches) <> " candidates:" :: Text)
-                  forM_ (zip [(1::Int)..] detailedMatches) $ \(idx, match) -> do
-                    let confidence = rmConfidence match
-                        release = rmRelease match
-                        title = mbReleaseTitle release
-                    $(logTM) DebugS $ logStr $ ("  " <> show idx <> ". \"" <> title <> "\" - confidence: " <> show (round (confidence * 100) :: Int) <> "%" :: Text)
+              -- Log confidence scores for all candidates (helps diagnose matching issues)
+              runKatipContextT le () "musicbrainz.identify" $ do
+                $(logTM) InfoS $ logStr $ ("Scoring " <> show (length detailedMatches) <> " candidates after filtering:" :: Text)
+                forM_ (zip [(1::Int)..] detailedMatches) $ \(idx, match) -> do
+                  let confidence = rmConfidence match
+                      release = rmRelease match
+                      title = mbReleaseTitle release
+                      trackCount = length (mbReleaseTracks release)
+                  $(logTM) InfoS $ logStr $ ("  " <> show idx <> ". \"" <> title <> "\" (" <> show trackCount <> " tracks) - confidence: " <> show (round (confidence * 100) :: Int) <> "%" :: Text)
 
               -- Pure: Select best match if it meets threshold
               let bestMatch = selectBestMatch (cfgMinConfidence config) detailedMatches

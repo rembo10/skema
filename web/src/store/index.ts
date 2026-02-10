@@ -85,7 +85,7 @@ interface AppStore {
   setClusterTracks: (clusterId: number, tracks: ClusterTrack[]) => void;
 }
 
-export const useAppStore = create<AppStore>((set, get) => ({
+export const useAppStore = create<AppStore>((set) => ({
   // Authentication state
   authEnabled: null,
   setAuthEnabled: (enabled) => set({ authEnabled: enabled }),
@@ -333,11 +333,49 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }),
 
   updateDownload: (downloadId, updates) =>
-    set((state) => ({
-      downloads: state.downloads.map((d) =>
-        d.id === downloadId ? { ...d, ...updates } : d
-      ),
-    })),
+    set((state) => {
+      // Check if download exists
+      const exists = state.downloads.some((d) => d.id === downloadId);
+      if (exists) {
+        // Update existing download
+        return {
+          downloads: state.downloads.map((d) =>
+            d.id === downloadId ? { ...d, ...updates } : d
+          ),
+        };
+      } else {
+        // Upsert: add a partial download entry for SSE updates
+        // The Downloads page merges store data with API data, so this
+        // allows progress updates to be reflected even if the download
+        // was loaded via API before the store was populated
+        const partialDownload: Download = {
+          id: downloadId,
+          catalog_album_id: 0,
+          indexer_name: '',
+          download_url: '',
+          download_client: null,
+          download_client_id: null,
+          title: (updates as Partial<Download>).title || 'Unknown',
+          status: 'downloading',
+          download_path: null,
+          progress: 0,
+          size_bytes: null,
+          error_message: null,
+          library_path: null,
+          quality: null,
+          format: null,
+          seeders: null,
+          queued_at: null,
+          started_at: null,
+          completed_at: null,
+          imported_at: null,
+          ...updates,
+        };
+        return {
+          downloads: [partialDownload, ...state.downloads],
+        };
+      }
+    }),
 
   removeDownload: (downloadId) =>
     set((state) => ({

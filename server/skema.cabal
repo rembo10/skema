@@ -138,6 +138,9 @@ library
     Skema.Indexer.Utils
     Skema.Indexer.Client
     Skema.Indexer.Search
+    Skema.Slskd.Types
+    Skema.Slskd.Client
+    Skema.Slskd.Search
     Skema.DownloadClient.Types
     Skema.DownloadClient.SABnzbd
     Skema.DownloadClient.NZBGet
@@ -175,6 +178,7 @@ library
     Skema.Services.Download.Monitor
     Skema.Services.Download.RSSMonitor
     Skema.Services.Download.Submission
+    Skema.Services.Slskd
     Skema.Services.Importer
     Skema.Services.Notifications
     Skema.Scraper.Metacritic

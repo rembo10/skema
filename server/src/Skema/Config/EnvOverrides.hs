@@ -81,6 +81,9 @@ instance EnvParseable [Text] where
 instance EnvParseable [Cfg.NotificationProvider] where
   parseEnvValue _ = Nothing
 
+instance EnvParseable (Maybe Cfg.SlskdConfig) where
+  parseEnvValue _ = Nothing  -- SlskdConfig is too complex for env vars
+
 -- =============================================================================
 -- Field name to env var conversion
 -- =============================================================================

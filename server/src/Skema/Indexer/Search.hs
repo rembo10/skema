@@ -88,6 +88,10 @@ scoreReleaseWithContext maybeAlbumTitle ReleaseInfo{..} =
         Just s | s > (10 :: Int) -> 400  -- Well-seeded torrents
         Just s | s > 0  -> 200  -- Some seeders
         _               -> 50   -- No seeder info or dead
+      Slskd -> case riSeeders of
+        Just s | s > 5 -> 350   -- Good slskd availability
+        Just s | s > 0 -> 150   -- Some availability
+        _              -> 100   -- slskd baseline
 
     -- Title-based format detection
     titleLower = T.toLower riTitle
@@ -155,13 +159,17 @@ scoreReleaseWithProfile :: Maybe Text -> Maybe Quality.QualityProfile -> Release
 scoreReleaseWithProfile maybeAlbumTitle maybeProfile ReleaseInfo{..} =
   formatScoreTotal + seedScore + sizeScore + grabScore + titleMatchScore + profileQualityScore
   where
-    -- Format score (NZB vs Torrent)
+    -- Format score (NZB vs Torrent vs Slskd)
     formatScore = case riDownloadType of
       NZB -> 500  -- NZBs generally more reliable
       Torrent -> case riSeeders of
         Just s | s > (10 :: Int) -> 400  -- Well-seeded torrents
         Just s | s > 0  -> 200  -- Some seeders
         _               -> 50   -- No seeder info or dead
+      Slskd -> case riSeeders of
+        Just s | s > 5 -> 350   -- Good slskd availability
+        Just s | s > 0 -> 150   -- Some availability
+        _              -> 100   -- slskd baseline
 
     -- Quality score based on profile (if provided)
     profileQualityScore = case maybeProfile of

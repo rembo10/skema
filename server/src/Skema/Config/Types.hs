@@ -15,6 +15,7 @@ module Skema.Config.Types
   , DownloadConfig (..)
   , DownloadClient (..)
   , DownloadClientType (..)
+  , SlskdConfig (..)
   , IndexerConfig (..)
   , Indexer (..)
   , MusicBrainzConfig (..)
@@ -34,6 +35,7 @@ module Skema.Config.Types
   , defaultMusicBrainzConfig
   , defaultMediaConfig
   , defaultNotificationConfig
+  , defaultSlskdConfig
     -- * Helpers
   , getMusicBrainzServerUrl
   , hashPassword
@@ -325,12 +327,42 @@ instance ToJSON DownloadClient where
     , "category" .= category
     ]
 
+-- | slskd (Soulseek) client configuration.
+data SlskdConfig = SlskdConfig
+  { slskdUrl :: Text
+    -- ^ Base URL (e.g., "http://localhost:5030")
+  , slskdApiKey :: Text
+    -- ^ API key for authentication
+  , slskdEnabled :: Bool
+    -- ^ Whether slskd is enabled
+  , slskdDownloadDirectory :: Text
+    -- ^ Directory where slskd stores completed downloads
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON SlskdConfig where
+  parseJSON = withObject "SlskdConfig" $ \o -> do
+    url <- o .: "url"
+    apiKey <- o .: "api_key"
+    enabled <- o .:? "enabled" .!= True
+    downloadDir <- o .:? "download_directory" .!= "/downloads/slskd"
+    pure $ SlskdConfig url apiKey enabled downloadDir
+
+instance ToJSON SlskdConfig where
+  toJSON (SlskdConfig url apiKey enabled downloadDir) = object
+    [ "url" .= url
+    , "api_key" .= apiKey
+    , "enabled" .= enabled
+    , "download_directory" .= downloadDir
+    ]
+
 -- | Download configuration.
 data DownloadConfig = DownloadConfig
   { downloadNzbClient :: Maybe DownloadClient
     -- ^ NZB download client (SABnzbd or NZBGet)
   , downloadTorrentClient :: Maybe DownloadClient
     -- ^ Torrent download client (Transmission or qBittorrent)
+  , downloadSlskdClient :: Maybe SlskdConfig
+    -- ^ slskd (Soulseek) client for P2P music downloads
   , downloadCheckInterval :: Int
     -- ^ How often to check for completed downloads (in seconds)
   , downloadAutoImport :: Bool
@@ -351,6 +383,7 @@ instance FromJSON DownloadConfig where
   parseJSON = withObject "DownloadConfig" $ \o -> do
     nzbClient <- o .:? "nzb_client"
     torrentClient <- o .:? "torrent_client"
+    slskdClient <- o .:? "slskd_client"
     checkInterval <- o .:? "check_interval" .!= 60
     autoImport <- o .:? "auto_import" .!= True
     minSeeders <- o .:? "min_seeders"
@@ -358,12 +391,13 @@ instance FromJSON DownloadConfig where
     replaceFiles <- o .:? "replace_library_files" .!= False
     useTrash <- o .:? "use_trash" .!= True
     trashRetentionDays <- o .:? "trash_retention_days" .!= 30
-    pure $ DownloadConfig nzbClient torrentClient checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays
+    pure $ DownloadConfig nzbClient torrentClient slskdClient checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays
 
 instance ToJSON DownloadConfig where
-  toJSON (DownloadConfig nzbClient torrentClient checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays) = object
+  toJSON (DownloadConfig nzbClient torrentClient slskdClient checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays) = object
     [ "nzb_client" .= nzbClient
     , "torrent_client" .= torrentClient
+    , "slskd_client" .= slskdClient
     , "check_interval" .= checkInterval
     , "auto_import" .= autoImport
     , "min_seeders" .= minSeeders
@@ -686,6 +720,7 @@ defaultDownloadConfig :: DownloadConfig
 defaultDownloadConfig = DownloadConfig
   { downloadNzbClient = Nothing
   , downloadTorrentClient = Nothing
+  , downloadSlskdClient = Nothing
   , downloadCheckInterval = 5  -- Check every 5 seconds
   , downloadAutoImport = True
   , downloadMinSeeders = Just 1
@@ -693,6 +728,15 @@ defaultDownloadConfig = DownloadConfig
   , downloadReplaceLibraryFiles = False
   , downloadUseTrash = True
   , downloadTrashRetentionDays = 7
+  }
+
+-- | Default slskd configuration (disabled by default).
+defaultSlskdConfig :: SlskdConfig
+defaultSlskdConfig = SlskdConfig
+  { slskdUrl = "http://localhost:5030"
+  , slskdApiKey = ""
+  , slskdEnabled = False
+  , slskdDownloadDirectory = "/downloads/slskd"
   }
 
 -- | Default indexer configuration with Bullet preconfigured.

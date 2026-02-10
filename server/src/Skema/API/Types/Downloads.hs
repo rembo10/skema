@@ -10,6 +10,7 @@ module Skema.API.Types.Downloads
   , DownloadsPagination(..)
   , DownloadsResponse(..)
   , QueueDownloadRequest(..)
+  , SlskdFileRequest(..)
   , QueueDownloadResponse(..)
   , DownloadTaskRequest(..)
   ) where
@@ -99,7 +100,23 @@ data QueueDownloadRequest = QueueDownloadRequest
   , queueDownloadQuality :: Maybe Text
   , queueDownloadFormat :: Maybe Text
   , queueDownloadSeeders :: Maybe Int
+  , queueDownloadSlskdUsername :: Maybe Text
+    -- ^ For slskd downloads: username to download from
+  , queueDownloadSlskdFiles :: Maybe [SlskdFileRequest]
+    -- ^ For slskd downloads: files to download
   } deriving (Show, Eq, Generic)
+
+-- | Slskd file in download request
+data SlskdFileRequest = SlskdFileRequest
+  { slskdFileRequestFilename :: Text
+  , slskdFileRequestSize :: Integer
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON SlskdFileRequest where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
+
+instance FromJSON SlskdFileRequest where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
 
 instance ToJSON QueueDownloadRequest where
   toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 13 }

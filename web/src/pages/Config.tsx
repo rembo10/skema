@@ -11,7 +11,7 @@ import {
   MusicbrainzConfigSection,
   MediaConfigSection,
 } from '../components/ConfigFields.generated';
-import type { Config, DownloadClient, Indexer, DownloadClientType, NotificationProvider } from '../types/api';
+import type { Config, DownloadClient, Indexer, DownloadClientType, NotificationProvider, SlskdConfig } from '../types/api';
 
 type TabId = 'library' | 'system' | 'server' | 'download' | 'indexers' | 'musicbrainz' | 'media' | 'notifications';
 
@@ -46,6 +46,10 @@ export default function Config() {
   const [editingClientType, setEditingClientType] = useState<'nzb' | 'torrent' | null>(null);
   const [editingClient, setEditingClient] = useState<DownloadClient | null>(null);
   const [showClientForm, setShowClientForm] = useState(false);
+
+  // slskd client editing
+  const [editingSlskd, setEditingSlskd] = useState<SlskdConfig | null>(null);
+  const [showSlskdForm, setShowSlskdForm] = useState(false);
 
   // Indexer editing
   const [editingIndexer, setEditingIndexer] = useState<{ index: number; indexer: Indexer } | null>(null);
@@ -235,6 +239,44 @@ export default function Config() {
     if (!editingClient) return;
     setEditingClient({
       ...editingClient,
+      [field]: value,
+    });
+  }
+
+  // slskd client management
+  function editSlskdClient() {
+    const client = formData?.download.slskd_client;
+
+    if (client) {
+      setEditingSlskd({ ...client });
+    } else {
+      setEditingSlskd({
+        url: '',
+        api_key: '',
+        enabled: true,
+        download_directory: '/downloads/slskd',
+      });
+    }
+
+    setShowSlskdForm(true);
+  }
+
+  function saveSlskdClient() {
+    if (!editingSlskd) return;
+
+    handleChange('download', 'slskd_client', editingSlskd);
+    setShowSlskdForm(false);
+    setEditingSlskd(null);
+  }
+
+  function deleteSlskdClient() {
+    handleChange('download', 'slskd_client', null);
+  }
+
+  function updateEditingSlskd(field: keyof SlskdConfig, value: any) {
+    if (!editingSlskd) return;
+    setEditingSlskd({
+      ...editingSlskd,
       [field]: value,
     });
   }
@@ -743,6 +785,94 @@ export default function Config() {
                 )}
               </div>
             </div>
+
+            {/* slskd (Soulseek) Client */}
+            <div className="card">
+              <div className="px-6 py-5 border-b border-dark-border flex justify-between items-center">
+                <div>
+                  <h2 className="text-lg font-medium text-dark-text">slskd Client</h2>
+                  <p className="mt-1 text-sm text-dark-text-secondary">
+                    Configure slskd (Soulseek) for P2P music downloads
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={editSlskdClient}
+                  className="btn-secondary text-sm"
+                >
+                  {formData.download.slskd_client ? (
+                    <>
+                      <Edit2 className="w-4 h-4 mr-1" />
+                      Edit
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4 mr-1" />
+                      Configure
+                    </>
+                  )}
+                </button>
+              </div>
+              <div className="px-6 py-5">
+                {formData.download.slskd_client ? (
+                  <div className="border border-dark-border rounded-lg p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className="text-sm font-medium text-dark-text">slskd</h3>
+                          <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border bg-purple-500/10 text-purple-400 border-purple-500/30">
+                            Soulseek
+                          </span>
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold border ${
+                            formData.download.slskd_client.enabled
+                              ? 'bg-dark-success-muted text-dark-success border-dark-success/30'
+                              : 'bg-dark-bg-subtle text-dark-text-tertiary border-dark-border'
+                          }`}>
+                            {formData.download.slskd_client.enabled ? 'Enabled' : 'Disabled'}
+                          </span>
+                        </div>
+                        <p className="text-sm text-dark-text-secondary mt-1">{formData.download.slskd_client.url}</p>
+                      </div>
+                      <div className="flex items-center gap-2 ml-4">
+                        <button
+                          type="button"
+                          onClick={editSlskdClient}
+                          className="p-2 text-dark-text-tertiary hover:text-dark-accent transition-colors"
+                          title="Edit client"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm(`Delete slskd client?`)) {
+                              deleteSlskdClient();
+                            }
+                          }}
+                          className="p-2 text-dark-text-tertiary hover:text-dark-error transition-colors"
+                          title="Delete client"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Download className="mx-auto h-12 w-12 text-dark-text-tertiary" />
+                    <p className="mt-2 text-sm text-dark-text-secondary">No slskd client configured</p>
+                    <button
+                      type="button"
+                      onClick={editSlskdClient}
+                      className="btn-secondary mt-4"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Configure slskd Client
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -1189,6 +1319,97 @@ export default function Config() {
               <button
                 type="button"
                 onClick={saveDownloadClient}
+                className="btn-primary"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* slskd Client Edit Modal */}
+      {showSlskdForm && editingSlskd && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-dark-bg-elevated rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-dark-border">
+            <div className="px-6 py-4 border-b border-dark-border flex items-center justify-between">
+              <h3 className="text-lg font-medium text-dark-text">
+                Configure slskd Client
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSlskdForm(false);
+                  setEditingSlskd(null);
+                }}
+                className="text-dark-text-tertiary hover:text-dark-text-secondary"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <UrlInput
+                label="URL"
+                value={editingSlskd.url}
+                onChange={(value) => updateEditingSlskd('url', value)}
+                placeholder="localhost:5030"
+                defaultProtocol="http://"
+              />
+
+              <div>
+                <label className="block text-sm font-medium text-dark-text mb-2">API Key</label>
+                <input
+                  type="text"
+                  value={editingSlskd.api_key || ''}
+                  onChange={(e) => updateEditingSlskd('api_key', e.target.value)}
+                  className="input w-full"
+                  placeholder="API Key"
+                />
+                <p className="mt-1 text-sm text-dark-text-secondary">
+                  API key from slskd settings
+                </p>
+              </div>
+
+              <PathInput
+                label="Download Directory"
+                value={editingSlskd.download_directory || ''}
+                onChange={(value) => updateEditingSlskd('download_directory', value)}
+                type="directory"
+                placeholder="/downloads/slskd"
+                description="Directory where slskd stores completed downloads"
+              />
+
+              <div className="flex items-start">
+                <div className="flex items-center h-5">
+                  <input
+                    type="checkbox"
+                    checked={editingSlskd.enabled}
+                    onChange={(e) => updateEditingSlskd('enabled', e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
+                  />
+                </div>
+                <div className="ml-3">
+                  <label className="text-sm font-medium text-dark-text">Enabled</label>
+                  <p className="text-sm text-dark-text-secondary">
+                    Enable slskd for music downloads
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-dark-bg-subtle border-t border-dark-border flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSlskdForm(false);
+                  setEditingSlskd(null);
+                }}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveSlskdClient}
                 className="btn-primary"
               >
                 Save

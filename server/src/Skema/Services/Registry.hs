@@ -10,6 +10,7 @@ module Skema.Services.Registry
 
 import Skema.Services.Types
 import Skema.Services.Dependencies (ScannerDeps(..), GrouperDeps(..), IdentifierDeps(..), DiffGeneratorDeps(..), PersisterDeps(..), DownloadDeps(..), ThumbnailerDeps(..), ImageDeps(..), ImporterDeps(..), CatalogDeps(..), AcquisitionDeps(..), StatsDeps(..), SourceEvaluatorDeps(..), MetadataWriterDeps(..), NotificationDeps(..))
+import Skema.Services.Slskd (SlskdDeps(..), runSlskdMonitor)
 import Skema.Services.AsyncRegistry (AsyncRegistry, newAsyncRegistry, registerAsync)
 import Skema.Services.Scanner (startScannerService)
 import Skema.Services.Grouper (startGrouperService)
@@ -249,6 +250,18 @@ startAllServices le bus pool config cacheDir configPath = do
     $(logTM) InfoS $ logStr ("Starting RSS Monitor service..." :: Text)
     rssMonitorHandle <- liftIO $ async $ runRSSMonitor le bus pool httpClient config
     liftIO $ registerAsync asyncRegistry "Download.RSSMonitor" rssMonitorHandle
+
+    $(logTM) InfoS $ logStr ("Starting slskd Monitor service..." :: Text)
+    let slskdDeps = SlskdDeps
+          { slskdEventBus = scEventBus ctx
+          , slskdLogEnv = scLogEnv ctx
+          , slskdDbPool = scDbPool ctx
+          , slskdConfigVar = scConfigVar ctx
+          , slskdHttpClient = scHttpClient ctx
+          , slskdProgressMap = scDownloadProgressMap ctx
+          }
+    slskdMonitorHandle <- liftIO $ async $ runSlskdMonitor slskdDeps
+    liftIO $ registerAsync asyncRegistry "Download.SlskdMonitor" slskdMonitorHandle
 
     $(logTM) InfoS $ logStr ("Starting Importer service..." :: Text)
     let importerDeps = ImporterDeps

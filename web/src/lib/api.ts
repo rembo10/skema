@@ -671,6 +671,66 @@ export const api = {
     });
   },
 
+  /**
+   * Stream album releases via SSE. Returns an EventSource that emits:
+   * - 'started': { source: string } - A search source started
+   * - 'release': { source: string, release: AlbumRelease } - A release was found
+   * - 'completed': { source: string, count: number } - A search source completed
+   * - 'error': { source: string, error: string } - A search source had an error
+   * - 'done': { total_time: number } - All searches completed
+   */
+  streamAlbumReleases(
+    albumId: number,
+    callbacks: {
+      onStarted?: (source: string) => void;
+      onRelease?: (source: string, release: AlbumRelease) => void;
+      onCompleted?: (source: string, count: number) => void;
+      onError?: (source: string, error: string) => void;
+      onDone?: (totalTime: number) => void;
+    }
+  ): EventSource {
+    const jwt = getJWT();
+    const apiBase = getApiBase();
+    const url = jwt
+      ? `${window.location.origin}${apiBase}/catalog/albums/${albumId}/releases/stream?token=${encodeURIComponent(jwt)}`
+      : `${window.location.origin}${apiBase}/catalog/albums/${albumId}/releases/stream`;
+
+    const eventSource = new EventSource(url);
+
+    eventSource.addEventListener('started', (e: MessageEvent) => {
+      const data = JSON.parse(e.data);
+      callbacks.onStarted?.(data.source);
+    });
+
+    eventSource.addEventListener('release', (e: MessageEvent) => {
+      const data = JSON.parse(e.data);
+      callbacks.onRelease?.(data.source, data.release);
+    });
+
+    eventSource.addEventListener('completed', (e: MessageEvent) => {
+      const data = JSON.parse(e.data);
+      callbacks.onCompleted?.(data.source, data.count);
+    });
+
+    eventSource.addEventListener('error', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        callbacks.onError?.(data.source, data.error);
+      } catch {
+        // Connection error, not a JSON event
+        console.error('SSE connection error');
+      }
+    });
+
+    eventSource.addEventListener('done', (e: MessageEvent) => {
+      const data = JSON.parse(e.data);
+      callbacks.onDone?.(data.total_time);
+      eventSource.close();
+    });
+
+    return eventSource;
+  },
+
   // Configuration
   async getConfig(): Promise<Config> {
     return fetchApi<Config>('/config');

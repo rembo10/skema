@@ -856,6 +856,9 @@ downloadSchema = schema "download" "Download client configuration"
   , "torrent_client" .:: "Torrent download client configuration"
       & fieldType FTObject
       -- No example = null, optional
+  , "slskd_client" .:: "slskd (Soulseek) client configuration"
+      & fieldType FTObject
+      -- No example = null, optional
   , "directory" .:: "Directory for completed downloads (before import)"
       & pathField
       & example "./downloads"

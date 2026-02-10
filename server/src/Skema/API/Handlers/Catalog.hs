@@ -1,11 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | Catalog API handlers.
 module Skema.API.Handlers.Catalog
   ( catalogServer
   ) where
 
-import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), ArtistsPagination(..), ArtistsResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), CatalogTaskRequest(..), CatalogAlbumOverviewResponse(..), AlbumOverviewPagination(..), AlbumOverviewStats(..), AlbumOverviewResponse(..), BulkAlbumActionRequest(..), BulkAlbumAction(..), AlbumState(..), ActiveDownloadInfo(..), AlbumReleasesResponse(..), ReleaseResponse(..))
+import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), ArtistsPagination(..), ArtistsResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), CatalogTaskRequest(..), CatalogAlbumOverviewResponse(..), AlbumOverviewPagination(..), AlbumOverviewStats(..), AlbumOverviewResponse(..), BulkAlbumActionRequest(..), BulkAlbumAction(..), AlbumState(..), ActiveDownloadInfo(..), AlbumReleasesResponse(..), ReleaseResponse(..), SlskdFileResponse(..), ReleaseStreamEvent(..))
+import Skema.API.Types.Common (SourceIO)
+import Skema.Auth (checkAuthEnabled)
+import Skema.Auth.JWT (validateJWT)
 import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
 import Skema.Core.TaskManager (TaskManager)
 import qualified Skema.Core.TaskManager as TM
@@ -28,13 +32,19 @@ import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
 import Skema.Indexer.Client (searchIndexer)
 import Skema.Indexer.Types (SearchQuery(..), ReleaseInfo(..), IndexerResult(..), DownloadType(..))
+import qualified Skema.Indexer.Types as Indexer
+import Skema.Slskd.Client (createSlskdClient)
+import Skema.Slskd.Search (searchSlskd, searchSlskdStreaming, slskdCandidateToReleaseInfo)
 import Skema.Domain.Quality (qualityToText, textToQuality)
 import qualified Skema.Domain.Quality as Qual
-import Control.Concurrent.Async (async, mapConcurrently, race)
+import Control.Concurrent.Async (async, mapConcurrently, race, concurrently)
 import Control.Concurrent (threadDelay)
 import Data.Aeson (toJSON, object, (.=))
-import Servant
+import Servant hiding (SourceIO)
+import Servant.Types.SourceT (SourceT(..), StepT(..))
 import Katip
+import Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan, readTChan)
+import qualified Data.IORef as IORef
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime)
 import qualified Data.Text as Text
 import qualified Control.Concurrent.STM as STM
@@ -67,6 +77,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
   :<|> updateAlbumHandler maybeAuthHeader
   :<|> deleteAlbumHandler maybeAuthHeader
   :<|> searchAlbumReleasesHandler maybeAuthHeader
+  :<|> streamAlbumReleasesHandler
   :<|> bulkActionHandler maybeAuthHeader
   where
     taskHandler :: Maybe Text -> CatalogTaskRequest -> Handler TaskResponse
@@ -790,7 +801,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           startTime <- liftIO getCurrentTime
 
           searchResult <- liftIO $ race
-            (threadDelay (30 * 1000000))  -- 30 seconds timeout
+            (threadDelay (90 * 1000000))  -- 90 seconds timeout (slskd searches can take 60+ seconds)
             (searchAllIndexers enabledIndexers searchQuery)
 
           endTime <- liftIO getCurrentTime
@@ -799,7 +810,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           case searchResult of
             Left () -> do
               -- Timeout occurred
-              throw500 "Search timed out after 30 seconds"
+              throw500 "Search timed out after 90 seconds"
 
             Right results -> do
               -- Convert results to response format
@@ -841,12 +852,171 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
                 , albumReleasesSearchTime = searchDuration
                 }
 
-    -- Search all indexers concurrently
+    -- Stream album releases via SSE (results sent as they arrive)
+    streamAlbumReleasesHandler :: Int64 -> Maybe Text -> Handler (SourceIO ReleaseStreamEvent)
+    streamAlbumReleasesHandler albumId maybeToken = do
+      -- Validate JWT from query parameter (since EventSource doesn't support custom headers)
+      currentCfg <- liftIO $ STM.atomically $ STM.readTVar configVar
+      let cfg = Cfg.server currentCfg
+      authEnabled <- liftIO $ checkAuthEnabled cfg
+
+      when authEnabled $ do
+        case maybeToken of
+          Nothing -> throwError err401 { errBody = "JWT token required in query parameter" }
+          Just token -> do
+            result <- liftIO $ validateJWT jwtSecret token
+            case result of
+              Left _err -> throwError err401 { errBody = "Invalid or expired JWT" }
+              Right _claims -> pure ()
+
+      -- Get the album from the database
+      maybeAlbum <- liftIO $ withConnection connPool $ \conn -> do
+        albums <- DB.getCatalogAlbums conn
+        pure $ find (\a -> DBTypes.catalogAlbumId a == Just albumId) albums
+
+      case maybeAlbum of
+        Nothing -> throwError err404 { errBody = "Album not found" }
+        Just album -> do
+          let albumTitle = DBTypes.catalogAlbumTitle album
+          let artistName = DBTypes.catalogAlbumArtistName album
+
+          -- Read current config to get indexers and slskd
+          config <- liftIO $ STM.atomically $ STM.readTVar configVar
+          let indexerCfg = Cfg.indexers config
+          let enabledIndexers = filter Cfg.indexerEnabled (Cfg.indexerList indexerCfg)
+          let maybeSlskdConfig = Cfg.downloadSlskdClient (Cfg.download config)
+
+          -- Build search query
+          let searchQuery = SearchQuery
+                { sqArtist = Just artistName
+                , sqAlbum = Just albumTitle
+                , sqYear = Nothing
+                , sqQuery = Nothing
+                , sqCategories = [3000, 3010, 3020]
+                , sqLimit = 50
+                , sqOffset = 0
+                }
+
+          -- Return the streaming source
+          pure $ streamSearchResults le registry configVar enabledIndexers maybeSlskdConfig searchQuery
+
+    -- Stream search results from all sources
+    streamSearchResults ::
+      LogEnv ->
+      ServiceRegistry ->
+      TVar Cfg.Config ->
+      [Cfg.Indexer] ->
+      Maybe Cfg.SlskdConfig ->
+      SearchQuery ->
+      SourceIO ReleaseStreamEvent
+    streamSearchResults logEnv svcRegistry cfgVar indexers maybeSlskd query = SourceT $ \k -> k $ Effect $ do
+      -- Create a channel for results
+      chan <- newTChanIO
+
+      startTime <- getCurrentTime
+
+      -- Start all searches concurrently, writing results to channel
+      _ <- async $ do
+        let httpClient = srHttpClient svcRegistry
+
+        -- Search indexers concurrently
+        forM_ indexers $ \indexer -> async $ do
+          let indexerName = Cfg.indexerName indexer
+          STM.atomically $ writeTChan chan (SearchStarted indexerName)
+          result <- searchIndexer httpClient indexer query
+          case result of
+            Left err -> do
+              STM.atomically $ writeTChan chan (SearchError indexerName (show err))
+            Right indexerResult -> do
+              let releases = irReleases indexerResult
+              forM_ releases $ \release -> do
+                let response = releaseInfoToResponse indexerName release
+                STM.atomically $ writeTChan chan (ReleaseFound response indexerName)
+              STM.atomically $ writeTChan chan (SearchCompleted indexerName (length releases))
+
+        -- Search slskd if enabled (streaming version - emits results as found)
+        case maybeSlskd of
+          Just slskdConfig | Cfg.slskdEnabled slskdConfig -> do
+            let indexerName = "slskd"
+            STM.atomically $ writeTChan chan (SearchStarted indexerName)
+            let client = createSlskdClient slskdConfig httpClient
+            let artistName = fromMaybe "" (sqArtist query)
+            let albumName = fromMaybe "" (sqAlbum query)
+
+            -- Use streaming search - emit each candidate as it's found
+            resultCountRef <- IORef.newIORef (0 :: Int)
+            result <- searchSlskdStreaming logEnv client artistName albumName 60 $ \candidate -> do
+              let release = slskdCandidateToReleaseInfo candidate
+              let response = releaseInfoToResponse indexerName release
+              STM.atomically $ writeTChan chan (ReleaseFound response indexerName)
+              IORef.modifyIORef' resultCountRef (+1)
+
+            finalCount <- IORef.readIORef resultCountRef
+            case result of
+              Left err -> do
+                STM.atomically $ writeTChan chan (SearchError indexerName err)
+              Right _ -> do
+                STM.atomically $ writeTChan chan (SearchCompleted indexerName finalCount)
+          _ -> pure ()
+
+        -- Signal completion
+        endTime <- getCurrentTime
+        let totalTime = realToFrac $ diffUTCTime endTime startTime :: Double
+        STM.atomically $ writeTChan chan (SearchDone totalTime)
+
+      -- Return the source that reads from the channel
+      pure $ eventLoop chan
+
+    eventLoop :: TChan ReleaseStreamEvent -> StepT IO ReleaseStreamEvent
+    eventLoop chan = Effect $ do
+      evt <- STM.atomically $ readTChan chan
+      case evt of
+        SearchDone _ -> pure $ Yield evt Stop
+        _ -> pure $ Yield evt (eventLoop chan)
+
+    -- Search all indexers and slskd concurrently
     searchAllIndexers :: [Cfg.Indexer] -> SearchQuery -> IO [IndexerResult]
     searchAllIndexers indexers query = do
       let httpClient = srHttpClient registry
-      results <- mapConcurrently (\indexer -> searchIndexer httpClient indexer query) indexers
-      pure $ rights results
+
+      -- Get slskd config
+      config <- STM.atomically $ STM.readTVar configVar
+      let maybeSlskdConfig = Cfg.downloadSlskdClient (Cfg.download config)
+
+      -- Search indexers
+      let searchIndexersIO = do
+            results <- mapConcurrently (\indexer -> searchIndexer httpClient indexer query) indexers
+            pure $ rights results
+
+      -- Search slskd if configured and enabled
+      let searchSlskdIO = case maybeSlskdConfig of
+            Just slskdConfig | Cfg.slskdEnabled slskdConfig -> do
+              runKatipContextT le () "catalog.search" $ do
+                $(logTM) InfoS $ logStr $ ("Searching slskd at: " <> Cfg.slskdUrl slskdConfig :: Text)
+              let client = createSlskdClient slskdConfig httpClient
+              let artistName = fromMaybe "" (sqArtist query)
+              let albumName = fromMaybe "" (sqAlbum query)
+              result <- searchSlskd le client artistName albumName
+              case result of
+                Left err -> do
+                  runKatipContextT le () "catalog.search" $ do
+                    $(logTM) ErrorS $ logStr $ ("slskd search failed: " <> err :: Text)
+                  pure []
+                Right candidates -> do
+                  runKatipContextT le () "catalog.search" $ do
+                    $(logTM) InfoS $ logStr $ ("slskd returned " <> show (length candidates) <> " candidates" :: Text)
+                  -- Convert slskd candidates to ReleaseInfo, then wrap as IndexerResult
+                  let releases = map slskdCandidateToReleaseInfo candidates
+                  pure [IndexerResult
+                    { irIndexerName = "slskd"
+                    , irReleases = releases
+                    , irSearchTime = 0  -- Not tracked here
+                    }]
+            _ -> pure []
+
+      -- Run both searches in parallel
+      (indexerResults, slskdResults) <- concurrently searchIndexersIO searchSlskdIO
+      pure $ indexerResults ++ slskdResults
 
     -- Convert IndexerResult to list of ReleaseResponse
     convertIndexerResult :: IndexerResult -> [ReleaseResponse]
@@ -865,6 +1035,16 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       , releaseResponseDownloadType = case riDownloadType release of
           NZB -> "nzb"
           Torrent -> "torrent"
+          Slskd -> "slskd"
       , releaseResponseDownloadUrl = riDownloadUrl release
       , releaseResponsePublishDate = fmap show (riPublishDate release)
+      , releaseResponseSlskdUsername = riSlskdUsername release
+      , releaseResponseSlskdFiles = fmap (map toSlskdFileResponse) (riSlskdFiles release)
+      }
+
+    -- Convert SlskdFile to SlskdFileResponse
+    toSlskdFileResponse :: Indexer.SlskdFile -> SlskdFileResponse
+    toSlskdFileResponse f = SlskdFileResponse
+      { slskdFileFilename = Indexer.sfFilename f
+      , slskdFileSize = Indexer.sfSize f
       }

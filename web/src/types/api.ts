@@ -297,9 +297,18 @@ export interface ServerConfig {
   auth_enabled?: boolean; // computed field from backend
 }
 
+// slskd (Soulseek) client configuration
+export interface SlskdConfig {
+  url: string;
+  api_key: string;
+  enabled: boolean;
+  download_directory: string;
+}
+
 export interface DownloadConfig {
   nzb_client: DownloadClient | null;
   torrent_client: DownloadClient | null;
+  slskd_client: SlskdConfig | null;
   check_interval: number;
   auto_import: boolean;
   min_seeders: number | null;
@@ -438,6 +447,11 @@ export interface DownloadsResponse {
 }
 
 // Album releases search types
+export interface SlskdFile {
+  filename: string;
+  size: number;
+}
+
 export interface AlbumRelease {
   title: string;
   source: string;
@@ -445,9 +459,12 @@ export interface AlbumRelease {
   size: number | null;
   seeders: number | null;
   peers: number | null;
-  download_type: 'nzb' | 'torrent';
+  download_type: 'nzb' | 'torrent' | 'slskd';
   download_url: string;
   publish_date: string | null;
+  // slskd-specific fields
+  slskd_username: string | null;
+  slskd_files: SlskdFile[] | null;
 }
 
 export interface AlbumReleasesResponse {
@@ -465,6 +482,9 @@ export interface QueueDownloadRequest {
   quality: string | null;
   format: string | null;
   seeders: number | null;
+  // slskd-specific fields
+  slskd_username: string | null;
+  slskd_files: SlskdFile[] | null;
 }
 
 export interface QueueDownloadResponse {

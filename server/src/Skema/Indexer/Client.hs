@@ -203,6 +203,8 @@ parseXmlItem cursor = do
     , riGrabs = grabs
     , riDownloadType = downloadType
     , riQuality = quality
+    , riSlskdUsername = Nothing
+    , riSlskdFiles = Nothing
     }
 
 -- | Parse newznab:attr or torznab:attr element
@@ -446,6 +448,8 @@ parseItem NewznabItem{..} = do
     , riGrabs = grabs
     , riDownloadType = downloadType
     , riQuality = quality
+    , riSlskdUsername = Nothing
+    , riSlskdFiles = Nothing
     }
 
 -- | Test connection to an indexer

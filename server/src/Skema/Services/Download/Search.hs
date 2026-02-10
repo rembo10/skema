@@ -23,10 +23,12 @@ import Skema.HTTP.Client (HttpClient)
 import Skema.Indexer.Search (rankResultsWithContext)
 import Skema.Indexer.Client (searchIndexer)
 import Skema.Indexer.Types
-import Skema.Config.Types (Config(..), Indexer(..), IndexerConfig(..))
+import Skema.Config.Types (Config(..), DownloadConfig(..), Indexer(..), IndexerConfig(..), SlskdConfig(..))
 import Skema.Domain.Quality (meetsProfile, isBetterQuality, textToQuality)
+import Skema.Slskd.Client (SlskdClient, createSlskdClient)
+import Skema.Slskd.Search (searchSlskd, slskdCandidateToReleaseInfo)
 import Database.SQLite.Simple (Only(..))
-import Control.Concurrent.Async (async, race, mapConcurrently)
+import Control.Concurrent.Async (async, race, mapConcurrently, concurrently)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Concurrent (threadDelay)
@@ -121,9 +123,10 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
           -- Start concurrent search with timeout
           startTime <- liftIO getCurrentTime
 
+          let slskdConfig = downloadSlskdClient downloadConfig
           searchResult <- liftIO $ race
             (threadDelay searchTimeoutMicros)
-            (searchAllIndexersWithTracking bus le httpClient indexerConfig albumTitle artistName)
+            (searchAllIndexersWithTracking bus le httpClient indexerConfig slskdConfig albumTitle artistName)
 
           endTime <- liftIO getCurrentTime
           let searchDuration = realToFrac $ diffUTCTime endTime startTime :: Double
@@ -228,12 +231,31 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
                   pure ()
 
 -- | Search all indexers and emit events for each completion.
-searchAllIndexersWithTracking :: EventBus -> LogEnv -> HttpClient -> IndexerConfig -> Text -> Text -> IO SearchResult
-searchAllIndexersWithTracking bus le httpClient indexerConfig albumTitle artistName = do
+searchAllIndexersWithTracking :: EventBus -> LogEnv -> HttpClient -> IndexerConfig -> Maybe SlskdConfig -> Text -> Text -> IO SearchResult
+searchAllIndexersWithTracking bus le httpClient indexerConfig maybeSlskdConfig albumTitle artistName = do
   let enabledIndexers = filter indexerEnabled (indexerList indexerConfig)
 
-  -- Search each indexer and track completion
-  indexerResults <- mapConcurrently (\indexer -> do
+  -- Search indexers and slskd in parallel
+  (indexerResults, slskdResults) <- concurrently
+    (searchIndexersParallel bus le httpClient enabledIndexers albumTitle artistName)
+    (searchSlskdIfEnabled bus le httpClient maybeSlskdConfig albumTitle artistName)
+
+  -- Partition indexer results into successes and failures
+  let (errors, successes) = partitionEithers indexerResults
+      indexerReleases = concatMap irReleases successes
+      allReleases = indexerReleases ++ slskdResults
+      totalReleases = length allReleases
+
+  pure SearchResult
+    { srResults = successes ++ [IndexerResult "slskd" slskdResults 0.0 | not (null slskdResults)]
+    , srErrors = errors
+    , srTotalReleases = totalReleases
+    }
+
+-- | Search all indexers in parallel.
+searchIndexersParallel :: EventBus -> LogEnv -> HttpClient -> [Indexer] -> Text -> Text -> IO [Either IndexerError IndexerResult]
+searchIndexersParallel bus le httpClient enabledIndexers albumTitle artistName = do
+  mapConcurrently (\indexer -> do
     startTime <- getCurrentTime
     result <- searchIndexer httpClient indexer (buildSearchQuery albumTitle artistName)
     endTime <- getCurrentTime
@@ -262,15 +284,41 @@ searchAllIndexersWithTracking bus le httpClient indexerConfig albumTitle artistN
         pure $ Right indexerResult
     ) enabledIndexers
 
-  -- Partition results into successes and failures
-  let (errors, successes) = partitionEithers indexerResults
-      totalReleases = sum $ map (length . irReleases) successes
+-- | Search slskd if enabled.
+searchSlskdIfEnabled :: EventBus -> LogEnv -> HttpClient -> Maybe SlskdConfig -> Text -> Text -> IO [ReleaseInfo]
+searchSlskdIfEnabled bus le httpClient maybeSlskdConfig artistName albumTitle = do
+  case maybeSlskdConfig of
+    Nothing -> pure []
+    Just config | not (slskdEnabled config) -> pure []
+    Just config -> do
+      startTime <- getCurrentTime
+      let client = createSlskdClient config httpClient
+      result <- searchSlskd le client artistName albumTitle
+      endTime <- getCurrentTime
+      let duration = realToFrac $ diffUTCTime endTime startTime :: Double
 
-  pure SearchResult
-    { srResults = successes
-    , srErrors = errors
-    , srTotalReleases = totalReleases
-    }
+      case result of
+        Left err -> do
+          runKatipContextT le () "download.search" $ do
+            $(logTM) WarningS $ logStr $ ("slskd search failed: " <> err :: Text)
+          publishAndLog bus le "download" $ SlskdSearchCompleted
+            { slskdSearchResultCount = 0
+            , slskdSearchDuration = duration
+            , slskdSearchError = Just err
+            }
+          pure []
+
+        Right candidates -> do
+          let releases = map slskdCandidateToReleaseInfo candidates
+              resultCount = length releases
+          runKatipContextT le () "download.search" $ do
+            $(logTM) InfoS $ logStr $ ("slskd returned " <> show resultCount <> " album candidates" :: Text)
+          publishAndLog bus le "download" $ SlskdSearchCompleted
+            { slskdSearchResultCount = resultCount
+            , slskdSearchDuration = duration
+            , slskdSearchError = Nothing
+            }
+          pure releases
 
 -- | Build a search query from album and artist name.
 buildSearchQuery :: Text -> Text -> SearchQuery

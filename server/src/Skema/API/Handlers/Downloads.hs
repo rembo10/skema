@@ -1,11 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | Downloads API handlers.
 module Skema.API.Handlers.Downloads
   ( downloadsServer
   ) where
 
-import Skema.API.Types.Downloads (DownloadsAPI, DownloadResponse(..), DownloadsPagination(..), DownloadsResponse(..), QueueDownloadRequest(..), QueueDownloadResponse(..), DownloadTaskRequest(..))
+import Skema.API.Types.Downloads (DownloadsAPI, DownloadResponse(..), DownloadsPagination(..), DownloadsResponse(..), QueueDownloadRequest(..), SlskdFileRequest(..), QueueDownloadResponse(..), DownloadTaskRequest(..))
 import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
 import Skema.Core.TaskManager (TaskManager)
 import qualified Skema.Core.TaskManager as TM
@@ -22,7 +23,11 @@ import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
 import Skema.Services.Registry (ServiceRegistry(..))
 import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
-import Skema.Indexer.Types (ReleaseInfo(..), DownloadType(..))
+import Skema.Services.Download.Client (createClientInstance)
+import Skema.DownloadClient.Types (removeDownload)
+import Skema.Indexer.Types (ReleaseInfo(..), DownloadType(..), SlskdFile(..))
+import qualified Skema.Slskd.Client as Slskd
+import qualified Skema.Slskd.Types as SlskdTypes
 import Skema.Domain.Quality (textToQuality)
 import Control.Concurrent.Async (async)
 import Data.Aeson (toJSON, object, (.=))
@@ -248,6 +253,8 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
           qualityText = queueDownloadQuality req
           format = queueDownloadFormat req
           seeders = queueDownloadSeeders req
+          slskdUsername = queueDownloadSlskdUsername req
+          slskdFiles = queueDownloadSlskdFiles req
 
       -- Parse quality from text
       let quality = case qualityText of
@@ -260,7 +267,19 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
       let downloadType = case format of
             Just "NZB" -> NZB
             Just "TORRENT" -> Torrent
+            Just "SLSKD" -> Slskd
             _ -> error $ "Invalid download format: " <> show format
+
+      -- Convert slskd files if present
+      let convertSlskdFile f = SlskdFile
+            { sfFilename = slskdFileRequestFilename f
+            , sfSize = slskdFileRequestSize f
+            , sfBitRate = Nothing
+            , sfSampleRate = Nothing
+            , sfBitDepth = Nothing
+            , sfLength = Nothing
+            , sfIsLocked = False
+            }
 
       -- Create ReleaseInfo from request
       now <- liftIO getCurrentTime
@@ -277,6 +296,8 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
             , riGrabs = Nothing
             , riDownloadType = downloadType
             , riQuality = quality
+            , riSlskdUsername = slskdUsername
+            , riSlskdFiles = fmap (map convertSlskdFile) slskdFiles
             }
 
       -- Create submission context
@@ -307,6 +328,99 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
     deleteDownloadHandler :: Maybe Text -> Int64 -> Handler NoContent
     deleteDownloadHandler authHeader downloadId = do
       _ <- requireAuth configVar jwtSecret authHeader
+
+      -- Look up the download to check if it's in progress
+      downloads <- liftIO $ withConnection connPool $ \conn ->
+        queryRows conn
+          "SELECT id, catalog_album_id, indexer_name, download_url, download_client, \
+          \download_client_id, status, download_path, title, size_bytes, quality, \
+          \format, seeders, progress, error_message, queued_at, started_at, \
+          \completed_at, imported_at, updated_at, \
+          \matched_cluster_id, library_path \
+          \FROM downloads WHERE id = ?"
+          (Only downloadId) :: IO [DBTypes.DownloadRecord]
+
+      -- If download is in progress, try to cancel it from the client
+      case downloads of
+        (download:_) -> do
+          let status = DBTypes.downloadStatus download
+              clientName = DBTypes.downloadClient download
+              clientId = DBTypes.downloadClientId download
+
+          -- Cancel if downloading or queued
+          when (status == DBTypes.DownloadDownloading || status == DBTypes.DownloadQueued) $ do
+            config <- liftIO $ STM.atomically $ STM.readTVar configVar
+            liftIO $ runKatipContextT le () "api.downloads.delete" $ do
+              $(logTM) InfoS $ logStr $ ("Cancelling in-progress download " <> show downloadId <> " from client: " <> show clientName :: Text)
+
+            case clientName of
+              Just "slskd" -> do
+                -- For slskd, we need to cancel transfers
+                -- The client_id format is "username:title", extract username
+                case clientId of
+                  Just cid -> do
+                    let username = T.takeWhile (/= ':') cid
+                    -- Get slskd config and cancel transfers
+                    let maybeSlskdConfig = Cfg.downloadSlskdClient (Cfg.download config)
+                    case maybeSlskdConfig of
+                      Just slskdConfig | Cfg.slskdEnabled slskdConfig -> do
+                        let httpClient = srHttpClient registry
+                        let client = Slskd.createSlskdClient slskdConfig httpClient
+                        -- Get transfers for this user and cancel them
+                        result <- liftIO $ Slskd.getTransfersByUsername client username
+                        case result of
+                          Left err -> liftIO $ runKatipContextT le () "api.downloads.delete" $
+                            $(logTM) WarningS $ logStr $ ("Failed to get slskd transfers: " <> err :: Text)
+                          Right transfers -> do
+                            -- Cancel each transfer
+                            forM_ transfers $ \transfer -> do
+                              _ <- liftIO $ Slskd.cancelTransfer client username (SlskdTypes.stId transfer) True
+                              pure ()
+                            liftIO $ runKatipContextT le () "api.downloads.delete" $
+                              $(logTM) InfoS $ logStr $ ("Cancelled " <> show (length transfers) <> " slskd transfers" :: Text)
+                      _ -> pure ()
+                  Nothing -> pure ()
+
+              Just client | client == "SABnzbd" || client == "NZBGet" -> do
+                -- For NZB clients, use removeDownload
+                case clientId of
+                  Just cid -> do
+                    let nzbConfig = Cfg.downloadNzbClient (Cfg.download config)
+                    case nzbConfig of
+                      Just nzbClient | Cfg.dcEnabled nzbClient -> do
+                        let httpClient = srHttpClient registry
+                        clientInstance <- liftIO $ createClientInstance httpClient nzbClient
+                        result <- liftIO $ removeDownload clientInstance cid True
+                        case result of
+                          Left err -> liftIO $ runKatipContextT le () "api.downloads.delete" $
+                            $(logTM) WarningS $ logStr $ ("Failed to remove from NZB client: " <> err :: Text)
+                          Right () -> liftIO $ runKatipContextT le () "api.downloads.delete" $
+                            $(logTM) InfoS $ logStr $ ("Removed download from NZB client" :: Text)
+                      _ -> pure ()
+                  Nothing -> pure ()
+
+              Just client | client == "Transmission" || client == "qBittorrent" -> do
+                -- For torrent clients, use removeDownload
+                case clientId of
+                  Just cid -> do
+                    let torrentConfig = Cfg.downloadTorrentClient (Cfg.download config)
+                    case torrentConfig of
+                      Just torrentClient | Cfg.dcEnabled torrentClient -> do
+                        let httpClient = srHttpClient registry
+                        clientInstance <- liftIO $ createClientInstance httpClient torrentClient
+                        result <- liftIO $ removeDownload clientInstance cid True
+                        case result of
+                          Left err -> liftIO $ runKatipContextT le () "api.downloads.delete" $
+                            $(logTM) WarningS $ logStr $ ("Failed to remove from torrent client: " <> err :: Text)
+                          Right () -> liftIO $ runKatipContextT le () "api.downloads.delete" $
+                            $(logTM) InfoS $ logStr $ ("Removed download from torrent client" :: Text)
+                      _ -> pure ()
+                  Nothing -> pure ()
+
+              _ -> pure ()  -- Unknown client, just delete from DB
+
+        [] -> pure ()  -- Download not found, just proceed with delete
+
       -- Delete the download record from the database
       liftIO $ withConnection connPool $ \conn ->
         DownloadsRepo.deleteDownload conn downloadId

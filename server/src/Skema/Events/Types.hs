@@ -177,6 +177,19 @@ data Event
       , selectedSeeders :: Maybe Int
       }
 
+  -- slskd events
+  | SlskdSearchCompleted
+      { slskdSearchResultCount :: Int
+      , slskdSearchDuration :: Double
+      , slskdSearchError :: Maybe Text
+      }
+  | SlskdFilesQueued
+      { slskdQueuedDownloadId :: Int64
+      , slskdQueuedUsername :: Text
+      , slskdQueuedFileCount :: Int
+      , slskdQueuedTotalSize :: Integer
+      }
+
   -- Download events
   | DownloadQueued
       { downloadId :: Int64
@@ -509,6 +522,17 @@ eventToJSON = \case
     , "indexer" .= selectedIndexer
     , "score" .= selectedScore
     , "seeders" .= selectedSeeders
+    ]
+  SlskdSearchCompleted{..} -> object
+    [ "result_count" .= slskdSearchResultCount
+    , "duration" .= slskdSearchDuration
+    , "error" .= slskdSearchError
+    ]
+  SlskdFilesQueued{..} -> object
+    [ "download_id" .= slskdQueuedDownloadId
+    , "username" .= slskdQueuedUsername
+    , "file_count" .= slskdQueuedFileCount
+    , "total_size" .= slskdQueuedTotalSize
     ]
   DownloadQueued{..} -> object
     [ "download_id" .= downloadId

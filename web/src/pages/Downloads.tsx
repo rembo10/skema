@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../lib/api';
 import type { Download, DownloadStatus } from '../types/api';
-import { Download as DownloadIcon, Trash2, Clock, CheckCircle2, XCircle, Archive, Loader2, AlertCircle, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Download as DownloadIcon, Trash2, Clock, CheckCircle2, XCircle, Archive, AlertCircle, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
 import { DownloadCardSkeleton } from '../components/LoadingSkeleton';
@@ -51,10 +51,19 @@ export default function Downloads() {
   };
 
   // Merge loaded downloads with store downloads for live updates
-  // This ensures that downloads in the current view get real-time updates from SSE
+  // API data is the base, store provides real-time updates (progress, status)
   const mergedDownloads = downloads.map(download => {
     const storeDownload = storeDownloads.find(d => d.id === download.id);
-    return storeDownload || download;
+    if (storeDownload) {
+      // Merge: use API data as base, override with store's live fields
+      return {
+        ...download,
+        progress: storeDownload.progress,
+        status: storeDownload.status,
+        error_message: storeDownload.error_message || download.error_message,
+      };
+    }
+    return download;
   });
 
   const handleDelete = async (download: Download) => {
@@ -189,10 +198,10 @@ export default function Downloads() {
                 <span className={`font-medium ${getStatusColor(download.status)}`}>
                   {getStatusText(download.status)}
                 </span>
-                {download.indexer_name && (
+                {(download.indexer_name || download.download_client) && (
                   <>
                     <span>•</span>
-                    <span>{download.indexer_name}</span>
+                    <span>{download.indexer_name || download.download_client}</span>
                   </>
                 )}
                 {download.size_bytes && (

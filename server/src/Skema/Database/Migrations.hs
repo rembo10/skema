@@ -501,6 +501,36 @@ runIncrementalMigrations le conn = do
         recordMigration conn "006_add_normalized_search_columns"
       $(logTM) InfoS "Completed migration: 006_add_normalized_search_columns"
 
+    -- Migration 007: Add slskd tracking columns to downloads table
+    applied007 <- liftIO $ migrationApplied conn "007_add_slskd_columns"
+    unless applied007 $ do
+      $(logTM) InfoS "Running migration: 007_add_slskd_columns"
+      liftIO $ do
+        -- Add slskd_username column to track which user the files are from
+        slskdUsernameExists <- columnExists conn "downloads" "slskd_username"
+        unless slskdUsernameExists $ do
+          executeQuery_ conn
+            "ALTER TABLE downloads ADD COLUMN slskd_username TEXT"
+
+        -- Add slskd_files_total to track total number of files
+        slskdFilesTotalExists <- columnExists conn "downloads" "slskd_files_total"
+        unless slskdFilesTotalExists $ do
+          executeQuery_ conn
+            "ALTER TABLE downloads ADD COLUMN slskd_files_total INTEGER"
+
+        -- Add slskd_files_completed to track completed files
+        slskdFilesCompletedExists <- columnExists conn "downloads" "slskd_files_completed"
+        unless slskdFilesCompletedExists $ do
+          executeQuery_ conn
+            "ALTER TABLE downloads ADD COLUMN slskd_files_completed INTEGER"
+
+        -- Create index for efficient queries on slskd downloads
+        executeQuery_ conn
+          "CREATE INDEX IF NOT EXISTS idx_downloads_slskd_username ON downloads(slskd_username)"
+
+        recordMigration conn "007_add_slskd_columns"
+      $(logTM) InfoS "Completed migration: 007_add_slskd_columns"
+
 -- | Normalize text for search by:
 -- 1. Decomposing accented characters (NFD normalization)
 -- 2. Removing diacritical marks

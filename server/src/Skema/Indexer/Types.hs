@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Skema.Indexer.Types
   ( SearchQuery (..)
@@ -8,16 +9,60 @@ module Skema.Indexer.Types
   , IndexerError (..)
   , ReleaseInfo (..)
   , DownloadType (..)
+  , SlskdFile (..)
   ) where
 
+import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.:), (.:?), (.=), (.!=))
 import Data.Time (UTCTime)
 import qualified Skema.Domain.Quality as Quality
 
--- | Type of download (NZB or Torrent)
+-- | Type of download (NZB, Torrent, or Slskd)
 data DownloadType
   = NZB
   | Torrent
+  | Slskd
   deriving (Show, Eq, Generic)
+
+-- | File information for slskd downloads.
+-- Re-exported from Slskd.Types for convenience.
+data SlskdFile = SlskdFile
+  { sfFilename :: Text
+    -- ^ Full path including filename
+  , sfSize :: Integer
+    -- ^ File size in bytes
+  , sfBitRate :: Maybe Int
+    -- ^ Audio bitrate (for MP3/lossy formats)
+  , sfSampleRate :: Maybe Int
+    -- ^ Sample rate in Hz
+  , sfBitDepth :: Maybe Int
+    -- ^ Bit depth (e.g., 16, 24)
+  , sfLength :: Maybe Int
+    -- ^ Duration in seconds
+  , sfIsLocked :: Bool
+    -- ^ Whether file is locked (non-downloadable)
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON SlskdFile where
+  parseJSON = withObject "SlskdFile" $ \o -> do
+    sfFilename <- o .: "filename"
+    sfSize <- o .: "size"
+    sfBitRate <- o .:? "bitRate"
+    sfSampleRate <- o .:? "sampleRate"
+    sfBitDepth <- o .:? "bitDepth"
+    sfLength <- o .:? "length"
+    sfIsLocked <- o .:? "isLocked" .!= False
+    pure SlskdFile {..}
+
+instance ToJSON SlskdFile where
+  toJSON sf = object
+    [ "filename" .= sfFilename sf
+    , "size" .= sfSize sf
+    , "bitRate" .= sfBitRate sf
+    , "sampleRate" .= sfSampleRate sf
+    , "bitDepth" .= sfBitDepth sf
+    , "length" .= sfLength sf
+    , "isLocked" .= sfIsLocked sf
+    ]
 
 -- | Search query parameters
 data SearchQuery = SearchQuery
@@ -44,6 +89,8 @@ data ReleaseInfo = ReleaseInfo
   , riGrabs :: Maybe Int    -- Download count
   , riDownloadType :: DownloadType
   , riQuality :: Quality.Quality  -- Parsed quality from title
+  , riSlskdUsername :: Maybe Text  -- For slskd downloads: username
+  , riSlskdFiles :: Maybe [SlskdFile]  -- For slskd downloads: files to queue
   } deriving (Show, Eq, Generic)
 
 -- | Result from a single indexer

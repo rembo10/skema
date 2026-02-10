@@ -2,6 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 -- | Catalog API types.
 module Skema.API.Types.Catalog
@@ -28,14 +30,21 @@ module Skema.API.Types.Catalog
   , CatalogTaskRequest(..)
   , AlbumReleasesResponse(..)
   , ReleaseResponse(..)
+  , SlskdFileResponse(..)
+  , ReleaseStreamEvent(..)
   ) where
 
 import Skema.API.Types.Tasks (TaskResponse)
+import Skema.API.Types.Common (SourceIO)
 import Skema.Core.Catalog (AlbumState(..))
-import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2, withObject, (.:))
+import Data.Aeson (ToJSON(..), FromJSON(..), Value, defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2, withObject, (.:), object, (.=), encode)
 import qualified Data.Aeson.KeyMap as KM
+import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Text.Encoding as TE
 import GHC.Generics ()
-import Servant
+import Servant hiding (SourceIO, ServerSentEvents)
+import Servant.API.EventStream (ServerSentEvents, ToServerEvent(..))
+import qualified Servant.API.EventStream as SSE
 
 -- | Catalog API endpoints.
 type CatalogAPI = "catalog" :> Header "Authorization" Text :>
@@ -69,6 +78,7 @@ type CatalogAPI = "catalog" :> Header "Authorization" Text :>
   :<|> "albums" :> Capture "albumId" Int64 :> ReqBody '[JSON] UpdateCatalogAlbumRequest :> Patch '[JSON] CatalogAlbumResponse
   :<|> "albums" :> Capture "albumId" Int64 :> DeleteNoContent
   :<|> "albums" :> Capture "albumId" Int64 :> "releases" :> Get '[JSON] AlbumReleasesResponse
+  :<|> "albums" :> Capture "albumId" Int64 :> "releases" :> "stream" :> QueryParam "token" Text :> ServerSentEvents (SourceIO ReleaseStreamEvent)
   :<|> "albums" :> "bulk-action" :> ReqBody '[JSON] BulkAlbumActionRequest :> Post '[JSON] NoContent
   )
 
@@ -434,13 +444,81 @@ data ReleaseResponse = ReleaseResponse
   , releaseResponseSize :: Maybe Int64
   , releaseResponseSeeders :: Maybe Int
   , releaseResponsePeers :: Maybe Int
-  , releaseResponseDownloadType :: Text  -- "NZB" or "Torrent"
+  , releaseResponseDownloadType :: Text  -- "nzb", "torrent", or "slskd"
   , releaseResponseDownloadUrl :: Text
   , releaseResponsePublishDate :: Maybe Text
+  , releaseResponseSlskdUsername :: Maybe Text  -- For slskd downloads
+  , releaseResponseSlskdFiles :: Maybe [SlskdFileResponse]  -- For slskd downloads
   } deriving (Show, Eq, Generic)
+
+-- | Slskd file information for downloads
+data SlskdFileResponse = SlskdFileResponse
+  { slskdFileFilename :: Text
+  , slskdFileSize :: Integer
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON SlskdFileResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 9 }
+
+instance FromJSON SlskdFileResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 9 }
 
 instance ToJSON ReleaseResponse where
   toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
 
 instance FromJSON ReleaseResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
+
+-- ============================================================================
+-- STREAMING RELEASE SEARCH
+-- ============================================================================
+
+-- | Events for streaming release search results
+data ReleaseStreamEvent
+  = ReleaseFound ReleaseResponse Text  -- Release and source name
+  | SearchStarted Text                 -- Source name starting search
+  | SearchCompleted Text Int           -- Source name and result count
+  | SearchError Text Text              -- Source name and error message
+  | SearchDone Double                  -- Total search time
+  deriving (Show, Eq, Generic)
+
+instance ToJSON ReleaseStreamEvent where
+  toJSON (ReleaseFound release source) = object
+    [ "type" .= ("release" :: Text)
+    , "source" .= source
+    , "release" .= release
+    ]
+  toJSON (SearchStarted source) = object
+    [ "type" .= ("started" :: Text)
+    , "source" .= source
+    ]
+  toJSON (SearchCompleted source count) = object
+    [ "type" .= ("completed" :: Text)
+    , "source" .= source
+    , "count" .= count
+    ]
+  toJSON (SearchError source err) = object
+    [ "type" .= ("error" :: Text)
+    , "source" .= source
+    , "error" .= err
+    ]
+  toJSON (SearchDone totalTime) = object
+    [ "type" .= ("done" :: Text)
+    , "total_time" .= totalTime
+    ]
+
+-- | ToServerEvent instance for servant-event-stream
+instance ToServerEvent ReleaseStreamEvent where
+  toServerEvent evt =
+    let jsonData = encode evt
+        evtType = case evt of
+          ReleaseFound {} -> "release"
+          SearchStarted {} -> "started"
+          SearchCompleted {} -> "completed"
+          SearchError {} -> "error"
+          SearchDone {} -> "done"
+    in SSE.ServerEvent
+         { SSE.eventType = Just (BSL.fromStrict $ TE.encodeUtf8 evtType)
+         , SSE.eventId = Nothing
+         , SSE.eventData = jsonData
+         }
