@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import { FileAudio, HardDrive, Clock, Disc, Mic, AlertTriangle, RefreshCw, RotateCcw } from 'lucide-react';
 import { api } from '../lib/api';
+import { formatBytes, formatDuration } from '../lib/formatters';
 import { useAppStore } from '../store';
 import type { LibraryStats } from '../types/api';
 import { RecentlyFollowedArtists } from '../components/RecentlyFollowedArtists';
@@ -10,33 +11,6 @@ import { RecentlyReleasedAlbums } from '../components/RecentlyReleasedAlbums';
 import { DashboardSkeleton } from '../components/LoadingSkeleton';
 import { UpcomingAlbums } from '../components/UpcomingAlbums';
 import { WantedAlbumsSummary } from '../components/WantedAlbumsSummary';
-
-// Format bytes to human-readable string
-const formatBytes = (bytes: number): string => {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
-};
-
-// Format duration in seconds to human-readable string
-const formatDuration = (seconds: number): string => {
-  if (seconds === 0) return '0s';
-
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-
-  const parts: string[] = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
-  if (minutes > 0) parts.push(`${minutes}m`);
-  if (secs > 0 && days === 0 && hours === 0) parts.push(`${secs}s`); // Only show seconds if less than an hour
-
-  return parts.join(' ') || '0s';
-};
 
 export default function Dashboard() {
   // Read state from Zustand

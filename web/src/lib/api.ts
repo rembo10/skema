@@ -1,4 +1,5 @@
 import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, ArtistsResponse, CatalogAlbum, Download, DownloadsResponse, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task, AlbumOverviewRequest, AlbumOverviewResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse } from '../types/api';
+import { buildQueryString } from './queryBuilder';
 
 // Base path configuration
 // Can be set via environment variable at build time, or detected from <base> tag
@@ -220,10 +221,8 @@ export const api = {
   },
 
   async getGroupedDiffs(offset: number = 0, limit: number = 50): Promise<GroupedDiffsResponse> {
-    const params = new URLSearchParams();
-    params.append('offset', offset.toString());
-    params.append('limit', limit.toString());
-    return fetchApi<GroupedDiffsResponse>(`/diffs/grouped?${params.toString()}`);
+    const query = buildQueryString({ offset, limit });
+    return fetchApi<GroupedDiffsResponse>(`/diffs/grouped?${query}`);
   },
 
   async applyDiff(diffId: number): Promise<void> {
@@ -255,10 +254,8 @@ export const api = {
   },
 
   async getMetadataChanges(offset: number = 0, limit: number = 50): Promise<MetadataChangesResponse> {
-    const params = new URLSearchParams();
-    params.append('offset', offset.toString());
-    params.append('limit', limit.toString());
-    return fetchApi<MetadataChangesResponse>(`/metadata-changes?${params.toString()}`);
+    const query = buildQueryString({ offset, limit });
+    return fetchApi<MetadataChangesResponse>(`/metadata-changes?${query}`);
   },
 
   async revertMetadataChange(changeId: number): Promise<void> {
@@ -276,14 +273,8 @@ export const api = {
     sort?: string,
     order?: string
   ): Promise<ClustersResponse> {
-    const params = new URLSearchParams();
-    params.append('offset', offset.toString());
-    params.append('limit', limit.toString());
-    if (search) params.append('search', search);
-    if (filter) params.append('filter', filter);
-    if (sort) params.append('sort', sort);
-    if (order) params.append('order', order);
-    return fetchApi<ClustersResponse>(`/clusters?${params.toString()}`);
+    const query = buildQueryString({ offset, limit, search, filter, sort, order });
+    return fetchApi<ClustersResponse>(`/clusters?${query}`);
   },
 
   async getCluster(clusterId: number): Promise<{
@@ -332,15 +323,13 @@ export const api = {
   },
 
   async searchReleases(query: string, limit?: number): Promise<CandidateRelease[]> {
-    const params = new URLSearchParams({ query });
-    if (limit) params.append('limit', limit.toString());
-    return fetchApi<CandidateRelease[]>(`/clusters/search-releases?${params}`);
+    const qs = buildQueryString({ query, limit });
+    return fetchApi<CandidateRelease[]>(`/clusters/search-releases?${qs}`);
   },
 
   async searchRecordings(query: string, limit?: number): Promise<MBTrackInfo[]> {
-    const params = new URLSearchParams({ query });
-    if (limit) params.append('limit', limit.toString());
-    return fetchApi<MBTrackInfo[]>(`/clusters/search-recordings?${params}`);
+    const qs = buildQueryString({ query, limit });
+    return fetchApi<MBTrackInfo[]>(`/clusters/search-recordings?${qs}`);
   },
 
   async updateTrackRecording(
@@ -384,22 +373,15 @@ export const api = {
   },
 
   async getAllTracks(offset: number = 0, limit: number = 50, filter?: string, sort?: string, order?: string, search?: string): Promise<TracksResponse> {
-    const params = new URLSearchParams();
-    params.append('offset', offset.toString());
-    params.append('limit', limit.toString());
-    if (filter && filter !== 'all') {
-      params.append('filter', filter);
-    }
-    if (sort) {
-      params.append('sort', sort);
-    }
-    if (order) {
-      params.append('order', order);
-    }
-    if (search) {
-      params.append('search', search);
-    }
-    return fetchApi<TracksResponse>(`/library/tracks?${params.toString()}`);
+    const query = buildQueryString({
+      offset,
+      limit,
+      filter: filter && filter !== 'all' ? filter : undefined,
+      sort,
+      order,
+      search,
+    });
+    return fetchApi<TracksResponse>(`/library/tracks?${query}`);
   },
 
   async getTracksStats(): Promise<TracksStats> {
@@ -518,14 +500,8 @@ export const api = {
     sort?: string,
     order?: 'asc' | 'desc'
   ): Promise<ArtistsResponse> {
-    const params = new URLSearchParams();
-    params.append('offset', offset.toString());
-    params.append('limit', limit.toString());
-    if (followed !== undefined) params.append('followed', followed.toString());
-    if (search) params.append('search', search);
-    if (sort) params.append('sort', sort);
-    if (order) params.append('order', order);
-    return fetchApi<ArtistsResponse>(`/catalog/artists?${params.toString()}`);
+    const query = buildQueryString({ offset, limit, followed, search, sort, order });
+    return fetchApi<ArtistsResponse>(`/catalog/artists?${query}`);
   },
 
   async createCatalogArtist(artist: {
@@ -578,12 +554,10 @@ export const api = {
   },
 
   async getCatalogAlbums(wanted?: boolean, artistId?: number): Promise<CatalogAlbum[]> {
-    const params = new URLSearchParams();
-    if (wanted !== undefined) params.append('wanted', String(wanted));
-    if (artistId !== undefined) params.append('artistId', String(artistId));
-    const queryString = params.toString() ? `?${params.toString()}` : '';
+    const query = buildQueryString({ wanted, artistId });
+    const url = query ? `/catalog/albums?${query}` : '/catalog/albums';
     // Backend now returns AlbumOverviewResponse, extract albums array
-    const response = await fetchApi<AlbumOverviewResponse>(`/catalog/albums${queryString}`);
+    const response = await fetchApi<AlbumOverviewResponse>(url);
     // Convert CatalogAlbumOverview to CatalogAlbum (use only the fields that exist in both)
     return response.albums.map(album => ({
       id: album.id,
@@ -637,21 +611,20 @@ export const api = {
   },
 
   async getAlbumOverview(request: AlbumOverviewRequest): Promise<AlbumOverviewResponse> {
-    const params = new URLSearchParams();
-    if (request.offset !== undefined) params.append('offset', request.offset.toString());
-    if (request.limit !== undefined) params.append('limit', request.limit.toString());
-    if (request.wanted !== undefined) params.append('wanted', request.wanted.toString());
-    if (request.artist_id !== undefined) params.append('artistId', request.artist_id.toString());
-    if (request.search) params.append('search', request.search);
-    if (request.sort) params.append('sort', request.sort);
-    if (request.order) params.append('order', request.order);
-    if (request.state && request.state.length > 0) params.append('state', request.state.join(','));
-    if (request.quality && request.quality.length > 0) params.append('quality', request.quality.join(','));
-    if (request.release_date_after) params.append('release_date_after', request.release_date_after);
-    if (request.release_date_before) params.append('release_date_before', request.release_date_before);
-
-    const queryString = params.toString();
-    const url = queryString ? `/catalog/albums?${queryString}` : '/catalog/albums';
+    const query = buildQueryString({
+      offset: request.offset,
+      limit: request.limit,
+      wanted: request.wanted,
+      artistId: request.artist_id,
+      search: request.search,
+      sort: request.sort,
+      order: request.order,
+      state: request.state,
+      quality: request.quality,
+      release_date_after: request.release_date_after,
+      release_date_before: request.release_date_before,
+    });
+    const url = query ? `/catalog/albums?${query}` : '/catalog/albums';
 
     return fetchApi<AlbumOverviewResponse>(url, {
       method: 'GET',
@@ -745,10 +718,8 @@ export const api = {
 
   // Downloads
   async getAllDownloads(offset: number = 0, limit: number = 50): Promise<DownloadsResponse> {
-    const params = new URLSearchParams();
-    params.append('offset', offset.toString());
-    params.append('limit', limit.toString());
-    return fetchApi<DownloadsResponse>(`/downloads?${params.toString()}`);
+    const query = buildQueryString({ offset, limit });
+    return fetchApi<DownloadsResponse>(`/downloads?${query}`);
   },
 
   async getDownload(downloadId: number): Promise<Download> {

@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import { formatDate } from '../lib/formatters';
 import type { CatalogArtist, CatalogAlbum, QualityProfile } from '../types/api';
 import { Music, ExternalLink, Calendar, ArrowLeft, Disc, UserMinus, AlertCircle, RefreshCw, X, Award } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -207,15 +208,6 @@ export default function ArtistDetail() {
       toast.error('Failed to update quality profile');
       console.error('Error updating quality profile:', error);
     }
-  };
-
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return 'Unknown date';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
   };
 
   const groupAlbumsByYear = (albums: CatalogAlbum[]) => {

@@ -67,6 +67,10 @@ library
     Skema.Database.Migrations
     Skema.Database.Repository
     Skema.Database.Repository.Catalog
+    Skema.Database.Repository.Catalog.Album
+    Skema.Database.Repository.Catalog.Artist
+    Skema.Database.Repository.Catalog.Overview
+    Skema.Database.Repository.Catalog.Types
     Skema.Database.Repository.Tracks
     Skema.Database.Repository.Clusters
     Skema.Database.Repository.Diffs

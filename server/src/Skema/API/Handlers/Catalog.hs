@@ -48,8 +48,6 @@ import qualified Data.IORef as IORef
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime)
 import qualified Data.Text as Text
 import qualified Control.Concurrent.STM as STM
-import qualified Data.Map.Strict as Map
-import Data.List (foldl')
 
 -- | Throw a 400 Bad Request error.
 throw400 :: Text -> Handler a
@@ -199,8 +197,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           -- For followed artists, include recent albums
           maybeAlbums <- case (DBTypes.catalogArtistFollowed artist, DBTypes.catalogArtistId artist) of
             (True, Just artistId) -> do
-              -- Get albums for this artist (all albums, sorted by release date desc)
-              albumRows <- DB.getCatalogAlbumsOverview conn 999999 0 Nothing Nothing (Just artistId) Nothing (Just "first_release_date") (Just "desc") Nothing Nothing
+              -- Get all albums for this artist (sorted by release date desc)
+              albumRows <- DB.getCatalogAlbumsByArtistOverview conn artistId
               pure $ Just $ map rowToResponse albumRows
             _ -> pure Nothing
 
@@ -425,7 +423,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
           -- Get active download info from overview
           maybeAlbumWithDownload <- liftIO $ withConnection connPool $ \conn -> do
-            overviews <- DB.getCatalogAlbumsOverview conn 1 0 Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+            overviews <- DB.getCatalogAlbumsOverview conn DB.defaultAlbumQuery { DB.aqLimit = 1 }
             pure $ find (\row -> DB.caorAlbumId row == albumId) overviews
 
           let maybeActiveDownloadId = maybeAlbumWithDownload >>= DB.caorActiveDownloadId
@@ -501,7 +499,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             Just album -> do
               -- Fetch overview data for complete state information
               overviewRow <- liftIO $ withConnection connPool $ \conn -> do
-                overviews <- DB.getCatalogAlbumsOverview conn 1 0 Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+                overviews <- DB.getCatalogAlbumsOverview conn DB.defaultAlbumQuery { DB.aqLimit = 1 }
                 pure $ find (\row -> DB.caorAlbumId row == albumId) overviews
 
               -- Re-compute wanted status for the response
@@ -580,9 +578,21 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
       -- Query database for albums with joined data
       -- State filtering now happens at the database level
+      let albumQuery = DB.AlbumQuery
+            { DB.aqLimit = limit
+            , DB.aqOffset = offset
+            , DB.aqStates = maybeStates
+            , DB.aqQualities = maybeQualities
+            , DB.aqArtistId = maybeArtistId
+            , DB.aqSearch = maybeSearch
+            , DB.aqSort = maybeSort
+            , DB.aqOrder = maybeOrder
+            , DB.aqReleaseDateAfter = maybeReleaseDateAfter
+            , DB.aqReleaseDateBefore = maybeReleaseDateBefore
+            }
       (overviewRows, totalCount, statsData) <- liftIO $ withConnection connPool $ \conn -> do
-        rows <- DB.getCatalogAlbumsOverview conn limit offset maybeStates maybeQualities maybeArtistId maybeSearch maybeSort maybeOrder maybeReleaseDateAfter maybeReleaseDateBefore
-        count <- DB.getCatalogAlbumsOverviewCount conn maybeStates maybeQualities maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore
+        rows <- DB.getCatalogAlbumsOverview conn albumQuery
+        count <- DB.getCatalogAlbumsOverviewCount conn albumQuery
         stats <- DB.getCatalogAlbumsOverviewStats conn
         pure (rows, count, stats)
 
@@ -596,20 +606,20 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             , albumOverviewPaginationLimit = limit
             }
 
-      -- Compute state stats by grouping all albums by their state
-      -- We need to fetch ALL albums (not just the paginated ones) to get accurate stats
-      -- Ignore the state and quality filters for stats computation to get global stats
-      allOverviewRows <- liftIO $ withConnection connPool $ \conn -> do
-        DB.getCatalogAlbumsOverview conn 999999 0 Nothing Nothing maybeArtistId maybeSearch Nothing Nothing maybeReleaseDateAfter maybeReleaseDateBefore
+      -- Compute state stats using SQL-side aggregation (ignoring state and quality filters for global stats)
+      stateStatsCounts <- liftIO $ withConnection connPool $ \conn ->
+        DB.getCatalogAlbumsStatsByState conn maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore
 
-      let statsByState = foldl' (\acc row ->
-            let albumState = rowToAlbumState row
-            in Map.insertWith (+) albumState 1 acc
-            ) Map.empty allOverviewRows
+      -- Convert Text state names to AlbumState
+      let statsByState = mapMaybe (\(stateText, count) ->
+            case textToAlbumState stateText of
+              Just albumState -> Just (albumState, count)
+              Nothing -> Nothing
+            ) stateStatsCounts
 
       -- Build stats
       let stats = AlbumOverviewStats
-            { albumOverviewStatsByState = Map.toList statsByState
+            { albumOverviewStatsByState = statsByState
             , albumOverviewStatsByQuality = statsData
             }
 

@@ -18,7 +18,7 @@ function WantedAlbumsSummaryComponent() {
       const response = await api.getAlbumOverview({
         state: ['Wanted'],
         limit: 5,
-        sort: 'created_at',
+        sort: 'date',
         order: 'desc',
       });
 

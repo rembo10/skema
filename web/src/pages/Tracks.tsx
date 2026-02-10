@@ -8,15 +8,10 @@ import { PaginationControls } from '../components/PaginationControls';
 import { usePagination } from '../hooks/usePagination';
 import { TableRowSkeleton, StatsGridSkeleton } from '../components/LoadingSkeleton';
 import { LoadingState } from '../components/LoadingState';
+import { MatchStatusBadge } from '../components/status/StatusBadge';
 import {
-  Loader2,
   Search,
   ArrowUpDown,
-  CheckCircle2,
-  AlertCircle,
-  Lock,
-  Zap,
-  Edit2,
   RefreshCw,
   Filter,
   Layers,
@@ -123,35 +118,6 @@ export default function Tracks() {
 
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
-  };
-
-  const getStatusDisplay = (track: TrackWithCluster) => {
-    if (!track.mb_release_id) {
-      return {
-        icon: <AlertCircle className="h-4 w-4 text-red-400" />,
-        text: 'Unmatched',
-        color: 'text-red-400'
-      };
-    }
-    if (track.match_locked) {
-      return {
-        icon: <Lock className="h-4 w-4 text-purple-400" />,
-        text: 'Locked',
-        color: 'text-purple-400'
-      };
-    }
-    if (track.match_source === 'auto_fingerprint') {
-      return {
-        icon: <Zap className="h-4 w-4 text-blue-400" />,
-        text: 'Fingerprint',
-        color: 'text-blue-400'
-      };
-    }
-    return {
-      icon: <CheckCircle2 className="h-4 w-4 text-green-400" />,
-      text: 'Matched',
-      color: 'text-green-400'
-    };
   };
 
   // Stats for current page only
@@ -366,15 +332,7 @@ export default function Tracks() {
                 >
                   {/* Status */}
                 <td className="px-4 py-3">
-                  {(() => {
-                    const status = getStatusDisplay(track);
-                    return (
-                      <div className="flex items-center gap-2">
-                        {status.icon}
-                        <span className={`text-sm ${status.color}`}>{status.text}</span>
-                      </div>
-                    );
-                  })()}
+                  <MatchStatusBadge data={track} showText />
                 </td>
 
                 {/* Album / Artist */}

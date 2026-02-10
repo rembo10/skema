@@ -8,14 +8,10 @@ import { PaginationControls } from '../components/PaginationControls';
 import { usePagination } from '../hooks/usePagination';
 import { TableRowSkeleton, StatsGridSkeleton } from '../components/LoadingSkeleton';
 import { LoadingState } from '../components/LoadingState';
+import { MatchStatusBadge } from '../components/status/StatusBadge';
 import {
-  Loader2,
   Search,
   ArrowUpDown,
-  CheckCircle2,
-  AlertCircle,
-  Lock,
-  Zap,
   RefreshCw,
   Filter,
   Edit2,
@@ -87,19 +83,6 @@ export default function Clusters() {
       setSortField(field);
       setSortDirection('asc');
     }
-  };
-
-  const getStatusIcon = (cluster: Cluster) => {
-    if (!cluster.mb_release_id) {
-      return <AlertCircle className="h-4 w-4 text-red-400" />;
-    }
-    if (cluster.match_locked) {
-      return <Lock className="h-4 w-4 text-purple-400" />;
-    }
-    if (cluster.match_source === 'auto_fingerprint') {
-      return <Zap className="h-4 w-4 text-blue-400" />;
-    }
-    return <CheckCircle2 className="h-4 w-4 text-green-400" />;
   };
 
   // Stats - showing total count from pagination response
@@ -312,9 +295,7 @@ export default function Clusters() {
                   }`}
                 >
                 <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    {getStatusIcon(cluster)}
-                  </div>
+                  <MatchStatusBadge data={cluster} />
                 </td>
                 <td className="px-4 py-3">
                   <div className="text-sm font-medium text-dark-text">

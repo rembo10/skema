@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, memo } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { Link } from 'react-router-dom';
 import { Calendar, Disc, ExternalLink } from 'lucide-react';
 import { api } from '../lib/api';
@@ -18,7 +18,7 @@ function UpcomingAlbumsComponent() {
       const response = await api.getAlbumOverview({
         release_date_after: 'today',
         limit: 5,
-        sort: 'first_release_date',
+        sort: 'date',
         order: 'asc',
       });
 

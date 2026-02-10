@@ -1,21 +1,22 @@
 import { useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
+import { formatDate } from '../lib/formatters';
 import toast from 'react-hot-toast';
 import { PaginationControls } from '../components/PaginationControls';
 import { usePagination } from '../hooks/usePagination';
+import { useAlbumsFilterState, QuickFilter } from '../hooks/useAlbumsFilterState';
 import { TableRowSkeleton } from '../components/LoadingSkeleton';
 import { LoadingState } from '../components/LoadingState';
+import { AlbumReleasesModal } from '../components/AlbumReleasesModal';
 import {
   AlbumState,
   CatalogAlbumOverview,
   AlbumOverviewRequest,
-  AlbumRelease,
   QualityProfile,
 } from '../types/api';
 import {
   Music,
-  Download,
   Search as SearchIcon,
   CheckCircle2,
   XCircle,
@@ -40,15 +41,13 @@ const stateConfig: Record<AlbumState, { label: string; icon: typeof Music; color
   NotWanted: { label: 'Not Wanted', icon: X, color: 'text-gray-400' },
   Wanted: { label: 'Wanted', icon: Music, color: 'text-blue-500' },
   Searching: { label: 'Searching', icon: SearchIcon, color: 'text-yellow-500' },
-  Downloading: { label: 'Downloading', icon: Download, color: 'text-orange-500' },
+  Downloading: { label: 'Downloading', icon: Loader2, color: 'text-orange-500' },
   Failed: { label: 'Failed', icon: XCircle, color: 'text-red-500' },
   IdentificationFailed: { label: 'ID Failed', icon: AlertCircle, color: 'text-red-400' },
   InLibrary: { label: 'Finished', icon: CheckCircle2, color: 'text-green-500' },
   Monitored: { label: 'Upgrading', icon: ArrowUpCircle, color: 'text-purple-500' },
   Upgrading: { label: 'Upgrading', icon: ArrowUpCircle, color: 'text-purple-500' },
 };
-
-type QuickFilter = 'all' | 'tracked' | 'unacquired' | 'library' | 'upcoming';
 
 export default function Albums() {
   const [searchParams] = useSearchParams();
@@ -60,21 +59,26 @@ export default function Albums() {
   const urlParamsInitialized = useRef(false);
   const [searching, setSearching] = useState(false);
   const [searchInput, setSearchInput] = useState('');
-  const [searchFilter, setSearchFilter] = useState('');
-  const [sortBy, setSortBy] = useState<'title' | 'artist' | 'date' | 'quality' | 'state'>('date');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [qualityFilter, setQualityFilter] = useState<string[]>([]);
-  const [statusFilter, setStatusFilter] = useState<AlbumState[]>([]);
-  const [upcomingFilter, setUpcomingFilter] = useState<boolean>(false);
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>('tracked');
+
+  // Consolidated filter state using reducer
+  const {
+    state: filterState,
+    toggleSort,
+    toggleQuality,
+    clearQualityFilter,
+    toggleStatus,
+    toggleUpgrading,
+    clearStatusFilter,
+    setQuickFilter,
+    setSearchFilter,
+    applyUrlParams,
+  } = useAlbumsFilterState();
+
+  const { sortBy, sortOrder, qualityFilter, statusFilter, upcomingFilter, quickFilter, searchFilter } = filterState;
+
   const pagination = usePagination(ITEMS_PER_PAGE);
   const [showReleasesModal, setShowReleasesModal] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<CatalogAlbumOverview | null>(null);
-  const [searchingReleases, setSearchingReleases] = useState(false);
-  const [releases, setReleases] = useState<AlbumRelease[]>([]);
-  const [searchingSources, setSearchingSources] = useState<Set<string>>(new Set());
-  const [queueingRelease, setQueueingRelease] = useState<string | null>(null); // Track which release is being queued (by download_url)
-  const eventSourceRef = useRef<EventSource | null>(null);
   const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
   const [defaultProfile, setDefaultProfile] = useState<QualityProfile | null>(null);
   const [selectedAlbumIds, setSelectedAlbumIds] = useState<Set<number>>(new Set());
@@ -85,33 +89,9 @@ export default function Albums() {
   useEffect(() => {
     const stateParam = searchParams.get('state');
     const releaseDateAfter = searchParams.get('release_date_after');
-
-    if (stateParam) {
-      const states = stateParam.split(',') as AlbumState[];
-      setStatusFilter(states);
-      setUpcomingFilter(false);
-      pagination.resetOffset();
-
-      // Determine quick filter based on states
-      if (states.includes('Wanted') || states.includes('Failed') || states.includes('IdentificationFailed')) {
-        setQuickFilter('unacquired');
-      } else if (states.includes('InLibrary') || states.includes('Monitored') || states.includes('Upgrading')) {
-        setQuickFilter('library');
-      } else {
-        setQuickFilter('tracked');
-      }
-    } else if (releaseDateAfter) {
-      setStatusFilter([]);
-      setUpcomingFilter(true);
-      setQuickFilter('upcoming');
-      pagination.resetOffset();
-    } else {
-      // No URL params - apply default 'tracked' filter
-      setStatusFilter(['Wanted', 'Searching', 'Downloading', 'Failed', 'IdentificationFailed', 'InLibrary', 'Monitored', 'Upgrading']);
-      setUpcomingFilter(false);
-      pagination.resetOffset();
-    }
-  }, [searchParams]); // React to URL param changes
+    applyUrlParams(stateParam, releaseDateAfter);
+    pagination.resetOffset();
+  }, [searchParams, applyUrlParams]); // React to URL param changes
 
   // Set initialized flag after filters are updated
   useEffect(() => {
@@ -130,7 +110,7 @@ export default function Albums() {
       clearTimeout(timer);
       setSearching(false);
     };
-  }, [searchInput]);
+  }, [searchInput, setSearchFilter]);
 
   useEffect(() => {
     // Don't load until URL params have been initialized
@@ -281,80 +261,12 @@ export default function Albums() {
   const handleShowReleases = (album: CatalogAlbumOverview) => {
     setSelectedAlbum(album);
     setShowReleasesModal(true);
-    setSearchingReleases(true);
-    setReleases([]);
-    setSearchingSources(new Set());
-    setQueueingRelease(null);
-
-    // Track count via ref to avoid stale closure
-    let releaseCount = 0;
-
-    // Close any existing connection
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
-
-    // Start streaming search
-    const eventSource = api.streamAlbumReleases(album.id, {
-      onStarted: (source) => {
-        setSearchingSources(prev => new Set([...prev, source]));
-      },
-      onRelease: (_source, release) => {
-        releaseCount++;
-        setReleases(prev => [...prev, release]);
-      },
-      onCompleted: (source, _count) => {
-        setSearchingSources(prev => {
-          const next = new Set(prev);
-          next.delete(source);
-          return next;
-        });
-      },
-      onError: (source, error) => {
-        console.error(`Search error from ${source}:`, error);
-        setSearchingSources(prev => {
-          const next = new Set(prev);
-          next.delete(source);
-          return next;
-        });
-      },
-      onDone: (totalTime) => {
-        setSearchingReleases(false);
-        setSearchingSources(new Set());
-        if (releaseCount === 0) {
-          toast('No releases found', { icon: 'ℹ️' });
-        } else {
-          toast.success(`Found ${releaseCount} release(s) in ${totalTime.toFixed(1)}s`);
-        }
-      },
-    });
-
-    eventSourceRef.current = eventSource;
-
-    // Handle connection errors
-    eventSource.onerror = () => {
-      setSearchingReleases(false);
-      setSearchingSources(new Set());
-      toast.error('Connection lost while searching');
-    };
   };
 
-  // Cleanup EventSource on unmount or modal close
-  useEffect(() => {
-    return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
-    };
-  }, []);
-
-  // Close EventSource when modal closes
-  useEffect(() => {
-    if (!showReleasesModal && eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-  }, [showReleasesModal]);
+  const handleCloseReleasesModal = () => {
+    setShowReleasesModal(false);
+    setSelectedAlbum(null);
+  };
 
   const handleQualityProfileChange = async (albumId: number, profileId: number | null, isExisting: boolean = false) => {
     try {
@@ -380,14 +292,7 @@ export default function Albums() {
   };
 
   const handleSort = (column: 'title' | 'artist' | 'date' | 'quality' | 'state') => {
-    if (sortBy === column) {
-      // Toggle sort order if clicking the same column
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      // New column, set to descending by default
-      setSortBy(column);
-      setSortOrder('desc');
-    }
+    toggleSort(column);
     pagination.resetOffset();
   };
 
@@ -478,22 +383,6 @@ export default function Albums() {
     );
   };
 
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return 'Unknown';
-    try {
-      if (dateString.includes('-')) {
-        return new Date(dateString).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-        });
-      }
-      return dateString;
-    } catch {
-      return dateString;
-    }
-  };
-
   const formatQuality = (quality: string | null) => {
     if (!quality) return 'Unknown';
     // Convert quality strings to readable format
@@ -547,31 +436,6 @@ export default function Albums() {
   const handleQuickFilter = (filter: QuickFilter) => {
     setQuickFilter(filter);
     pagination.resetOffset();
-
-    switch (filter) {
-      case 'all':
-        // Show all albums in catalog (no state filter, no upcoming filter)
-        setStatusFilter([]);
-        setUpcomingFilter(false);
-        break;
-      case 'tracked':
-        // Show only albums with quality profiles (all states except NotWanted)
-        setStatusFilter(['Wanted', 'Searching', 'Downloading', 'Failed', 'IdentificationFailed', 'InLibrary', 'Monitored', 'Upgrading']);
-        setUpcomingFilter(false);
-        break;
-      case 'unacquired':
-        setStatusFilter(['Wanted', 'Searching', 'Downloading', 'Failed', 'IdentificationFailed']);
-        setUpcomingFilter(false);
-        break;
-      case 'library':
-        setStatusFilter(['InLibrary', 'Monitored', 'Upgrading']);
-        setUpcomingFilter(false);
-        break;
-      case 'upcoming':
-        setStatusFilter([]);
-        setUpcomingFilter(true);
-        break;
-    }
   };
 
   return (
@@ -668,11 +532,7 @@ export default function Albums() {
                     <button
                       key={quality}
                       onClick={() => {
-                        if (isSelected) {
-                          setQualityFilter(qualityFilter.filter(q => q !== quality));
-                        } else {
-                          setQualityFilter([...qualityFilter, quality]);
-                        }
+                        toggleQuality(quality);
                         pagination.resetOffset();
                       }}
                       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium transition-all ${getQualityBadgeStyle(quality)} ${
@@ -688,7 +548,7 @@ export default function Albums() {
                 {qualityFilter.length > 0 && (
                   <button
                     onClick={() => {
-                      setQualityFilter([]);
+                      clearQualityFilter();
                       pagination.resetOffset();
                     }}
                     className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium text-dark-text-tertiary hover:text-dark-error border border-dark-border hover:border-dark-error transition-colors"
@@ -714,13 +574,7 @@ export default function Albums() {
                     <button
                       key="upgrading-combined"
                       onClick={() => {
-                        if (isSelected) {
-                          // Remove both Monitored and Upgrading
-                          setStatusFilter(statusFilter.filter(s => s !== 'Monitored' && s !== 'Upgrading'));
-                        } else {
-                          // Add both Monitored and Upgrading
-                          setStatusFilter([...statusFilter, 'Monitored', 'Upgrading']);
-                        }
+                        toggleUpgrading();
                         pagination.resetOffset();
                       }}
                       className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium transition-all ${config.color} ${
@@ -742,11 +596,7 @@ export default function Albums() {
                   <button
                     key={status}
                     onClick={() => {
-                      if (isSelected) {
-                        setStatusFilter(statusFilter.filter(s => s !== status));
-                      } else {
-                        setStatusFilter([...statusFilter, status]);
-                      }
+                      toggleStatus(status);
                       pagination.resetOffset();
                     }}
                     className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium transition-all ${config.color} ${
@@ -763,7 +613,7 @@ export default function Albums() {
               {statusFilter.length > 0 && (
                 <button
                   onClick={() => {
-                    setStatusFilter([]);
+                    clearStatusFilter();
                     pagination.resetOffset();
                   }}
                   className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium text-dark-text-tertiary hover:text-dark-error border border-dark-border hover:border-dark-error transition-colors"
@@ -1094,176 +944,10 @@ export default function Albums() {
 
       {/* Releases Modal */}
       {showReleasesModal && selectedAlbum && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-dark-bg-elevated rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden flex flex-col">
-            {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-dark-border flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-dark-text">Available Releases</h2>
-                <p className="text-sm text-dark-text-secondary mt-1">
-                  {selectedAlbum.title} - {selectedAlbum.artist_name}
-                </p>
-              </div>
-              <button
-                onClick={() => setShowReleasesModal(false)}
-                className="text-dark-text-secondary hover:text-dark-text transition-colors"
-              >
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-6">
-              {/* Search status bar */}
-              {searchingReleases && (
-                <div className="mb-4 flex items-center gap-2 text-sm text-dark-text-secondary">
-                  <Loader2 className="h-4 w-4 animate-spin text-dark-accent" />
-                  <span>Searching</span>
-                  {searchingSources.size > 0 && (
-                    <span className="flex gap-1">
-                      {[...searchingSources].map(source => (
-                        <span key={source} className="px-2 py-0.5 bg-dark-bg rounded text-xs">
-                          {source}
-                        </span>
-                      ))}
-                    </span>
-                  )}
-                  {releases.length > 0 && (
-                    <span className="ml-2">• {releases.length} found</span>
-                  )}
-                </div>
-              )}
-
-              {/* No results (only show after search is done) */}
-              {!searchingReleases && releases.length === 0 ? (
-                <div className="text-center py-12">
-                  <Disc className="mx-auto h-12 w-12 text-dark-text-tertiary" />
-                  <h3 className="mt-4 text-sm font-medium text-dark-text">No releases found</h3>
-                  <p className="mt-2 text-sm text-dark-text-secondary">
-                    No releases available for this album at the moment
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {releases.map((release, index) => (
-                    <div
-                      key={index}
-                      className="card p-4 hover:bg-dark-bg-hover transition-colors"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-sm font-medium text-dark-text mb-2">{release.title}</h3>
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-dark-text-secondary">
-                            <span className="flex items-center gap-1">
-                              <span className="text-dark-text-tertiary">Source:</span>
-                              <span className="font-medium">{release.source}</span>
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <span className="text-dark-text-tertiary">Quality:</span>
-                              <span className="font-medium text-dark-accent">{release.quality}</span>
-                            </span>
-                            {release.size && (
-                              <span className="flex items-center gap-1">
-                                <span className="text-dark-text-tertiary">Size:</span>
-                                <span className="font-medium">
-                                  {release.size >= 1024 * 1024 * 1024
-                                    ? `${(release.size / 1024 / 1024 / 1024).toFixed(2)} GB`
-                                    : `${(release.size / 1024 / 1024).toFixed(0)} MB`}
-                                </span>
-                              </span>
-                            )}
-                            {release.download_type === 'torrent' && release.seeders !== null && release.seeders !== undefined && (
-                              <span className="flex items-center gap-1">
-                                <span className="text-dark-text-tertiary">Seeders:</span>
-                                <span className={`font-medium ${release.seeders > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                  {release.seeders}
-                                </span>
-                              </span>
-                            )}
-                            {release.download_type === 'torrent' && release.peers !== null && release.peers !== undefined && (
-                              <span className="flex items-center gap-1">
-                                <span className="text-dark-text-tertiary">Peers:</span>
-                                <span className="font-medium">{release.peers}</span>
-                              </span>
-                            )}
-                            {release.publish_date && (
-                              <span className="flex items-center gap-1">
-                                <span className="text-dark-text-tertiary">Uploaded:</span>
-                                <span className="font-medium">{formatDate(release.publish_date)}</span>
-                              </span>
-                            )}
-                            <span className="flex items-center gap-1">
-                              <span className="text-dark-text-tertiary">Type:</span>
-                              <span className="uppercase text-xs font-mono font-medium">{release.download_type}</span>
-                            </span>
-                          </div>
-                        </div>
-                        <button
-                          className={`btn-primary px-4 py-2 flex-shrink-0 ${
-                            queueingRelease === release.download_url ? 'opacity-50 cursor-not-allowed' : ''
-                          }`}
-                          disabled={queueingRelease === release.download_url}
-                          onClick={async () => {
-                            if (queueingRelease !== null) return; // Prevent clicking other buttons while one is queuing
-                            setQueueingRelease(release.download_url);
-                            try {
-                              const response = await api.queueDownload({
-                                catalog_album_id: selectedAlbum.id,
-                                indexer_name: release.source,
-                                url: release.download_url,
-                                title: release.title,
-                                size_bytes: release.size,
-                                quality: release.quality,
-                                format: release.download_type.toUpperCase(),
-                                seeders: release.seeders,
-                                slskd_username: release.slskd_username,
-                                slskd_files: release.slskd_files,
-                              });
-
-                              if (response.success) {
-                                toast.success('Download queued successfully');
-                                setShowReleasesModal(false);
-                              } else {
-                                toast.error(response.message || 'Failed to queue download');
-                              }
-                            } catch (error) {
-                              console.error('Failed to queue download:', error);
-                              toast.error('Failed to queue download');
-                            } finally {
-                              setQueueingRelease(null);
-                            }
-                          }}
-                        >
-                          {queueingRelease === release.download_url ? (
-                            <>
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              Queuing...
-                            </>
-                          ) : (
-                            <>
-                              <Download className="h-4 w-4 mr-2" />
-                              Download
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="px-6 py-4 border-t border-dark-border flex justify-end">
-              <button
-                onClick={() => setShowReleasesModal(false)}
-                className="btn-secondary"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
+        <AlbumReleasesModal
+          album={selectedAlbum}
+          onClose={handleCloseReleasesModal}
+        />
       )}
     </div>
   );

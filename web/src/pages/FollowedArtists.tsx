@@ -1,19 +1,21 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import { formatDate } from '../lib/formatters';
 import type { CatalogArtist } from '../types/api';
-import { Music, ExternalLink, Calendar, Disc, UserMinus, RefreshCw, ChevronLeft, ChevronRight, Loader2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Music, ExternalLink, Disc, UserMinus, RefreshCw, ArrowUp, ArrowDown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
 import { ArtistCardSkeleton } from '../components/LoadingSkeleton';
 import { LoadingState } from '../components/LoadingState';
+import { usePagination } from '../hooks/usePagination';
+import { PaginationControls } from '../components/PaginationControls';
 
 const ITEMS_PER_PAGE = 50;
 
 export default function FollowedArtists() {
   // Local state for artists loaded from API
   const [artists, setArtists] = useState<CatalogArtist[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -21,7 +23,7 @@ export default function FollowedArtists() {
   const [sortField, setSortField] = useState<'name' | 'date_added' | 'completion'>('date_added');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [refreshing, setRefreshing] = useState(false);
-  const [offset, setOffset] = useState(0);
+  const { offset, totalCount, setTotalCount, nextPage, prevPage, resetOffset } = usePagination(ITEMS_PER_PAGE);
 
   // Use global store only for catalogAlbums and mutations
   const catalogAlbums = useAppStore((state) => state.catalogAlbums);
@@ -37,8 +39,8 @@ export default function FollowedArtists() {
 
   // Reset offset when search or sort changes
   useEffect(() => {
-    setOffset(0);
-  }, [debouncedSearchQuery, sortField, sortOrder]);
+    resetOffset();
+  }, [debouncedSearchQuery, sortField, sortOrder, resetOffset]);
 
   // Load data when offset, search, or sort changes
   useEffect(() => {
@@ -104,7 +106,7 @@ export default function FollowedArtists() {
       await api.updateCatalogArtist(artist.id, false);
       // Remove from local state
       setArtists(prev => prev.filter(a => a.id !== artist.id));
-      setTotalCount(prev => prev - 1);
+      setTotalCount(totalCount - 1);
       toast.success(`Unfollowed ${artist.name}`);
     } catch (error) {
       toast.error('Failed to unfollow artist');
@@ -123,16 +125,6 @@ export default function FollowedArtists() {
     } finally {
       setRefreshing(false);
     }
-  };
-
-
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return 'Unknown';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
   };
 
   return (
@@ -337,31 +329,14 @@ export default function FollowedArtists() {
       </div>
 
       {/* Pagination Controls */}
-      {totalCount > ITEMS_PER_PAGE && (
-        <div className="flex items-center justify-between border-t border-dark-border pt-4">
-          <div className="text-sm text-dark-text-secondary">
-            Showing {offset + 1}-{Math.min(offset + ITEMS_PER_PAGE, totalCount)} of {totalCount}
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setOffset((o) => Math.max(0, o - ITEMS_PER_PAGE))}
-              disabled={offset === 0}
-              className="p-2 rounded-lg border border-dark-border hover:bg-dark-bg-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Previous page"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <button
-              onClick={() => setOffset((o) => Math.min(totalCount - ITEMS_PER_PAGE, o + ITEMS_PER_PAGE))}
-              disabled={offset + ITEMS_PER_PAGE >= totalCount}
-              className="p-2 rounded-lg border border-dark-border hover:bg-dark-bg-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Next page"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-        </div>
-      )}
+      <PaginationControls
+        offset={offset}
+        limit={ITEMS_PER_PAGE}
+        total={totalCount}
+        onPrevPage={prevPage}
+        onNextPage={nextPage}
+        itemName="artists"
+      />
     </div>
   );
 }

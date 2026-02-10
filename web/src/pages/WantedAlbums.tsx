@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { api } from '../lib/api';
+import { formatDate } from '../lib/formatters';
 import type { CatalogAlbum, QualityProfile, CatalogArtist } from '../types/api';
 import { Disc, ExternalLink, Filter, X, Award } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -84,23 +85,6 @@ export default function WantedAlbums() {
 
   const getArtistForAlbum = (album: CatalogAlbum): CatalogArtist | undefined => {
     return artists.find(a => a.mbid === album.artist_mbid);
-  };
-
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return 'Unknown';
-    try {
-      // Handle YYYY-MM-DD format
-      if (dateString.includes('-')) {
-        return new Date(dateString).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-        });
-      }
-      return dateString;
-    } catch {
-      return dateString;
-    }
   };
 
   // Filter and sort albums

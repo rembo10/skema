@@ -1,11 +1,15 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../lib/api';
-import type { Download, DownloadStatus } from '../types/api';
-import { Download as DownloadIcon, Trash2, Clock, CheckCircle2, XCircle, Archive, AlertCircle, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { formatBytes, formatDateTime } from '../lib/formatters';
+import type { Download } from '../types/api';
+import { Download as DownloadIcon, Trash2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store';
 import { DownloadCardSkeleton } from '../components/LoadingSkeleton';
 import { LoadingState } from '../components/LoadingState';
+import { usePagination } from '../hooks/usePagination';
+import { PaginationControls } from '../components/PaginationControls';
+import { getDownloadStatusIcon, getDownloadStatusText, getDownloadStatusColor } from '../components/status/StatusBadge';
 
 const ITEMS_PER_PAGE = 50;
 
@@ -14,8 +18,7 @@ export default function Downloads() {
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTab, setSelectedTab] = useState<'active' | 'history'>('active');
-  const [offset, setOffset] = useState(0);
-  const [totalCount, setTotalCount] = useState(0);
+  const { offset, totalCount, setTotalCount, nextPage, prevPage } = usePagination(ITEMS_PER_PAGE);
   const connectionStatus = useAppStore((state) => state.connectionStatus);
   const prevConnectionStatus = useRef(connectionStatus);
 
@@ -101,77 +104,6 @@ export default function Downloads() {
     }
   };
 
-  const formatBytes = (bytes: number | null) => {
-    if (!bytes) return 'Unknown size';
-    const gb = bytes / (1024 * 1024 * 1024);
-    if (gb >= 1) return `${gb.toFixed(2)} GB`;
-    const mb = bytes / (1024 * 1024);
-    return `${mb.toFixed(2)} MB`;
-  };
-
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return 'Unknown';
-    try {
-      return new Date(dateString).toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } catch {
-      return dateString;
-    }
-  };
-
-  const getStatusIcon = (status: DownloadStatus) => {
-    switch (status) {
-      case 'queued':
-        return <Clock className="w-5 h-5 text-dark-text-secondary" />;
-      case 'downloading':
-        return <DownloadIcon className="w-5 h-5 text-dark-accent animate-pulse" />;
-      case 'completed':
-        return <CheckCircle2 className="w-5 h-5 text-dark-success" />;
-      case 'failed':
-        return <XCircle className="w-5 h-5 text-dark-error" />;
-      case 'imported':
-        return <Archive className="w-5 h-5 text-dark-success" />;
-      case 'cancelled':
-        return <XCircle className="w-5 h-5 text-dark-text-secondary" />;
-      case 'identification_failure':
-        return <AlertCircle className="w-5 h-5 text-yellow-500" />;
-      default:
-        return <Clock className="w-5 h-5 text-dark-text-secondary" />;
-    }
-  };
-
-  const getStatusText = (status: DownloadStatus) => {
-    if (status === 'identification_failure') {
-      return 'Identification Failed';
-    }
-    return status.charAt(0).toUpperCase() + status.slice(1);
-  };
-
-  const getStatusColor = (status: DownloadStatus) => {
-    switch (status) {
-      case 'queued':
-        return 'text-dark-text-secondary';
-      case 'downloading':
-        return 'text-dark-accent';
-      case 'completed':
-        return 'text-dark-success';
-      case 'failed':
-        return 'text-dark-error';
-      case 'imported':
-        return 'text-dark-success';
-      case 'cancelled':
-        return 'text-dark-text-secondary';
-      case 'identification_failure':
-        return 'text-yellow-500';
-      default:
-        return 'text-dark-text-secondary';
-    }
-  };
-
   // Group downloads by status
   const activeDownloads = mergedDownloads.filter(d => d.status === 'queued' || d.status === 'downloading');
   const historyDownloads = mergedDownloads.filter(d => d.status !== 'queued' && d.status !== 'downloading');
@@ -183,7 +115,7 @@ export default function Downloads() {
       <div className="flex items-start gap-4">
         {/* Status icon */}
         <div className="flex-shrink-0 mt-1">
-          {getStatusIcon(download.status)}
+          {getDownloadStatusIcon(download.status)}
         </div>
 
         {/* Main content */}
@@ -195,8 +127,8 @@ export default function Downloads() {
                 {download.title}
               </h3>
               <div className="flex items-center gap-3 text-sm text-dark-text-secondary">
-                <span className={`font-medium ${getStatusColor(download.status)}`}>
-                  {getStatusText(download.status)}
+                <span className={`font-medium ${getDownloadStatusColor(download.status)}`}>
+                  {getDownloadStatusText(download.status)}
                 </span>
                 {(download.indexer_name || download.download_client) && (
                   <>
@@ -277,13 +209,13 @@ export default function Downloads() {
           {/* Metadata */}
           <div className="flex items-center gap-4 text-xs text-dark-text-secondary mt-2">
             {download.queued_at && (
-              <span>Queued {formatDate(download.queued_at)}</span>
+              <span>Queued {formatDateTime(download.queued_at)}</span>
             )}
             {download.completed_at && (
-              <span>Completed {formatDate(download.completed_at)}</span>
+              <span>Completed {formatDateTime(download.completed_at)}</span>
             )}
             {download.imported_at && (
-              <span>Imported {formatDate(download.imported_at)}</span>
+              <span>Imported {formatDateTime(download.imported_at)}</span>
             )}
           </div>
         </div>
@@ -349,31 +281,14 @@ export default function Downloads() {
       </div>
 
       {/* Pagination Controls */}
-      {totalCount > ITEMS_PER_PAGE && (
-        <div className="flex items-center justify-between border-t border-dark-border pt-4 mt-4">
-          <div className="text-sm text-dark-text-secondary">
-            Showing {offset + 1}-{Math.min(offset + ITEMS_PER_PAGE, totalCount)} of {totalCount}
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setOffset((o) => Math.max(0, o - ITEMS_PER_PAGE))}
-              disabled={offset === 0}
-              className="p-2 rounded-lg border border-dark-border hover:bg-dark-bg-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Previous page"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <button
-              onClick={() => setOffset((o) => Math.min(totalCount - ITEMS_PER_PAGE, o + ITEMS_PER_PAGE))}
-              disabled={offset + ITEMS_PER_PAGE >= totalCount}
-              className="p-2 rounded-lg border border-dark-border hover:bg-dark-bg-subtle transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Next page"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-        </div>
-      )}
+      <PaginationControls
+        offset={offset}
+        limit={ITEMS_PER_PAGE}
+        total={totalCount}
+        onPrevPage={prevPage}
+        onNextPage={nextPage}
+        itemName="downloads"
+      />
     </div>
   );
 }

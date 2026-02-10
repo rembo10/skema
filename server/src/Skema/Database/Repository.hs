@@ -77,7 +77,11 @@ module Skema.Database.Repository
   , getCatalogAlbumsOverview
   , getCatalogAlbumsOverviewCount
   , getCatalogAlbumsOverviewStats
+  , getCatalogAlbumsByArtistOverview
+  , getCatalogAlbumsStatsByState
   , CatalogAlbumOverviewRow(..)
+  , AlbumQuery(..)
+  , defaultAlbumQuery
     -- * Quality profile operations
   , insertQualityProfile
   , updateQualityProfile
@@ -196,5 +200,9 @@ import Skema.Database.Repository.Catalog
   , getCatalogAlbumsOverview
   , getCatalogAlbumsOverviewCount
   , getCatalogAlbumsOverviewStats
+  , getCatalogAlbumsByArtistOverview
+  , getCatalogAlbumsStatsByState
   , CatalogAlbumOverviewRow(..)
+  , AlbumQuery(..)
+  , defaultAlbumQuery
   )
