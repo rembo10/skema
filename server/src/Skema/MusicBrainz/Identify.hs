@@ -78,10 +78,17 @@ identifyFileGroup :: LogEnv
                   -> FileGroup
                   -> IO (Either MBClientError IdentificationResult)
 identifyFileGroup le mbEnv config fg = do
-  -- First, try direct lookup if we have a release ID in tags
-  case fgReleaseId fg of
-    Just releaseId -> identifyByReleaseId le mbEnv config fg releaseId
-    Nothing -> identifyBySearch le mbEnv config fg
+  -- Skip if there's no searchable metadata at all (no album, no artist, no release ID)
+  if isNothing (fgAlbum fg) && isNothing (fgArtist fg) && isNothing (fgReleaseId fg)
+    then do
+      runKatipContextT le () "musicbrainz.identify" $
+        $(logTM) InfoS "Skipping identification: no album, artist, or release ID"
+      pure $ Right $ IdentificationResult Nothing []
+    else
+      -- First, try direct lookup if we have a release ID in tags
+      case fgReleaseId fg of
+        Just releaseId -> identifyByReleaseId le mbEnv config fg releaseId
+        Nothing -> identifyBySearch le mbEnv config fg
 
 -- | Apply join phrase normalization to a release if configured
 normalizeRelease :: IdentifyConfig -> MBRelease -> MBRelease
@@ -104,7 +111,10 @@ identifyByReleaseId le mbEnv config fg releaseId = do
   -- IO: Fetch the specific release from MusicBrainz
   result <- getRelease mbEnv releaseId
   case result of
-    Left err -> pure $ Left err
+    Left err -> do
+      runKatipContextT le () "musicbrainz.identify" $
+        $(logTM) WarningS $ logStr $ ("Release lookup failed for " <> unMBID releaseId <> ": " <> prettyClientError err <> "; falling back to search" :: Text)
+      identifyBySearch le mbEnv config fg
     Right release -> do
       -- Also search for alternative releases so users have options
       -- Build search query and fetch alternatives

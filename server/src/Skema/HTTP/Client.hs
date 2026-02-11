@@ -28,6 +28,7 @@ module Skema.HTTP.Client
   , formatUserAgent
     -- * Client accessors
   , getManager
+  , clientLogEnv
     -- * Making requests
   , makeRequest
   , makeRequestWithRetry
@@ -238,6 +239,10 @@ newHttpClient logEnv config uaData = do
 -- | Get the HTTP manager from a client
 getManager :: HttpClient -> Manager
 getManager = hcManager
+
+-- | Get the log environment from the HTTP client
+clientLogEnv :: HttpClient -> LogEnv
+clientLogEnv = hcLogEnv
 
 -- | Extract domain from a URL
 extractDomain :: Text -> Maybe Text

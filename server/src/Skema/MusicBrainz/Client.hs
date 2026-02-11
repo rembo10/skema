@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | MusicBrainz API client using centralized HTTP client.
 --
@@ -21,11 +22,12 @@ module Skema.MusicBrainz.Client
   ) where
 
 import Skema.MusicBrainz.Types
-import Skema.HTTP.Client (HttpClient, HttpError, getJSON, getJSONWithBasicAuth, prettyHttpError)
+import Skema.HTTP.Client (HttpClient, HttpError, getJSON, getJSONWithBasicAuth, clientLogEnv, prettyHttpError)
 import Skema.Config.Types (MusicBrainzConfig, getMusicBrainzServerUrl, mbUsername, mbPassword)
 import Data.Aeson (FromJSON)
 import qualified Data.Text as T
 import Network.HTTP.Types.URI (urlEncode)
+import Katip
 
 -- | MusicBrainz client error
 data MBClientError
@@ -101,6 +103,9 @@ searchReleases env@MBClientEnv{..} query limit offset useDismax = do
              <> maybe [] (\l -> [("limit", show l)]) limit
              <> maybe [] (\o -> [("offset", show o)]) offset
       url = buildMBUrl mbBaseUrl "release" params
+
+  runKatipContextT (clientLogEnv mbHttpClient) () "musicbrainz.client" $
+    $(logTM) DebugS $ logStr $ ("Search URL: " <> url :: Text)
 
   result <- mbGetJSON env url
   pure $ case result of
