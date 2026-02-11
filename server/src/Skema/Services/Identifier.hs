@@ -14,18 +14,15 @@ import Skema.Services.Common (metadataRecordToMonatone)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getAllClusters, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster, getCatalogAlbumByReleaseGroupMBID)
+import Skema.Database.Repository (getAllClusters, getClusterById, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster)
 import Skema.Database.Types (ClusterRecord(..), LibraryTrackMetadataRecord(..))
-import qualified Skema.Database.Types as DBTypes
 import Skema.MusicBrainz.Identify (identifyFileGroup)
 import Skema.Domain.Identification (IdentifyConfig(..), shouldRetryIdentification)
-import Skema.Domain.Quality (qualityToText)
 import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), TrackMatch(..), IdentificationResult(..), MBID(..), unMBID, MBRelease(..), MBTrack(..))
 import Skema.Config.Types (Config(..), LibraryConfig(..))
-import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
+import Skema.FileSystem.Utils (osPathToString)
 import qualified Monatone.Metadata as M
 import System.OsPath (OsPath, takeDirectory)
-import qualified System.OsPath as OP
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
@@ -45,10 +42,10 @@ startIdentifierService deps = do
   async $ forever $ do
     envelope <- STM.atomically $ readTChan chan
     case envelopeEvent envelope of
-      ClustersGenerated{ needsIdentification = count } -> do
+      ClustersGenerated{ needsIdentification = count, affectedClusterIds = affectedIds } -> do
         -- Process each event asynchronously with error handling
         _ <- async $ do
-          result <- try $ handleClustersGenerated deps count
+          result <- try $ handleClustersGenerated deps count affectedIds
           case result of
             Left (e :: SomeException) -> do
               let le = identLogEnv deps
@@ -59,8 +56,8 @@ startIdentifierService deps = do
       _ -> pure ()  -- Ignore other events
 
 -- | Handle a clusters generated event.
-handleClustersGenerated :: IdentifierDeps -> Int -> IO ()
-handleClustersGenerated IdentifierDeps{..} groupsNeedingId = do
+handleClustersGenerated :: IdentifierDeps -> Int -> [Int64] -> IO ()
+handleClustersGenerated IdentifierDeps{..} groupsNeedingId affectedIds = do
   let le = identLogEnv
   let pool = identDbPool
   let bus = identEventBus
@@ -99,14 +96,16 @@ handleClustersGenerated IdentifierDeps{..} groupsNeedingId = do
           { groupCount = groupsNeedingId
           }
 
-        -- Get clusters that need identification (using pure domain logic)
+        -- Get clusters that need identification, scoped to affected clusters
         now <- liftIO getCurrentTime
 
         clusters <- liftIO $ withConnection pool $ \conn -> do
-          allClusters <- getAllClusters conn
+          scopedClusters <- if null affectedIds
+            then getAllClusters conn  -- Fallback: load all (shouldn't happen normally)
+            else catMaybes <$> mapM (getClusterById conn) affectedIds
           -- Pure: Use domain logic to filter clusters needing identification
           -- Skip locked clusters (manually assigned matches)
-          pure $ filter (\c -> not (clusterMatchLocked c) && clusterNeedsIdentification identifyConfig now c) allClusters
+          pure $ filter (\c -> not (clusterMatchLocked c) && clusterNeedsIdentification identifyConfig now c) scopedClusters
 
         -- Convert clusters to FileGroups
         fileGroups <- liftIO $ withConnection pool $ \conn -> do

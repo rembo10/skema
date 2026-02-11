@@ -6,6 +6,7 @@
 -- | Scanner service - handles file system scanning.
 module Skema.Services.Scanner
   ( startScannerService
+  , processDiff
   ) where
 
 import Skema.Services.Dependencies (ScannerDeps(..))
@@ -18,11 +19,10 @@ import Monatone.Common (parseMetadata)
 import Skema.Database.Connection
 import Skema.Database.Repository (upsertTrackWithMetadata, getLibrarySnapshot, getTrackByPath, deleteTrack)
 import qualified Skema.Database.Types as DBTypes
-import qualified System.OsPath as OP
 import Control.Concurrent.Async (Async, async, mapConcurrently)
-import Control.Concurrent.QSem (QSem, newQSem, waitQSem, signalQSem)
+import Control.Concurrent.QSem (newQSem, waitQSem, signalQSem)
 import qualified Control.Concurrent.STM as STM
-import Control.Exception (try, bracket_, displayException)
+import Control.Exception (try, bracket_)
 import GHC.Conc (getNumCapabilities)
 import Katip
 
@@ -63,7 +63,6 @@ handleScanRequest :: ScannerDeps -> Text -> Bool -> IO ()
 handleScanRequest ScannerDeps{..} scanPathText forceRescan = do
   let le = scanLogEnv
   let pool = scanDbPool
-  let bus = scanEventBus
   let initialContext = ()
   let initialNamespace = "services.scanner"
 
@@ -91,110 +90,127 @@ handleScanRequest ScannerDeps{..} scanPathText forceRescan = do
         -- Scan for changes
         diff <- liftIO $ scanDirectoryForChanges scanPath dbSnapshot
 
-        let addedCount = length (diffAdded diff)
-        let modifiedCount = length (diffModified diff)
-        let deletedCount = length (diffDeleted diff)
+        -- Process the diff (shared with watcher)
+        liftIO $ processDiff ScannerDeps{..} diff
 
-        $(logTM) InfoS $ logStr $
-          ("FileSystem changes: " <> show addedCount <> " added, " <>
-           show modifiedCount <> " modified, " <> show deletedCount <> " deleted" :: Text)
+-- | Process a 'FileSystemDiff' — delete removed tracks, read metadata for
+-- added/modified files with bounded concurrency, and emit progress events.
+--
+-- This is used by both the scanner (after computing a diff from a full scan)
+-- and the filesystem watcher (after detecting changes).
+processDiff :: ScannerDeps -> FileSystemDiff -> IO ()
+processDiff ScannerDeps{..} diff = do
+  let le = scanLogEnv
+  let pool = scanDbPool
+  let bus = scanEventBus
+  let initialContext = ()
+  let initialNamespace = "services.scanner"
 
-        -- Emit FileSystemDiffGenerated event
-        liftIO $ publishAndLog bus le "scanner" $ FileSystemDiffGenerated
-          { filesAdded = addedCount
-          , filesModified = modifiedCount
-          , filesDeleted = deletedCount
-          }
+  runKatipContextT le initialContext initialNamespace $ do
+    let addedCount = length (diffAdded diff)
+    let modifiedCount = length (diffModified diff)
+    let deletedCount = length (diffDeleted diff)
 
-        -- Process deleted files
-        when (deletedCount > 0) $ do
-          $(logTM) InfoS $ logStr ("Removing deleted files from database..." :: Text)
-          liftIO $ withConnection pool $ \conn -> do
-            forM_ (diffDeleted diff) $ \path -> do
-              -- Get track ID and delete
-              maybeTrack <- getTrackByPath conn path
-              forM_ maybeTrack $ \track ->
-                forM_ (DBTypes.trackId track) $ \tid ->
-                  deleteTrack conn tid
+    $(logTM) InfoS $ logStr $
+      ("FileSystem changes: " <> show addedCount <> " added, " <>
+       show modifiedCount <> " modified, " <> show deletedCount <> " deleted" :: Text)
 
-        -- Process added and modified files
-        let filesToRead = diffAdded diff <> diffModified diff
-        let totalToRead = length filesToRead
+    -- Emit FileSystemDiffGenerated event
+    liftIO $ publishAndLog bus le "scanner" $ FileSystemDiffGenerated
+      { filesAdded = addedCount
+      , filesModified = modifiedCount
+      , filesDeleted = deletedCount
+      }
 
-        -- Create counters for tracking progress (outside when block so we can read them later)
-        progressCounter <- liftIO $ STM.newTVarIO (0 :: Int)
-        errorCounter <- liftIO $ STM.newTVarIO (0 :: Int)
+    -- Process deleted files
+    when (deletedCount > 0) $ do
+      $(logTM) InfoS $ logStr ("Removing deleted files from database..." :: Text)
+      liftIO $ withConnection pool $ \conn -> do
+        forM_ (diffDeleted diff) $ \path -> do
+          -- Get track ID and delete
+          maybeTrack <- getTrackByPath conn path
+          forM_ maybeTrack $ \track ->
+            forM_ (DBTypes.trackId track) $ \tid ->
+              deleteTrack conn tid
 
-        when (totalToRead > 0) $ do
-          -- Emit MetadataReadStarted event
-          liftIO $ publishAndLog bus le "scanner" $ MetadataReadStarted
-            { filesToRead = totalToRead
+    -- Process added and modified files
+    let filesToRead = diffAdded diff <> diffModified diff
+    let totalToRead = length filesToRead
+
+    -- Create counters for tracking progress (outside when block so we can read them later)
+    progressCounter <- liftIO $ STM.newTVarIO (0 :: Int)
+    errorCounter <- liftIO $ STM.newTVarIO (0 :: Int)
+
+    when (totalToRead > 0) $ do
+      -- Emit MetadataReadStarted event
+      liftIO $ publishAndLog bus le "scanner" $ MetadataReadStarted
+        { filesToRead = totalToRead
+        }
+
+      -- Get number of CPU cores for bounded concurrency
+      maxWorkers <- liftIO getNumCapabilities
+      $(logTM) InfoS $ logStr $ ("Processing " <> show totalToRead <> " files with " <> show maxWorkers <> " concurrent workers" :: Text)
+
+      -- Process all files with bounded concurrency (no chunking needed)
+      liftIO $ do
+        _ <- pooledMapConcurrently maxWorkers (\path -> do
+          -- Read metadata - use ROUNDTRIP mode to handle any Unicode in paths
+          pathStrResult <- try $ osPathToString path
+          let pathStr = case pathStrResult of
+                Right str -> str
+                Left (e :: SomeException) -> "<invalid path: " <> displayException e <> ">"
+
+          runKatipContextT le initialContext initialNamespace $ do
+            $(logTM) DebugS $ logStr $ ("Reading metadata: " <> toText pathStr :: Text)
+
+          metaResult <- parseMetadata path
+
+          case metaResult of
+            Left err -> do
+              -- Track error
+              STM.atomically $ STM.modifyTVar' errorCounter (+1)
+              runKatipContextT le initialContext initialNamespace $ do
+                $(logTM) WarningS $ logStr $ ("Failed to read metadata for " <> toText pathStr <> ": " <> show err :: Text)
+
+            Right metadata -> do
+              -- Persist immediately after successful read
+              withConnection pool $ \conn -> do
+                _ <- upsertTrackWithMetadata conn path metadata
+                pure ()
+
+          -- Update progress counter
+          processed <- STM.atomically $ do
+            STM.modifyTVar' progressCounter (+1)
+            STM.readTVar progressCounter
+
+          -- Emit progress event for every file (for frontend status bar)
+          publishAndLog bus le "scanner" $ MetadataReadProgress
+            { currentFile = toText pathStr
+            , filesProcessed = processed
+            , filesToRead = totalToRead
             }
 
-          -- Get number of CPU cores for bounded concurrency
-          maxWorkers <- liftIO getNumCapabilities
-          $(logTM) InfoS $ logStr $ ("Processing " <> show totalToRead <> " files with " <> show maxWorkers <> " concurrent workers" :: Text)
+          -- Log at INFO level every 10% of files
+          let percentComplete = (processed * 100) `div` totalToRead
+          let prevPercentComplete = ((processed - 1) * 100) `div` totalToRead
+          when (percentComplete /= prevPercentComplete && percentComplete `mod` 10 == 0) $ do
+            runKatipContextT le initialContext initialNamespace $ do
+              $(logTM) InfoS $ logStr $ ("Metadata read progress: " <> show percentComplete <> "% (" <> show processed <> "/" <> show totalToRead <> ")" :: Text)
+          ) filesToRead  -- End of pooledMapConcurrently
+        pure ()
 
-          -- Process all files with bounded concurrency (no chunking needed)
-          liftIO $ do
-            _ <- pooledMapConcurrently maxWorkers (\path -> do
-              -- Read metadata - use ROUNDTRIP mode to handle any Unicode in paths
-              pathStrResult <- try $ osPathToString path
-              let pathStr = case pathStrResult of
-                    Right str -> str
-                    Left (e :: SomeException) -> "<invalid path: " <> displayException e <> ">"
+      -- Get final error count
+      parseErrors <- liftIO $ STM.readTVarIO errorCounter
+      let successCount = totalToRead - parseErrors
 
-              runKatipContextT le initialContext initialNamespace $ do
-                $(logTM) DebugS $ logStr $ ("Reading metadata: " <> toText pathStr :: Text)
+      when (parseErrors > 0) $
+        $(logTM) WarningS $ logStr $ (show parseErrors <> " files had metadata parsing errors" :: Text)
 
-              metaResult <- parseMetadata path
+      $(logTM) InfoS $ logStr $ ("Successfully stored " <> show successCount <> " files in database" :: Text)
 
-              case metaResult of
-                Left err -> do
-                  -- Track error
-                  STM.atomically $ STM.modifyTVar' errorCounter (+1)
-                  runKatipContextT le initialContext initialNamespace $ do
-                    $(logTM) WarningS $ logStr $ ("Failed to read metadata for " <> toText pathStr <> ": " <> show err :: Text)
-
-                Right metadata -> do
-                  -- Persist immediately after successful read
-                  withConnection pool $ \conn -> do
-                    _ <- upsertTrackWithMetadata conn path metadata
-                    pure ()
-
-              -- Update progress counter
-              processed <- STM.atomically $ do
-                STM.modifyTVar' progressCounter (+1)
-                STM.readTVar progressCounter
-
-              -- Emit progress event for every file (for frontend status bar)
-              publishAndLog bus le "scanner" $ MetadataReadProgress
-                { currentFile = toText pathStr
-                , filesProcessed = processed
-                , filesToRead = totalToRead
-                }
-
-              -- Log at INFO level every 10% of files
-              let percentComplete = (processed * 100) `div` totalToRead
-              let prevPercentComplete = ((processed - 1) * 100) `div` totalToRead
-              when (percentComplete /= prevPercentComplete && percentComplete `mod` 10 == 0) $ do
-                runKatipContextT le initialContext initialNamespace $ do
-                  $(logTM) InfoS $ logStr $ ("Metadata read progress: " <> show percentComplete <> "% (" <> show processed <> "/" <> show totalToRead <> ")" :: Text)
-              ) filesToRead  -- End of pooledMapConcurrently
-            pure ()
-
-          -- Get final error count
-          parseErrors <- liftIO $ STM.readTVarIO errorCounter
-          let successCount = totalToRead - parseErrors
-
-          when (parseErrors > 0) $
-            $(logTM) WarningS $ logStr $ (show parseErrors <> " files had metadata parsing errors" :: Text)
-
-          $(logTM) InfoS $ logStr $ ("Successfully stored " <> show successCount <> " files in database" :: Text)
-
-        -- Emit MetadataReadComplete event
-        parseErrors <- liftIO $ STM.readTVarIO errorCounter
-        liftIO $ publishAndLog bus le "scanner" $ MetadataReadComplete
-          { filesProcessed = addedCount + modifiedCount
-          , readErrors = parseErrors
-          }
+    -- Emit MetadataReadComplete event
+    parseErrors <- liftIO $ STM.readTVarIO errorCounter
+    liftIO $ publishAndLog bus le "scanner" $ MetadataReadComplete
+      { filesProcessed = addedCount + modifiedCount
+      , readErrors = parseErrors
+      }

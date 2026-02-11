@@ -87,8 +87,8 @@ handleMetadataReadComplete GrouperDeps{..} fileCount = do
 
     $(logTM) InfoS $ logStr $ ("Found " <> show (length fileGroups) <> " album groups" :: Text)
 
-    -- Create or find clusters for each group
-    _clusters <- liftIO $ withConnection pool $ \conn -> do
+    -- Create or find clusters for each group, collecting touched cluster IDs
+    touchedIds <- liftIO $ withConnection pool $ \conn -> do
       forM fileGroups $ \fg -> do
         let album = fgAlbum fg
         let albumArtist = fgArtist fg
@@ -97,7 +97,7 @@ handleMetadataReadComplete GrouperDeps{..} fileCount = do
 
         -- Find existing cluster or create new one
         maybeCluster <- findClusterByHash conn hash
-        clusterId <- case maybeCluster of
+        cid <- case maybeCluster of
           Just cluster -> pure (fromMaybe 0 (clusterId cluster))
           Nothing -> createCluster conn hash album albumArtist trackCount
 
@@ -110,11 +110,11 @@ handleMetadataReadComplete GrouperDeps{..} fileCount = do
 
         -- Assign tracks to cluster
         when (not (null validTrackIds)) $ do
-          updateTrackCluster conn clusterId validTrackIds
+          updateTrackCluster conn cid validTrackIds
           -- Compute and store cluster quality from track audio metadata
-          updateClusterQuality conn clusterId
+          updateClusterQuality conn cid
 
-        pure maybeCluster
+        pure cid
 
     -- Reload clusters to get updated state
     allClusters <- liftIO $ withConnection pool getAllClusters
@@ -122,18 +122,24 @@ handleMetadataReadComplete GrouperDeps{..} fileCount = do
     now <- liftIO getCurrentTime
     let retryThreshold = addUTCTime (negate (retryIntervalHours * 3600)) now
 
-    let (alreadyMatched, needsIdentification) = partitionClusters retryThreshold allClusters
+    let (alreadyMatched, needsId) = partitionClusters retryThreshold allClusters
     let totalGroups = length allClusters
+
+    -- Affected = touched cluster IDs that also need identification
+    let needsIdSet = mapMaybe clusterId needsId
+    let affectedIds = filter (`elem` needsIdSet) touchedIds
 
     $(logTM) InfoS $ logStr $ ("Created/updated " <> show totalGroups <> " clusters" :: Text)
     $(logTM) InfoS $ logStr $ (show (length alreadyMatched) <> " albums already matched/recently tried, " <>
-                               show (length needsIdentification) <> " need identification" :: Text)
+                               show (length needsId) <> " need identification (" <>
+                               show (length affectedIds) <> " affected)" :: Text)
 
     -- Emit ClustersGenerated event
     liftIO $ publishAndLog bus le "grouper" $ ClustersGenerated
       { totalGroups = totalGroups
       , alreadyMatched = length alreadyMatched
-      , needsIdentification = length needsIdentification
+      , needsIdentification = length needsId
+      , affectedClusterIds = affectedIds
       }
 
 -- | Partition clusters into those that are already matched and those that need identification.

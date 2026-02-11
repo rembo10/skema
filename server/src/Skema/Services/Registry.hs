@@ -12,7 +12,8 @@ import Skema.Services.Types
 import Skema.Services.Dependencies (ScannerDeps(..), GrouperDeps(..), IdentifierDeps(..), DiffGeneratorDeps(..), PersisterDeps(..), DownloadDeps(..), ThumbnailerDeps(..), ImageDeps(..), ImporterDeps(..), CatalogDeps(..), AcquisitionDeps(..), StatsDeps(..), SourceEvaluatorDeps(..), MetadataWriterDeps(..), NotificationDeps(..))
 import Skema.Services.Slskd (SlskdDeps(..), runSlskdMonitor)
 import Skema.Services.AsyncRegistry (AsyncRegistry, newAsyncRegistry, registerAsync)
-import Skema.Services.Scanner (startScannerService)
+import Skema.Services.Scanner (startScannerService, processDiff)
+import Skema.FileSystem.Watcher (watchDirectoryWithEvents, defaultDebounceMs)
 import Skema.Services.Grouper (startGrouperService)
 import Skema.Services.Identifier (startIdentifierService)
 import Skema.Services.DiffGenerator (startDiffGeneratorService)
@@ -34,14 +35,15 @@ import Skema.Events.Types (Event(..), EventEnvelope(..))
 import Skema.Database.Connection (ConnectionPool)
 import Skema.Config.Types (Config(..), LibraryConfig(..))
 import Skema.Config.Loader (loadConfigFromFile)
-import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
+import Skema.FileSystem.Utils (osPathToString)
 import Skema.MusicBrainz.Client (newMBClientEnv, MBClientEnv)
 import Skema.HTTP.Client (HttpClient, newHttpClient, getManager, defaultHttpConfig, defaultUserAgentData)
 import Network.HTTP.Client (Manager)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
-import qualified System.OsPath as OP
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async)
+import Control.Exception (finally)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Monad ()
@@ -147,6 +149,24 @@ startAllServices le bus pool config cacheDir configPath = do
           }
     scannerHandle <- liftIO $ startScannerService scannerDeps
     liftIO $ registerAsync asyncRegistry "Scanner" scannerHandle
+
+    -- Start filesystem watcher when configured
+    when (libraryWatch (library config)) $ do
+      case libraryPath (library config) of
+        Just libPath -> do
+          $(logTM) InfoS $ logStr ("Starting Watcher service..." :: Text)
+          stopWatcher <- liftIO $ watchDirectoryWithEvents
+            libPath
+            defaultDebounceMs
+            (processDiff scannerDeps)
+            Nothing    -- processDiff emits events itself
+            (Just le)
+          watcherHandle <- liftIO $ async $
+            forever (threadDelay maxBound)
+              `finally` stopWatcher
+          liftIO $ registerAsync asyncRegistry "Watcher" watcherHandle
+        Nothing ->
+          $(logTM) WarningS $ logStr ("Watcher enabled but no library path configured" :: Text)
 
     $(logTM) InfoS $ logStr ("Starting Grouper service..." :: Text)
     let grouperDeps = GrouperDeps

@@ -49,6 +49,7 @@ data Event
       { totalGroups :: Int
       , alreadyMatched :: Int
       , needsIdentification :: Int
+      , affectedClusterIds :: [Int64]  -- Cluster IDs touched during this grouping
       }
   | ResultsPersisted
       { filesUpdated :: Int
@@ -402,6 +403,7 @@ eventToJSON = \case
     [ "total_groups" .= totalGroups
     , "already_matched" .= alreadyMatched
     , "needs_identification" .= needsIdentification
+    , "affected_cluster_ids" .= affectedClusterIds
     ]
   ResultsPersisted{..} -> object
     [ "files_updated" .= filesUpdated
