@@ -16,6 +16,7 @@ import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
 import Skema.Database.Repository
+import Skema.Database.Repository.Downloads (hasActiveDownloadForAlbum)
 import Skema.Indexer.Types
 import Skema.Config.Types (DownloadClient(..), DownloadConfig(..), SlskdConfig(..), downloadClientTypeName)
 import Skema.DownloadClient.Types (DownloadClientAPI(..), AddDownloadRequest(..), AddDownloadResult(..))
@@ -51,10 +52,19 @@ submitDownload
   -> Int64  -- ^ Catalog album ID
   -> IO (Maybe Int64)
 submitDownload ctx@DownloadSubmissionContext{..} release catalogAlbumId = do
-  -- Handle slskd downloads separately
-  case riDownloadType release of
-    Slskd -> submitSlskdDownload ctx release catalogAlbumId
-    _ -> submitTraditionalDownload ctx release catalogAlbumId
+  -- Check for existing active download to prevent duplicates
+  alreadyExists <- withConnection dscDbPool $ \conn ->
+    hasActiveDownloadForAlbum conn catalogAlbumId
+  if alreadyExists
+    then do
+      runKatipContextT dscLogEnv () "download.submission" $
+        $(logTM) InfoS $ logStr $ ("Skipping download for album " <> show catalogAlbumId <> ": active download already exists" :: Text)
+      pure Nothing
+    else do
+      -- Handle slskd downloads separately
+      case riDownloadType release of
+        Slskd -> submitSlskdDownload ctx release catalogAlbumId
+        _ -> submitTraditionalDownload ctx release catalogAlbumId
 
 -- | Submit a slskd download.
 submitSlskdDownload

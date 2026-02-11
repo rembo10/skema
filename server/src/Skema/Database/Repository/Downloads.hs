@@ -5,10 +5,12 @@ module Skema.Database.Repository.Downloads
   ( DownloadInsert(..)
   , insertDownload
   , deleteDownload
+  , hasActiveDownloadForAlbum
   ) where
 
 import Skema.Database.Utils (insertReturningId)
 import Data.Time (UTCTime)
+import Database.SQLite.Simple (Only(..))
 import qualified Database.SQLite.Simple as SQLite
 import qualified Database.SQLite.Simple.ToField as SQLite
 
@@ -95,3 +97,13 @@ insertDownload conn catalogAlbumId indexerName downloadUrl downloadClient downlo
 deleteDownload :: SQLite.Connection -> Int64 -> IO ()
 deleteDownload conn downloadId =
   SQLite.execute conn "DELETE FROM downloads WHERE id = ?" (SQLite.Only downloadId)
+
+-- | Check if an active (non-failed, non-cancelled) download exists for a catalog album.
+hasActiveDownloadForAlbum :: SQLite.Connection -> Int64 -> IO Bool
+hasActiveDownloadForAlbum conn catalogAlbumId = do
+  results <- SQLite.query conn
+    "SELECT COUNT(*) FROM downloads WHERE catalog_album_id = ? AND status NOT IN ('failed', 'cancelled')"
+    (Only catalogAlbumId) :: IO [Only Int]
+  case results of
+    [Only count] -> pure (count > 0)
+    _ -> pure False

@@ -176,7 +176,14 @@ data WantedAlbumInfo = WantedAlbumInfo
 getWantedAlbums :: ConnectionPool -> IO [WantedAlbumInfo]
 getWantedAlbums pool = withConnection pool $ \conn -> do
   results <- queryRows conn
-    "SELECT id, title, artist_name, current_quality FROM catalog_albums WHERE quality_profile_id IS NOT NULL"
+    "SELECT ca.id, ca.title, ca.artist_name, ca.current_quality \
+    \FROM catalog_albums ca \
+    \WHERE ca.quality_profile_id IS NOT NULL \
+    \AND NOT EXISTS ( \
+    \  SELECT 1 FROM downloads d \
+    \  WHERE d.catalog_album_id = ca.id \
+    \  AND d.status NOT IN ('failed', 'cancelled') \
+    \)"
     () :: IO [(Int64, Text, Text, Maybe Text)]
 
   -- For each album, get its effective quality profile

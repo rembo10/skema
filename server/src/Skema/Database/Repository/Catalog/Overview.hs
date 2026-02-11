@@ -159,7 +159,7 @@ getCatalogAlbumsOverview conn query = do
         \FROM catalog_albums ca \
         \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
         \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
-        \  AND d_active.status IN ('queued', 'downloading', 'processing') \
+        \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
         \LEFT JOIN ( \
         \  SELECT catalog_album_id, COUNT(*) as download_count, MAX(queued_at) as last_download_at \
         \  FROM downloads \
@@ -238,7 +238,7 @@ getCatalogAlbumsOverview conn query = do
                          \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
                          \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
                          \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failed' THEN 'IdentificationFailed' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failure' THEN 'IdentificationFailed' \
                          \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
                          \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
                          \    ELSE 'Wanted' \
@@ -246,7 +246,7 @@ getCatalogAlbumsOverview conn query = do
                          \FROM catalog_albums ca \
                          \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
                          \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
-                         \  AND d_active.status IN ('queued', 'downloading', 'processing') \
+                         \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
                          \LEFT JOIN ( \
                          \  SELECT catalog_album_id, COUNT(*) as download_count, MAX(queued_at) as last_download_at \
                          \  FROM downloads \
@@ -295,14 +295,14 @@ getCatalogAlbumsOverviewCount conn query = do
                          \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
                          \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
                          \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failed' THEN 'IdentificationFailed' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failure' THEN 'IdentificationFailed' \
                          \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
                          \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
                          \    ELSE 'Wanted' \
                          \  END AS computed_state \
                          \FROM catalog_albums ca \
                          \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
-                         \  AND d_active.status IN ('queued', 'downloading', 'processing') \
+                         \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
                          \LEFT JOIN clusters c ON c.mb_release_group_id = ca.release_group_mbid \
                          \WHERE 1=1 " <> whereClause <> ") sub WHERE computed_state IN (" <> T.intercalate "," (replicate (length states) "?") <> ")"
               stateParams = map toField states
@@ -376,7 +376,7 @@ getCatalogAlbumsByArtistOverview conn artistId = do
         \FROM catalog_albums ca \
         \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
         \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
-        \  AND d_active.status IN ('queued', 'downloading', 'processing') \
+        \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
         \LEFT JOIN ( \
         \  SELECT catalog_album_id, COUNT(*) as download_count, MAX(queued_at) as last_download_at \
         \  FROM downloads \
@@ -414,14 +414,14 @@ getCatalogAlbumsStatsByState conn maybeArtistId maybeSearch maybeReleaseDateAfte
         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failed' THEN 'IdentificationFailed' \
+        \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failure' THEN 'IdentificationFailed' \
         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
         \    ELSE 'Wanted' \
         \  END AS computed_state \
         \FROM catalog_albums ca \
         \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
-        \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failed') \
+        \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
         \LEFT JOIN ( \
         \  SELECT mb_release_group_id, MIN(id) as id \
         \  FROM clusters \

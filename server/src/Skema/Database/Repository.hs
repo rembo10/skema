@@ -54,6 +54,7 @@ module Skema.Database.Repository
   , getRecentScans
     -- * Download operations
   , insertDownload
+  , hasActiveDownloadForAlbum
     -- * Acquisition rule operations
   , createAcquisitionRule
   , getAllAcquisitionRules
@@ -159,6 +160,7 @@ import Skema.Database.Repository.Acquisition
 -- Re-export download operations
 import Skema.Database.Repository.Downloads
   ( insertDownload
+  , hasActiveDownloadForAlbum
   )
 
 -- Re-export quality profile operations
