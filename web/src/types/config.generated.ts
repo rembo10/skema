@@ -38,6 +38,7 @@ export interface ServerConfig {
 export interface DownloadConfig {
   nzb_client?: any;
   torrent_client?: any;
+  slskd_client?: any;
   directory: string | null;
   check_interval: number;
   auto_import: boolean;
@@ -280,6 +281,13 @@ export const downloadSchema: SectionMeta = {
     {
       name: 'torrent_client',
       description: 'Torrent download client configuration',
+      type: 'object'
+    }
+
+,
+    {
+      name: 'slskd_client',
+      description: 'slskd (Soulseek) client configuration',
       type: 'object'
     }
 

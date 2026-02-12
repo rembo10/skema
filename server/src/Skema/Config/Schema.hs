@@ -858,7 +858,13 @@ downloadSchema = schema "download" "Download client configuration"
       -- No example = null, optional
   , "slskd_client" .:: "slskd (Soulseek) client configuration"
       & fieldType FTObject
-      -- No example = null, optional
+      & example (T.unlines
+          [ ""
+          , "    url: http://localhost:5030"
+          , "    api_key: your-api-key"
+          , "    enabled: false"
+          , "    download_directory: /downloads/slskd"
+          ])
   , "directory" .:: "Directory for completed downloads (before import)"
       & pathField
       & example "./downloads"

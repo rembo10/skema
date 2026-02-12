@@ -61,11 +61,12 @@ download:
   # Torrent download client configuration
   torrent_client: null
   # slskd (Soulseek) client configuration
-  slskd_client:
+  slskd_client: 
     url: http://localhost:5030
     api_key: your-api-key
     enabled: false
     download_directory: /downloads/slskd
+
   # Directory for completed downloads (before import)
   directory: ./downloads
   # How often to check for completed downloads (in seconds)
