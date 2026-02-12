@@ -25,7 +25,7 @@ import Skema.Indexer.Client (searchIndexer)
 import Skema.Indexer.Types
 import Skema.Config.Types (Config(..), DownloadConfig(..), Indexer(..), IndexerConfig(..), SlskdConfig(..))
 import Skema.Domain.Quality (meetsProfile, isBetterQuality, textToQuality)
-import Skema.Slskd.Client (SlskdClient, createSlskdClient)
+import Skema.Slskd.Client (createSlskdClient)
 import Skema.Slskd.Search (searchSlskd, slskdCandidateToReleaseInfo)
 import Database.SQLite.Simple (Only(..))
 import Control.Concurrent.Async (async, race, mapConcurrently, concurrently)

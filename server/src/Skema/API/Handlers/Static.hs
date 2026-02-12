@@ -11,10 +11,9 @@ import WaiAppStatic.Types (StaticSettings(..), MaxAge(..), LookupResult(..), toP
 import Servant
 import System.FilePath ((</>))
 import qualified System.Environment as Env
-import Skema.Config.Types (Config, ServerConfig, serverWebRoot, server)
-import Control.Concurrent.STM (TVar)
+import Skema.Config.Types (Config, serverWebRoot, server)
 import qualified Control.Concurrent.STM as STM
-import Network.Wai (responseFile, responseLBS, Middleware, rawPathInfo)
+import Network.Wai (responseLBS, Middleware, rawPathInfo)
 import Network.HTTP.Types (status200, hContentType)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE

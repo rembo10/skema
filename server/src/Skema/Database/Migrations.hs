@@ -16,7 +16,7 @@ import Database.SQLite.Simple (Only(..))
 import qualified Database.SQLite.Simple as SQLite
 import qualified Data.Text as T
 import Data.Char (isAlphaNum)
-import qualified Data.Text.ICU.Normalize as ICU
+import qualified Data.Text.ICU.Normalize2 as ICU
 
 -- | Run all pending migrations.
 runMigrations :: LogEnv -> ConnectionPool -> IO ()

@@ -27,13 +27,11 @@ module Skema.Slskd.Client
   ) where
 
 import Control.Exception (try)
-import Data.Aeson (FromJSON, ToJSON, Value, decode, encode, object, (.=))
+import Data.Aeson (FromJSON, Value, decode, encode, object, (.=))
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import Network.HTTP.Client
   ( Manager
-  , Request
   , RequestBody (..)
   , httpLbs
   , method

@@ -22,7 +22,7 @@ module Skema.Database.Repository.Clusters
 import Skema.Database.Connection
 import Skema.Database.Types
 import Skema.Database.Utils (insertReturningId)
-import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
+import Skema.FileSystem.Utils (stringToOsPath)
 import Skema.MusicBrainz.Types (MBRelease(..), MBID(..), unMBID)
 import Skema.Domain.Quality (Quality(..), textToQuality, qualityToText)
 import System.OsPath (OsPath)
@@ -242,12 +242,12 @@ computeClusterQuality conn clusterIdArg = do
 -- | Update the quality field of a cluster based on its tracks.
 -- This should be called after tracks are added/updated.
 updateClusterQuality :: SQLite.Connection -> Int64 -> IO ()
-updateClusterQuality conn clusterId = do
-  maybeQuality <- computeClusterQuality conn clusterId
+updateClusterQuality conn cId = do
+  maybeQuality <- computeClusterQuality conn cId
   case maybeQuality of
     Nothing -> pure ()  -- No quality could be determined
     Just quality -> do
       now <- getCurrentTime
       executeQuery conn
         "UPDATE clusters SET quality = ?, updated_at = ? WHERE id = ?"
-        (qualityToText quality, now, clusterId)
+        (qualityToText quality, now, cId)

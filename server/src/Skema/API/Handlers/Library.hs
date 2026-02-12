@@ -14,12 +14,11 @@ import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
 import Database.SQLite.Simple (Only(..))
 import qualified Skema.Config.Types as Cfg
-import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
+import Skema.FileSystem.Utils (osPathToString)
 import Skema.Services.Registry (ServiceRegistry)
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
-import qualified System.OsPath as OP
 import Servant
 import Katip
 import qualified Control.Concurrent.STM as STM

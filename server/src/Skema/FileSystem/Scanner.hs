@@ -17,11 +17,10 @@ module Skema.FileSystem.Scanner
   ) where
 
 import Skema.Core.Library
-import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
+import Skema.FileSystem.Utils (osPathToString)
 import Monatone.Common (parseMetadata)
 import Monatone.Metadata (Metadata)
 import System.OsPath (OsPath, (</>))
-import qualified System.OsPath as OP
 import System.Directory.OsPath (listDirectory, doesDirectoryExist, getModificationTime, getFileSize)
 import qualified Data.Map.Strict as Map
 import Control.Concurrent.Async (forConcurrently)

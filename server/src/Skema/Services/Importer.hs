@@ -30,7 +30,6 @@ import Skema.Database.Repository
 import Skema.Database.Types (DownloadRecord(..), CatalogAlbumRecord(..))
 import qualified Skema.Database.Types as DB
 import Skema.Database.Utils (downloadStatusToText)
-import Skema.Domain.Quality (qualityToText, textToQuality, meetsOrExceedsCutoff)
 import Skema.FileSystem.PathFormatter (PathContext(..), formatPath)
 import Skema.FileSystem.Utils (moveFile, osPathToString, stringToOsPath)
 import Skema.FileSystem.Trash (moveToTrash)
@@ -527,7 +526,6 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
                   getClusterById conn clusterId
 
                 let maybeQualityText = maybeCluster >>= DB.clusterQuality
-                let maybeQuality = maybeQualityText >>= textToQuality
 
                 -- Update catalog_albums.current_quality from cluster
                 liftIO $ withConnection pool $ \conn ->

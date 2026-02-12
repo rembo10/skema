@@ -15,7 +15,7 @@ module Skema.Database.Repository.Quality
 import Skema.Database.Connection
 import Skema.Database.Types
 import Skema.Database.Utils (insertReturningId)
-import Skema.Domain.Quality (Quality, QualityProfile(..), QualityPreference(..), qualityToText, textToQuality, qualityPreferencesToJSON, qualityPreferencesFromJSON, needsUpgrade, meetsProfile)
+import Skema.Domain.Quality (Quality, QualityProfile(..), QualityPreference(..), qualityToText, textToQuality, qualityPreferencesToJSON, qualityPreferencesFromJSON)
 import Data.Time (getCurrentTime)
 import Database.SQLite.Simple (Only(..))
 import qualified Database.SQLite.Simple as SQLite
@@ -124,7 +124,7 @@ updateAlbumQuality pool albumId newQuality = withConnection pool $ \conn -> do
         "UPDATE catalog_albums SET current_quality = ?, updated_at = ? WHERE id = ?"
         (qualityText, now, albumId)
 
-    Just profile -> do
+    Just _profile -> do
       -- Just update the quality - the wanted status is now derived from
       -- quality_profile_id + current_quality + matched_cluster_id
       executeQuery conn

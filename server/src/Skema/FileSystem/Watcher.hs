@@ -22,11 +22,10 @@ module Skema.FileSystem.Watcher
 
 import Skema.Core.Library
 import Skema.FileSystem.Scanner (scanDirectory)
-import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
+import Skema.FileSystem.Utils (osPathToString)
 import Skema.Events.Bus (EventBus, publishAndLog)
 import Skema.Events.Types (Event(..))
 import System.OsPath (OsPath)
-import qualified System.OsPath as OP
 import System.FSNotify
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel)

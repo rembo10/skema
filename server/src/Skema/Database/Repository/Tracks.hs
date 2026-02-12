@@ -34,7 +34,6 @@ import Monatone.Metadata (Metadata(..), AudioFormat(..))
 import qualified Monatone.Metadata as M
 import Control.Monad (foldM)
 import System.OsPath (OsPath)
-import qualified System.OsPath as OP
 import System.Directory.OsPath (getFileSize, getModificationTime)
 import Data.Time (UTCTime, getCurrentTime)
 import Database.SQLite.Simple (Only(..))

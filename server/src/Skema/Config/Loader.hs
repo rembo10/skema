@@ -17,7 +17,6 @@ import Skema.Config.Migrations (migrateConfig, needsMigration)
 import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Data.Yaml (decodeFileEither, prettyPrintParseException)
 import System.OsPath (OsPath)
-import qualified System.OsPath as OP
 import qualified Skema.Config.Types as Cfg
 
 -- | Load configuration from a file path.

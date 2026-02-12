@@ -15,7 +15,6 @@ import Skema.Core.TaskManager (TaskManager)
 import qualified Skema.Core.TaskManager as TM
 import qualified Skema.Core.Catalog as Core
 import Skema.API.Handlers.Auth (throwJsonError)
-import Skema.API.Handlers.Utils (withAuthDB)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
@@ -190,9 +189,9 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       let offset = fromMaybe 0 maybeOffset
       let limit = fromMaybe 50 maybeLimit
 
-      (allArtists, responses) <- liftIO $ withConnection connPool $ \conn -> do
-        all <- DB.getCatalogArtists conn maybeFollowed maybeSearch maybeSort maybeOrder
-        let paginated = take limit $ drop offset $ all
+      (allArtists', responses) <- liftIO $ withConnection connPool $ \conn -> do
+        allArtists' <- DB.getCatalogArtists conn maybeFollowed maybeSearch maybeSort maybeOrder
+        let paginated = take limit $ drop offset allArtists'
         responses <- forM paginated $ \artist -> do
           -- For followed artists, include recent albums
           maybeAlbums <- case (DBTypes.catalogArtistFollowed artist, DBTypes.catalogArtistId artist) of
@@ -216,9 +215,9 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             , catalogArtistResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistUpdatedAt artist)
             , catalogArtistResponseAlbums = maybeAlbums
             }
-        pure (all, responses)
+        pure (allArtists', responses)
 
-      let total = length allArtists
+      let total = length allArtists'
       let pagination = ArtistsPagination
             { artistsPaginationTotal = total
             , artistsPaginationOffset = offset
@@ -919,7 +918,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       Maybe Cfg.SlskdConfig ->
       SearchQuery ->
       SourceIO ReleaseStreamEvent
-    streamSearchResults logEnv svcRegistry cfgVar indexers maybeSlskd query = SourceT $ \k -> k $ Effect $ do
+    streamSearchResults logEnv svcRegistry _cfgVar indexers maybeSlskd query = SourceT $ \k -> k $ Effect $ do
       -- Create a channel for results
       chan <- newTChanIO
 

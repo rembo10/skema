@@ -24,7 +24,7 @@ import Database.SQLite.Simple.ToField (toField)
 import qualified Database.SQLite.Simple as SQLite
 import qualified Data.Text as T
 import Data.Char (isAlphaNum)
-import qualified Data.Text.ICU.Normalize as ICU
+import qualified Data.Text.ICU.Normalize2 as ICU
 
 -- * Helper functions
 
@@ -120,8 +120,8 @@ buildArtistFilters maybeFollowed maybeSearch =
             Nothing -> ([], [])
             Just query ->
               -- Split query into words and search for each word independently
-              let words = T.words query
-                  normalizedWords = filter (not . T.null) $ map normalizeForSearch words
+              let searchWords = T.words query
+                  normalizedWords = filter (not . T.null) $ map normalizeForSearch searchWords
                   wordClauses = map (\_ -> "artist_name_normalized LIKE ?") normalizedWords
                   wordParams = map (\w -> toField ("%" <> w <> "%")) normalizedWords
               in if null normalizedWords

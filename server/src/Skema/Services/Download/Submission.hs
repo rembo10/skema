@@ -16,7 +16,6 @@ import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
 import Skema.Database.Repository
-import Skema.Database.Repository.Downloads (hasActiveDownloadForAlbum)
 import Skema.Indexer.Types
 import Skema.Config.Types (DownloadClient(..), DownloadConfig(..), SlskdConfig(..), downloadClientTypeName)
 import Skema.DownloadClient.Types (DownloadClientAPI(..), AddDownloadRequest(..), AddDownloadResult(..))
@@ -212,6 +211,7 @@ submitTraditionalDownload DownloadSubmissionContext{..} release catalogAlbumId =
         let clientType = case riDownloadType release of
               NZB -> "NZB" :: Text
               Torrent -> "Torrent"
+              Slskd -> "Slskd"
         $(logTM) ErrorS $ logStr $ ("No " <> clientType <> " download client configured, cannot queue download" :: Text)
         pure Nothing
 
@@ -255,7 +255,8 @@ submitTraditionalDownload DownloadSubmissionContext{..} release catalogAlbumId =
                 (Just $ qualityToText $ riQuality release)  -- Store parsed quality
                 (case riDownloadType release of
                    NZB -> Just "NZB"
-                   Torrent -> Just "Torrent")
+                   Torrent -> Just "Torrent"
+                   Slskd -> Just "Slskd")
                 (riSeeders release)
                 0.0  -- progress
                 (Just err)  -- error_message
@@ -289,7 +290,8 @@ submitTraditionalDownload DownloadSubmissionContext{..} release catalogAlbumId =
                 (Just $ qualityToText $ riQuality release)  -- Store parsed quality
                 (case riDownloadType release of
                    NZB -> Just "NZB"
-                   Torrent -> Just "Torrent")
+                   Torrent -> Just "Torrent"
+                   Slskd -> Just "Slskd")
                 (riSeeders release)
                 0.0  -- progress
                 Nothing  -- error_message

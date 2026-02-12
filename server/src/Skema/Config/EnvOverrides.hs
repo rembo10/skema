@@ -28,9 +28,8 @@ import Data.Char (isUpper, toUpper, toLower)
 import Data.List (stripPrefix)
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Skema.Config.Types as Cfg
-import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
+import Skema.FileSystem.Utils (stringToOsPath)
 import System.OsPath (OsPath)
-import qualified System.OsPath as OP
 
 -- =============================================================================
 -- Type class for parsing env var values

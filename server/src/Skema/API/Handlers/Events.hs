@@ -18,11 +18,10 @@ import Skema.Auth.JWT (JWTSecret, validateJWT)
 import Skema.Database.Connection
 import Skema.Database.Repository (getLibraryStats)
 import qualified Skema.Config.Types as Cfg
-import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
+import Skema.FileSystem.Utils (osPathToString)
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
-import qualified System.OsPath as OP
 import Servant hiding (SourceIO)
 import Servant.Types.SourceT (SourceT(..), StepT(..))
 import Katip

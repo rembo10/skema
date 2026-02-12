@@ -8,10 +8,6 @@ module Skema.Database.Repository.Catalog.Types
   , defaultAlbumQuery
   ) where
 
-import Data.Int (Int64)
-import Data.Text (Text)
-import GHC.Generics (Generic)
-
 -- | Query parameters for fetching catalog albums.
 data AlbumQuery = AlbumQuery
   { aqLimit :: Int

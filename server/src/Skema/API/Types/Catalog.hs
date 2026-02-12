@@ -37,7 +37,7 @@ module Skema.API.Types.Catalog
 import Skema.API.Types.Tasks (TaskResponse)
 import Skema.API.Types.Common (SourceIO)
 import Skema.Core.Catalog (AlbumState(..))
-import Data.Aeson (ToJSON(..), FromJSON(..), Value, defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2, withObject, (.:), object, (.=), encode)
+import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2, withObject, (.:), object, (.=), encode)
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text.Encoding as TE

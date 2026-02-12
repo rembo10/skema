@@ -47,7 +47,7 @@ module Skema.Config.Types
 import Data.Aeson (FromJSON (..), ToJSON (..), withObject, (.:), (.:?), (.!=), object, (.=), Value(..))
 import qualified Data.Aeson.KeyMap as KM
 import Skema.Config.Schema (Default(..), Mergeable(..))
-import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
+import Skema.FileSystem.Utils (osPathToString)
 import System.OsPath (OsPath)
 import qualified System.OsPath as OP
 import System.IO.Unsafe (unsafePerformIO)

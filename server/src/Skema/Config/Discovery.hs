@@ -17,9 +17,6 @@ import Skema.Config.Safe (safeWriteConfig)
 import Skema.Auth.JWT (generateJWTSecretString)
 import System.Directory (doesFileExist, createDirectoryIfMissing, getXdgDirectory, XdgDirectory(..))
 import System.FilePath (takeDirectory)
-import Text.Read (readMaybe)
-import Data.Maybe (fromMaybe)
-import Control.Applicative ((<|>))
 
 -- | Find the config file in standard locations.
 --

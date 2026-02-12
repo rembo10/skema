@@ -18,7 +18,6 @@ import Skema.MusicBrainz.Matching
 import Skema.MusicBrainz.Types
 import qualified Monatone.Metadata as M
 import System.OsPath (OsPath, encodeUtf)
-import Data.Text (Text)
 import qualified Data.HashMap.Strict as HM
 
 tests :: TestTree

@@ -37,8 +37,7 @@ import Skema.Domain.Quality
   , isBetterQuality
   , needsUpgrade
   )
-import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON)
-import GHC.Generics (Generic)
+import Data.Aeson (ToJSON(..), FromJSON(..))
 
 -- ============================================================================
 -- TYPES

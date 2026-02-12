@@ -76,7 +76,7 @@ processMetadataWrite MetadataWriterDeps{..} diffIds = do
 
     -- Process each file's diffs as a batch
     let fileGroups = Map.toList diffsByFile
-    results <- liftIO $ forM (zip [1..] fileGroups) $ \(idx :: Int, (trackId, (filePath, fileDiffIds))) -> do
+    results <- liftIO $ forM (zip [1..] fileGroups) $ \(idx :: Int, (_trackId, (filePath, fileDiffIds))) -> do
       -- Emit progress event BEFORE writing
       publishAndLog bus le "writer" $ MetadataWriteProgress
         { writeCurrentFile = toText filePath

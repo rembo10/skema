@@ -13,9 +13,8 @@ module Unit.ConfigSpec
 
 import Test.Tasty
 import Test.Tasty.HUnit
-import Data.Aeson (Value(..), object, (.=), encode, decode)
+import Data.Aeson (Value(..), object, (.=))
 import qualified Data.Aeson.KeyMap as KM
-import qualified Data.ByteString.Lazy as BSL
 import System.Environment (setEnv, unsetEnv)
 
 import Skema.Config.Types

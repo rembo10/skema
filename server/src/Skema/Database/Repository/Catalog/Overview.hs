@@ -451,8 +451,8 @@ buildOverviewFilters maybeQualities maybeArtistId maybeSearch maybeReleaseDateAf
             Nothing -> ([], [])
             Just query ->
               -- Split query into words and search for each word in either title or artist
-              let words = T.words query
-                  normalizedWords = filter (not . T.null) $ map normalizeForSearch words
+              let searchWords = T.words query
+                  normalizedWords = filter (not . T.null) $ map normalizeForSearch searchWords
                   -- Each word must match in either title or artist
                   wordClauses = map (\_ -> "(ca.title_normalized LIKE ? OR ca.artist_name_normalized LIKE ?)") normalizedWords
                   wordParams = concatMap (\w -> [toField ("%" <> w <> "%"), toField ("%" <> w <> "%")]) normalizedWords
@@ -510,8 +510,8 @@ buildStatsFilters maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDa
         , case maybeSearch of
             Nothing -> ([], [])
             Just query ->
-              let words = T.words query
-                  normalizedWords = filter (not . T.null) $ map normalizeForSearch words
+              let searchWords = T.words query
+                  normalizedWords = filter (not . T.null) $ map normalizeForSearch searchWords
                   wordClauses = map (\_ -> "(ca.title_normalized LIKE ? OR ca.artist_name_normalized LIKE ?)") normalizedWords
                   wordParams = concatMap (\w -> [toField ("%" <> w <> "%"), toField ("%" <> w <> "%")]) normalizedWords
               in if null normalizedWords

@@ -24,14 +24,12 @@ import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
-import Data.IORef (IORef)
 import qualified Data.IORef as IORef
 import System.FilePath.Posix (takeDirectory, takeExtension, takeFileName)
 
 import Katip
 
 import Skema.Domain.Quality (Quality (..), parseQuality)
-import Skema.HTTP.Client (HttpClient)
 import qualified Skema.Indexer.Types as Indexer
 import Skema.Indexer.Types (DownloadType (..), ReleaseInfo (..))
 import Skema.Slskd.Client

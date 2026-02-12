@@ -12,8 +12,7 @@ import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
 import Skema.Database.Repository
 import qualified Skema.Config.Types as Cfg
-import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
-import qualified System.OsPath as OP
+import Skema.FileSystem.Utils (osPathToString)
 import Servant
 import qualified Control.Concurrent.STM as STM
 

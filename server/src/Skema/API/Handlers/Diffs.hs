@@ -13,12 +13,11 @@ import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
 import qualified Skema.Config.Types as Cfg
-import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
+import Skema.FileSystem.Utils (osPathToString)
 import Skema.Services.Registry (ServiceRegistry)
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
-import qualified System.OsPath as OP
 import qualified Data.Map.Strict as Map
 import Servant
 import Katip

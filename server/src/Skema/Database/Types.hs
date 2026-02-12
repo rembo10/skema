@@ -45,9 +45,8 @@ import GHC.Generics ()
 import Data.Data (Data, toConstr, showConstr)
 import Data.Char (isUpper, isLower, toLower)
 import Data.Time (UTCTime)
-import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
+import Skema.FileSystem.Utils (stringToOsPath)
 import System.OsPath (OsPath)
-import qualified System.OsPath as OP
 import qualified Database.SQLite.Simple as SQLite
 import qualified Database.SQLite.Simple.FromRow as SQLite
 import System.IO.Unsafe (unsafePerformIO)

@@ -29,7 +29,6 @@ import qualified Monatone.Writer as MW
 import Control.Monad.Except ()
 import qualified Control.Monad.Except as Except
 import System.OsPath (OsPath)
-import qualified System.OsPath as OP
 import Data.Time (UTCTime, getCurrentTime)
 import Database.SQLite.Simple (Only(..))
 import qualified Database.SQLite.Simple as SQLite

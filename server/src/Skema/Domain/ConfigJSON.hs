@@ -23,8 +23,7 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Text as T
 import qualified Skema.Config.Types as Cfg
 import qualified Skema.Config.Validation as CfgVal
-import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
-import qualified System.OsPath as OP
+import Skema.FileSystem.Utils (osPathToString)
 
 -- | Convert Config to API JSON with computed fields.
 --

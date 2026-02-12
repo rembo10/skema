@@ -19,7 +19,7 @@ import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
 import qualified Skema.Config.Types as Cfg
 import Skema.Domain.Converters (clusterToResponse)
-import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
+import Skema.FileSystem.Utils (osPathToString)
 import Skema.Services.Registry (ServiceRegistry(..))
 import Skema.MusicBrainz.Client (getRelease, searchReleases, searchRecordings)
 import Skema.MusicBrainz.Identify (identifyFileGroup)
@@ -28,7 +28,6 @@ import Skema.MusicBrainz.Types
 import Skema.Domain.Identification (IdentifyConfig(..))
 import Skema.Events.Bus (EventBus, publishAndLog)
 import Skema.Events.Types (Event(..))
-import qualified System.OsPath as OP
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BSL
@@ -39,9 +38,6 @@ import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.Async (async)
 import Servant
 import Katip
-import Data.List (sortBy)
-import Data.Maybe (isJust, isNothing, fromMaybe)
-import Control.Applicative ((<|>))
 
 -- | Throw a 404 Not Found error.
 throw404 :: Text -> Handler a

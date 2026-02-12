@@ -27,6 +27,7 @@ scoreRelease ReleaseInfo{..} =
         Just s | s > 10 -> 400  -- Well-seeded torrents
         Just s | s > 0  -> 200  -- Some seeders
         _               -> 50   -- No seeder info or dead
+      Slskd -> 300  -- Soulseek direct transfers
 
     -- Seeder score (for torrents)
     seedScore = case riSeeders of
