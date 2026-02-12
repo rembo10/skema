@@ -28,7 +28,8 @@ import Katip
 
 import Skema.Config.Types (Config(..), Indexer(..), IndexerConfig(..))
 import Skema.Database.Connection (ConnectionPool, withConnection, queryRows, executeQuery)
-import Skema.Events.Bus (EventBus)
+import Skema.Events.Bus (EventBus, publishAndLog)
+import Skema.Events.Types (Event(..))
 import Skema.HTTP.Client (HttpClient)
 import Skema.Indexer.Types (IndexerResult(..), IndexerError(..), SearchQuery(..), ReleaseInfo(..))
 import qualified Skema.Indexer.Client as IndexerClient
@@ -166,6 +167,7 @@ detectIndexerCapabilities httpClient indexer = do
 -- | Wanted album information with quality profile
 data WantedAlbumInfo = WantedAlbumInfo
   { waiAlbumId :: Int64
+  , waiReleaseGroupMbid :: Text
   , waiTitle :: Text
   , waiArtistName :: Text
   , waiCurrentQuality :: Maybe Quality
@@ -176,7 +178,7 @@ data WantedAlbumInfo = WantedAlbumInfo
 getWantedAlbums :: ConnectionPool -> IO [WantedAlbumInfo]
 getWantedAlbums pool = withConnection pool $ \conn -> do
   results <- queryRows conn
-    "SELECT ca.id, ca.title, ca.artist_name, ca.current_quality \
+    "SELECT ca.id, ca.release_group_mbid, ca.title, ca.artist_name, ca.current_quality \
     \FROM catalog_albums ca \
     \WHERE ca.quality_profile_id IS NOT NULL \
     \AND NOT EXISTS ( \
@@ -184,13 +186,13 @@ getWantedAlbums pool = withConnection pool $ \conn -> do
     \  WHERE d.catalog_album_id = ca.id \
     \  AND d.status NOT IN ('failed', 'cancelled') \
     \)"
-    () :: IO [(Int64, Text, Text, Maybe Text)]
+    () :: IO [(Int64, Text, Text, Text, Maybe Text)]
 
   -- For each album, get its effective quality profile
-  forM results $ \(albumId, title, artistName, maybeQualityText) -> do
+  forM results $ \(albumId, releaseGroupMbid, title, artistName, maybeQualityText) -> do
     let currentQuality = maybeQualityText >>= textToQuality
     qualityProfile <- getEffectiveQualityProfile pool albumId
-    pure $ WantedAlbumInfo albumId title artistName currentQuality qualityProfile
+    pure $ WantedAlbumInfo albumId releaseGroupMbid title artistName currentQuality qualityProfile
 
 -- | Resync RSS feed on startup (find last GUID or fetch recent)
 resyncRSSFeed :: HttpClient -> Indexer -> IndexerRSSState -> Int -> IO (Either Text [ReleaseInfo])
@@ -348,6 +350,28 @@ runRSSMonitor le bus pool httpClient config = do
                   syncResult <- liftIO $ resyncRSSFeed httpClient indexer updatedState (rssSyncMaxThresholdHours rssSettings)
 
                   case syncResult of
+                    Left err | "Downtime exceeded threshold" `T.isPrefixOf` err -> do
+                      $(logTM) InfoS $ logStr $ "Extended downtime detected for " <> indexerName indexer <> ", triggering explicit searches for wanted albums"
+
+                      -- Get wanted albums and trigger explicit searches
+                      wanted <- liftIO $ getWantedAlbums pool
+                      forM_ wanted $ \album -> do
+                        $(logTM) InfoS $ logStr $ "Triggering search for: " <> waiTitle album <> " by " <> waiArtistName album
+                        liftIO $ publishAndLog bus le "rss-monitor" $ WantedAlbumAdded
+                          { wantedCatalogAlbumId = waiAlbumId album
+                          , wantedReleaseGroupId = waiReleaseGroupMbid album
+                          , wantedAlbumTitle = waiTitle album
+                          , wantedArtistName = waiArtistName album
+                          }
+
+                      -- Reset RSS state so subsequent cycles work normally
+                      now <- liftIO getCurrentTime
+                      liftIO $ updateIndexerState pool $ updatedState
+                        { irsLastCheckAt = Just now
+                        , irsLastSeenGuid = Nothing
+                        , irsConsecutiveFailures = 0
+                        }
+
                     Left err -> do
                       $(logTM) WarningS $ logStr $ "RSS sync failed for " <> indexerName indexer <> ": " <> err
                       -- Update consecutive failures
