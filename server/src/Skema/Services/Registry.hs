@@ -42,11 +42,13 @@ import Network.HTTP.Client (Manager)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (async)
+import Control.Concurrent.Async (Async, async, cancel)
 import Control.Exception (finally)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Monad ()
+import System.Directory (doesDirectoryExist)
+import System.OsPath (OsPath)
 import Katip
 
 -- | Service registry holds all running services and shared resources.
@@ -63,6 +65,62 @@ data ServiceRegistry = ServiceRegistry
     -- ^ In-memory map of download progress and status (download_id -> (progress 0.0-1.0, display_status))
   }
 
+
+-- | State tracking for the filesystem watcher so it can be restarted on config changes.
+data WatcherState = WatcherState
+  { wsWatchedPath :: Maybe OsPath
+    -- ^ The path currently being watched (Nothing if watcher not running)
+  , wsWatchEnabled :: Bool
+    -- ^ Whether watching was enabled
+  , wsHandle :: Maybe (Async ())
+    -- ^ The async handle for the watcher thread (Nothing if not running)
+  }
+
+-- | Try to start the filesystem watcher for a given library config.
+-- Returns the new WatcherState. Stops any existing watcher first.
+tryStartWatcher :: LogEnv -> ScannerDeps -> WatcherState -> LibraryConfig -> IO WatcherState
+tryStartWatcher le scannerDeps oldState libConfig = do
+  -- Stop existing watcher if running
+  forM_ (wsHandle oldState) cancel
+
+  let watchEnabled = libraryWatch libConfig
+  if not watchEnabled
+    then do
+      runKatipContextT le () "services.registry" $
+        $(logTM) InfoS $ logStr ("Watcher disabled in config" :: Text)
+      pure WatcherState { wsWatchedPath = Nothing, wsWatchEnabled = False, wsHandle = Nothing }
+    else case libraryPath libConfig of
+      Nothing -> do
+        runKatipContextT le () "services.registry" $
+          $(logTM) WarningS $ logStr ("Watcher enabled but no library path configured" :: Text)
+        pure WatcherState { wsWatchedPath = Nothing, wsWatchEnabled = True, wsHandle = Nothing }
+      Just libPath -> do
+        libPathStr <- osPathToString libPath
+        exists <- doesDirectoryExist libPathStr
+        if not exists
+          then do
+            runKatipContextT le () "services.registry" $
+              $(logTM) WarningS $ logStr $ "Watcher enabled but library path does not exist: " <> toText libPathStr
+            pure WatcherState { wsWatchedPath = Nothing, wsWatchEnabled = True, wsHandle = Nothing }
+          else do
+            runKatipContextT le () "services.registry" $
+              $(logTM) InfoS $ logStr $ "Starting Watcher for: " <> toText libPathStr
+            stopWatcher <- watchDirectoryWithEvents
+              libPath
+              defaultDebounceMs
+              (processDiff scannerDeps)
+              Nothing    -- processDiff emits events itself
+              (Just le)
+            handle <- async $
+              forever (threadDelay maxBound)
+                `finally` stopWatcher
+            pure WatcherState { wsWatchedPath = Just libPath, wsWatchEnabled = True, wsHandle = Just handle }
+
+-- | Check whether the watcher needs restarting given old and new library configs.
+watcherNeedsRestart :: WatcherState -> LibraryConfig -> Bool
+watcherNeedsRestart oldState newLibConfig =
+  wsWatchEnabled oldState /= libraryWatch newLibConfig
+  || wsWatchedPath oldState /= libraryPath newLibConfig
 
 -- | Start all services.
 --
@@ -100,31 +158,6 @@ startAllServices le bus pool config cacheDir configPath = do
     -- Create TVar for config (allows live updates)
     configVar <- liftIO $ STM.newTVarIO config
 
-    -- Start a background thread to listen for ConfigUpdated events and reload config
-    $(logTM) InfoS $ logStr ("Starting config reload listener..." :: Text)
-    chan <- liftIO $ STM.atomically $ subscribe bus
-    configReloadHandle <- liftIO $ async $ forever $ do
-      envelope <- STM.atomically $ readTChan chan
-      case envelopeEvent envelope of
-        ConfigUpdated _ -> do
-          runKatipContextT le () "services.registry" $ do
-            $(logTM) InfoS $ logStr ("ConfigUpdated event received, reloading config..." :: Text)
-          result <- loadConfigFromFile configPath
-          case result of
-            Left err -> do
-              runKatipContextT le () "services.registry" $ do
-                $(logTM) ErrorS $ logStr $ ("Failed to reload config: " <> err :: Text)
-              -- Emit ConfigReloadFailed event to notify users
-              publishAndLog bus le "registry" $ ConfigReloadFailed
-                { configReloadError = err
-                }
-            Right newConfig -> do
-              STM.atomically $ STM.writeTVar configVar newConfig
-              runKatipContextT le () "services.registry" $ do
-                $(logTM) InfoS $ logStr ("Config reloaded successfully" :: Text)
-        _ -> pure ()
-    liftIO $ registerAsync asyncRegistry "ConfigReloader" configReloadHandle
-
     -- Create TVar for in-memory download progress tracking
     $(logTM) InfoS $ logStr ("Initializing download progress map..." :: Text)
     downloadProgressMap <- liftIO $ STM.newTVarIO Map.empty
@@ -140,33 +173,55 @@ startAllServices le bus pool config cacheDir configPath = do
           , scDownloadProgressMap = downloadProgressMap
           }
 
-    -- Start pipeline services
-    $(logTM) InfoS $ logStr ("Starting Scanner service..." :: Text)
+    -- Define scanner deps early (needed by both scanner service and watcher)
     let scannerDeps = ScannerDeps
           { scanEventBus = scEventBus ctx
           , scanLogEnv = scLogEnv ctx
           , scanDbPool = scDbPool ctx
           }
+
+    -- Start pipeline services
+    $(logTM) InfoS $ logStr ("Starting Scanner service..." :: Text)
     scannerHandle <- liftIO $ startScannerService scannerDeps
     liftIO $ registerAsync asyncRegistry "Scanner" scannerHandle
 
-    -- Start filesystem watcher when configured
-    when (libraryWatch (library config)) $ do
-      case libraryPath (library config) of
-        Just libPath -> do
-          $(logTM) InfoS $ logStr ("Starting Watcher service..." :: Text)
-          stopWatcher <- liftIO $ watchDirectoryWithEvents
-            libPath
-            defaultDebounceMs
-            (processDiff scannerDeps)
-            Nothing    -- processDiff emits events itself
-            (Just le)
-          watcherHandle <- liftIO $ async $
-            forever (threadDelay maxBound)
-              `finally` stopWatcher
-          liftIO $ registerAsync asyncRegistry "Watcher" watcherHandle
-        Nothing ->
-          $(logTM) WarningS $ logStr ("Watcher enabled but no library path configured" :: Text)
+    -- Start filesystem watcher (tracked via IORef for live restart on config changes)
+    let emptyWatcherState = WatcherState
+          { wsWatchedPath = Nothing, wsWatchEnabled = False, wsHandle = Nothing }
+    initialWatcherState <- liftIO $ tryStartWatcher le scannerDeps emptyWatcherState (library config)
+    watcherStateRef <- liftIO $ newIORef initialWatcherState
+
+    -- Start a background thread to listen for ConfigUpdated events and reload config
+    $(logTM) InfoS $ logStr ("Starting config reload listener..." :: Text)
+    chan <- liftIO $ STM.atomically $ subscribe bus
+    configReloadHandle <- liftIO $ async $ forever $ do
+      envelope <- STM.atomically $ readTChan chan
+      case envelopeEvent envelope of
+        ConfigUpdated _ -> do
+          runKatipContextT le () "services.registry" $ do
+            $(logTM) InfoS $ logStr ("ConfigUpdated event received, reloading config..." :: Text)
+          result <- loadConfigFromFile configPath
+          case result of
+            Left err -> do
+              runKatipContextT le () "services.registry" $ do
+                $(logTM) ErrorS $ logStr $ ("Failed to reload config: " <> err :: Text)
+              publishAndLog bus le "registry" $ ConfigReloadFailed
+                { configReloadError = err
+                }
+            Right newConfig -> do
+              STM.atomically $ STM.writeTVar configVar newConfig
+              runKatipContextT le () "services.registry" $ do
+                $(logTM) InfoS $ logStr ("Config reloaded successfully" :: Text)
+
+              -- Restart watcher if library path or watch setting changed
+              oldWatcherState <- readIORef watcherStateRef
+              when (watcherNeedsRestart oldWatcherState (library newConfig)) $ do
+                runKatipContextT le () "services.registry" $ do
+                  $(logTM) InfoS $ logStr ("Library config changed, restarting watcher..." :: Text)
+                newWatcherState <- tryStartWatcher le scannerDeps oldWatcherState (library newConfig)
+                writeIORef watcherStateRef newWatcherState
+        _ -> pure ()
+    liftIO $ registerAsync asyncRegistry "ConfigReloader" configReloadHandle
 
     $(logTM) InfoS $ logStr ("Starting Grouper service..." :: Text)
     let grouperDeps = GrouperDeps
