@@ -101,12 +101,17 @@ handleMetadataReadComplete GrouperDeps{..} fileCount = do
           Just cluster -> pure (fromMaybe 0 (clusterId cluster))
           Nothing -> createCluster conn hash album albumArtist trackCount
 
-        -- Get track IDs for this group
-        trackIds <- forM (fgFiles fg) $ \(path, _) -> do
+        -- Get track IDs and their old cluster assignments
+        trackInfos <- forM (fgFiles fg) $ \(path, _) -> do
           maybeTrack <- getTrackByPath conn path
-          pure $ maybeTrack >>= trackId
+          pure $ case maybeTrack of
+            Just track -> case trackId track of
+              Just tid -> Just (tid, trackClusterId track)
+              Nothing -> Nothing
+            Nothing -> Nothing
 
-        let validTrackIds = catMaybes trackIds
+        let validTrackInfos = catMaybes trackInfos
+        let validTrackIds = map fst validTrackInfos
 
         -- Assign tracks to cluster
         when (not (null validTrackIds)) $ do
@@ -114,7 +119,10 @@ handleMetadataReadComplete GrouperDeps{..} fileCount = do
           -- Compute and store cluster quality from track audio metadata
           updateClusterQuality conn cid
 
-        pure cid
+        -- Cluster is touched only if it's new or any track changed cluster assignment
+        let isNewCluster = isNothing maybeCluster
+        let anyTrackChanged = any (\(_, oldCid) -> oldCid /= Just cid) validTrackInfos
+        pure $ if isNewCluster || anyTrackChanged then Just cid else Nothing
 
     -- Reload clusters to get updated state
     allClusters <- liftIO $ withConnection pool getAllClusters
@@ -125,9 +133,10 @@ handleMetadataReadComplete GrouperDeps{..} fileCount = do
     let (alreadyMatched, needsId) = partitionClusters retryThreshold allClusters
     let totalGroups = length allClusters
 
-    -- Affected = touched cluster IDs that also need identification
+    -- Affected = actually changed cluster IDs that also need identification
+    let touchedSet = catMaybes touchedIds
     let needsIdSet = mapMaybe clusterId needsId
-    let affectedIds = filter (`elem` needsIdSet) touchedIds
+    let affectedIds = filter (`elem` needsIdSet) touchedSet
 
     $(logTM) InfoS $ logStr $ ("Created/updated " <> show totalGroups <> " clusters" :: Text)
     $(logTM) InfoS $ logStr $ (show (length alreadyMatched) <> " albums already matched/recently tried, " <>

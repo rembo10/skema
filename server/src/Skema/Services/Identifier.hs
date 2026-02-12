@@ -42,10 +42,10 @@ startIdentifierService deps = do
   async $ forever $ do
     envelope <- STM.atomically $ readTChan chan
     case envelopeEvent envelope of
-      ClustersGenerated{ needsIdentification = count, affectedClusterIds = affectedIds } -> do
+      ClustersGenerated{ affectedClusterIds = affectedIds } -> do
         -- Process each event asynchronously with error handling
         _ <- async $ do
-          result <- try $ handleClustersGenerated deps count affectedIds
+          result <- try $ handleClustersGenerated deps affectedIds
           case result of
             Left (e :: SomeException) -> do
               let le = identLogEnv deps
@@ -56,8 +56,8 @@ startIdentifierService deps = do
       _ -> pure ()  -- Ignore other events
 
 -- | Handle a clusters generated event.
-handleClustersGenerated :: IdentifierDeps -> Int -> [Int64] -> IO ()
-handleClustersGenerated IdentifierDeps{..} groupsNeedingId affectedIds = do
+handleClustersGenerated :: IdentifierDeps -> [Int64] -> IO ()
+handleClustersGenerated IdentifierDeps{..} affectedIds = do
   let le = identLogEnv
   let pool = identDbPool
   let bus = identEventBus
@@ -68,7 +68,7 @@ handleClustersGenerated IdentifierDeps{..} groupsNeedingId affectedIds = do
   config <- STM.atomically $ STM.readTVar identConfigVar
 
   runKatipContextT le initialContext initialNamespace $ do
-    if groupsNeedingId == 0
+    if null affectedIds
       then do
         $(logTM) InfoS $ logStr ("All albums already matched, skipping identification" :: Text)
 
@@ -78,7 +78,7 @@ handleClustersGenerated IdentifierDeps{..} groupsNeedingId affectedIds = do
           , matchesFound = 0
           }
       else do
-        $(logTM) InfoS $ logStr $ ("Identifying " <> show groupsNeedingId <> " albums with MusicBrainz" :: Text)
+        $(logTM) InfoS $ logStr $ ("Identifying " <> show (length affectedIds) <> " albums with MusicBrainz" :: Text)
 
         -- Configure identification (before using it to filter clusters)
         let libConfig = library config
@@ -93,7 +93,7 @@ handleClustersGenerated IdentifierDeps{..} groupsNeedingId affectedIds = do
 
         -- Emit IdentificationStarted
         liftIO $ publishAndLog bus le "identifier" $ IdentificationStarted
-          { groupCount = groupsNeedingId
+          { groupCount = length affectedIds
           }
 
         -- Get clusters that need identification, scoped to affected clusters
