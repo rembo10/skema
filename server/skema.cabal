@@ -282,6 +282,7 @@ test-suite skema-test
     Unit.ConfigSpec
     Unit.IndexerSpec
     Unit.MatchingSpec
+    Unit.PathFormatterSpec
     Helpers.TestEnv
     Helpers.Builders
     Helpers.EventAssertions

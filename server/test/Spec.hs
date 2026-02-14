@@ -9,6 +9,7 @@ import qualified Integration.EndToEndSpec
 import qualified Unit.ConfigSpec
 import qualified Unit.IndexerSpec
 import qualified Unit.MatchingSpec
+import qualified Unit.PathFormatterSpec
 
 main :: IO ()
 main = defaultMain tests
@@ -18,6 +19,7 @@ tests = testGroup "Skema Tests"
   [ Unit.ConfigSpec.tests
   , Unit.IndexerSpec.tests
   , Unit.MatchingSpec.tests
+  , Unit.PathFormatterSpec.tests
   , Integration.GrouperSpec.tests
   , Integration.ScanGroupIdentifySpec.tests
   , Integration.EndToEndSpec.tests

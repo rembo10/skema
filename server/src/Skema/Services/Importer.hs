@@ -30,7 +30,7 @@ import Skema.Database.Repository
 import Skema.Database.Types (DownloadRecord(..), CatalogAlbumRecord(..))
 import qualified Skema.Database.Types as DB
 import Skema.Database.Utils (downloadStatusToText)
-import Skema.FileSystem.PathFormatter (PathContext(..), formatPath)
+import Skema.FileSystem.PathFormatter (PathContext(..), formatPath, truncateFileName)
 import Skema.FileSystem.Utils (moveFile, osPathToString, stringToOsPath)
 import Skema.FileSystem.Trash (moveToTrash)
 import Skema.Core.Metadata (scanAndParseMetadata, groupParsedFiles, MetadataResult(..), GroupedFiles(..))
@@ -494,8 +494,8 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
                         , pcExtension = Just extension
                         }
 
-                  -- Format filename from template
-                  let formattedFileName = formatPath (libraryFileFormat libConfig) trackContext
+                  -- Format filename from template (truncated to 255-byte filesystem limit)
+                  let formattedFileName = truncateFileName $ formatPath (libraryFileFormat libConfig) trackContext
                   formattedFileNameOsPath <- stringToOsPath (toString formattedFileName)
                   let newPath = targetDir </> formattedFileNameOsPath
 

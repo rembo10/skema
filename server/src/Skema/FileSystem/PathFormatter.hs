@@ -19,11 +19,13 @@ module Skema.FileSystem.PathFormatter
   ( PathContext(..)
   , formatPath
   , formatTrackPath
+  , truncateFileName
   , parseTemplate
   , TemplatePart(..)
   ) where
 
 import qualified Data.Text as T
+import qualified Data.ByteString as BS
 import Data.Char (isSpace)
 import Text.Read ()
 
@@ -228,6 +230,32 @@ replaceChar c
   | c `elem` ['/', '\\', ':', '*', '?', '"', '<', '>', '|'] = '_'
   | c == '\0' = '_'
   | otherwise = c
+
+-- | Truncate a filename to fit within the 255-byte filesystem limit.
+-- Preserves the file extension and avoids breaking UTF-8 characters.
+truncateFileName :: Text -> Text
+truncateFileName name
+  | BS.length (encodeUtf8 name) <= 255 = name
+  | otherwise =
+      let (base, ext) = splitFileExtension name
+          extBytes = BS.length (encodeUtf8 ext)
+          maxBaseBytes = 255 - extBytes
+          truncatedBase = truncateTextToBytes maxBaseBytes base
+      in truncatedBase <> ext
+
+-- | Split a filename into base and extension (including the dot).
+splitFileExtension :: Text -> (Text, Text)
+splitFileExtension name =
+  case T.breakOnEnd "." name of
+    (b, _) | T.null b -> (name, "")  -- No dot found
+    (b, e) -> (T.dropEnd 1 b, "." <> e)
+
+-- | Truncate Text to fit within a byte limit (UTF-8 safe).
+truncateTextToBytes :: Int -> Text -> Text
+truncateTextToBytes maxBytes t
+  | maxBytes <= 0 = ""
+  | BS.length (encodeUtf8 t) <= maxBytes = t
+  | otherwise = truncateTextToBytes maxBytes (T.dropEnd 1 t)
 
 -- | Capitalize first letter of each word.
 capitalize :: Text -> Text
