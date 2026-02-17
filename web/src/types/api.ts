@@ -9,6 +9,8 @@ export interface LibraryStats {
   library_size: number; // Total size in bytes
   total_runtime: number; // Total duration in seconds
   library_path: string | null; // Library path
+  catalog_in_library: number; // Catalog albums matched to library clusters
+  catalog_wanted: number; // Catalog albums wanted but not yet in library
 }
 
 export interface MetadataDiff {

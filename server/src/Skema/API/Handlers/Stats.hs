@@ -21,7 +21,7 @@ statsServer :: Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> TVar Cfg.Confi
 statsServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader -> do
   _ <- requireAuth configVar jwtSecret maybeAuthHeader
   liftIO $ withConnection connPool $ \conn -> do
-    (totalFiles, totalAlbums, totalArtists, matchedFiles, unmatchedFiles, accuracy, totalDiffs, totalSize, totalRuntime) <- getLibraryStats conn
+    (totalFiles, totalAlbums, totalArtists, matchedFiles, unmatchedFiles, accuracy, totalDiffs, totalSize, totalRuntime, catalogInLibrary, catalogWanted) <- getLibraryStats conn
 
     -- Read current library path from config
     config <- STM.atomically $ STM.readTVar configVar
@@ -40,4 +40,6 @@ statsServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader -> do
       , statsLibrarySize = totalSize
       , statsTotalRuntime = totalRuntime
       , statsLibraryPath = libPath
+      , statsCatalogInLibrary = catalogInLibrary
+      , statsCatalogWanted = catalogWanted
       }

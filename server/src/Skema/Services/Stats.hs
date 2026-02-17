@@ -87,7 +87,7 @@ emitStatsUpdate StatsDeps{..} _libraryPath = do
 
   runKatipContextT le initialContext initialNamespace $ do
     -- Query database for fresh stats
-    (totalFiles, totalAlbums, totalArtists, matchedFiles, unmatchedFiles, accuracy, totalDiffs, totalSize, totalRuntime) <-
+    (totalFiles, totalAlbums, totalArtists, matchedFiles, unmatchedFiles, accuracy, totalDiffs, totalSize, totalRuntime, catInLibrary, catWanted) <-
       liftIO $ withConnection pool getLibraryStats
 
     -- Emit STATS_UPDATED event
@@ -101,4 +101,6 @@ emitStatsUpdate StatsDeps{..} _libraryPath = do
       , totalDiffs = totalDiffs
       , librarySize = fromIntegral totalSize
       , totalRuntime = round totalRuntime
+      , catalogInLibrary = catInLibrary
+      , catalogWanted = catWanted
       }

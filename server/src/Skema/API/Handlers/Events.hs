@@ -153,7 +153,7 @@ streamEvents _le bus connPool libPath = SourceT $ \k -> k $ Effect $ do
 -- | Load current stats from database.
 loadStats :: ConnectionPool -> Maybe Text -> IO LibraryStats
 loadStats connPool libPath = withConnection connPool $ \conn -> do
-  (totalFiles, totalAlbums, totalArtists, matchedFiles, unmatchedFiles, accuracy, totalDiffs, totalSize, totalRuntime) <- getLibraryStats conn
+  (totalFiles, totalAlbums, totalArtists, matchedFiles, unmatchedFiles, accuracy, totalDiffs, totalSize, totalRuntime, catalogInLibrary, catalogWanted) <- getLibraryStats conn
   pure $ LibraryStats
     { statsTotalFiles = totalFiles
     , statsTotalAlbums = totalAlbums
@@ -165,6 +165,8 @@ loadStats connPool libPath = withConnection connPool $ \conn -> do
     , statsLibrarySize = totalSize
     , statsTotalRuntime = totalRuntime
     , statsLibraryPath = libPath
+    , statsCatalogInLibrary = catalogInLibrary
+    , statsCatalogWanted = catalogWanted
     }
 
 -- | Convert an EventEnvelope to a ServerEvent for SSE.

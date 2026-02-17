@@ -276,6 +276,8 @@ data Event
       , totalDiffs :: Int
       , librarySize :: Int
       , totalRuntime :: Int
+      , catalogInLibrary :: Int
+      , catalogWanted :: Int
       }
 
   -- Quality events
@@ -616,6 +618,8 @@ eventToJSON = \case
     , "total_diffs" .= totalDiffs
     , "library_size" .= librarySize
     , "total_runtime" .= totalRuntime
+    , "catalog_in_library" .= catalogInLibrary
+    , "catalog_wanted" .= catalogWanted
     ]
   AlbumQualityDetected{..} -> object
     [ "album_id" .= qualityAlbumId

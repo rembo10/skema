@@ -10,7 +10,7 @@ import Database.SQLite.Simple (Only(..))
 import qualified Database.SQLite.Simple as SQLite
 
 -- | Get library statistics.
-getLibraryStats :: SQLite.Connection -> IO (Int, Int, Int, Int, Int, Double, Int, Integer, Double)
+getLibraryStats :: SQLite.Connection -> IO (Int, Int, Int, Int, Int, Double, Int, Integer, Double, Int, Int)
 getLibraryStats conn = do
   -- Total tracks
   totalTracksResult <- queryRows_ conn "SELECT COUNT(*) FROM library_tracks" :: IO [Only Int]
@@ -69,4 +69,22 @@ getLibraryStats conn = do
         then (fromIntegral (totalFieldChecks - totalDiffs) / fromIntegral totalFieldChecks) * 100.0
         else 0.0
 
-  pure (totalTracks, totalAlbums, totalArtists, matchedTracks, unmatchedTracks, accuracy, totalDiffs, totalSize, totalRuntime)
+  -- Catalog library completion stats
+  -- Albums in library = catalog albums matched to a cluster
+  -- Wanted albums = catalog albums with quality_profile_id but no cluster match
+  catalogCompletionResult <- queryRows_ conn
+    "SELECT \
+    \  COALESCE(SUM(CASE WHEN c.id IS NOT NULL THEN 1 ELSE 0 END), 0), \
+    \  COALESCE(SUM(CASE WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL THEN 1 ELSE 0 END), 0) \
+    \FROM catalog_albums ca \
+    \LEFT JOIN ( \
+    \  SELECT mb_release_group_id, MIN(id) as id \
+    \  FROM clusters \
+    \  WHERE mb_release_group_id IS NOT NULL \
+    \  GROUP BY mb_release_group_id \
+    \) c ON c.mb_release_group_id = ca.release_group_mbid" :: IO [(Int, Int)]
+  let (catalogInLibrary, catalogWanted) = case viaNonEmpty head catalogCompletionResult of
+        Just row -> row
+        Nothing -> (0, 0)
+
+  pure (totalTracks, totalAlbums, totalArtists, matchedTracks, unmatchedTracks, accuracy, totalDiffs, totalSize, totalRuntime, catalogInLibrary, catalogWanted)

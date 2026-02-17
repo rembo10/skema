@@ -69,6 +69,8 @@ data LibraryStats = LibraryStats
   , statsLibrarySize :: Integer  -- Total size in bytes
   , statsTotalRuntime :: Double  -- Total duration in seconds
   , statsLibraryPath :: Maybe Text  -- Library path
+  , statsCatalogInLibrary :: Int  -- Catalog albums matched to library clusters
+  , statsCatalogWanted :: Int  -- Catalog albums wanted but not yet in library
   } deriving (Show, Eq, Generic)
 
 instance ToJSON LibraryStats where

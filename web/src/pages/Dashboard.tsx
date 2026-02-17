@@ -5,7 +5,6 @@ import { FileAudio, HardDrive, Clock, Disc, Mic, AlertTriangle, RefreshCw, Rotat
 import { api } from '../lib/api';
 import { formatBytes, formatDuration } from '../lib/formatters';
 import { useAppStore } from '../store';
-import type { LibraryStats } from '../types/api';
 import { RecentlyFollowedArtists } from '../components/RecentlyFollowedArtists';
 import { RecentlyReleasedAlbums } from '../components/RecentlyReleasedAlbums';
 import { DashboardSkeleton } from '../components/LoadingSkeleton';
@@ -100,6 +99,8 @@ export default function Dashboard() {
       totalDiffs: stats.total_diffs.toLocaleString(),
       metadataAccuracy: stats.metadata_accuracy.toFixed(1),
       matchedFiles: stats.matched_files.toLocaleString(),
+      catalogInLibrary: stats.catalog_in_library,
+      catalogWanted: stats.catalog_wanted,
     };
   }, [stats]);
 
@@ -197,35 +198,80 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Metadata accuracy */}
-      <div className="card p-6">
-        <div className="flex items-start justify-between mb-4">
-          <h2 className="text-lg font-semibold text-dark-text">Metadata Accuracy</h2>
-          {stats && stats.total_diffs > 0 && (
-            <Link to="/library/diffs" className="link text-sm">View diffs →</Link>
-          )}
-        </div>
-        <div className="flex items-center">
-          <div className="flex-1">
-            <div className="flex items-baseline gap-3">
-              <span className="text-5xl font-bold text-dark-text tabular-nums">
-                {formattedStats?.metadataAccuracy ?? '0.0'}%
-              </span>
-              <span className="text-sm text-dark-text-secondary">
-                {formattedStats?.matchedFiles ?? '0'} / {formattedStats?.totalFiles ?? '0'} matched
-              </span>
+      {/* Metadata accuracy & Library completion */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="card p-6">
+          <div className="flex items-start justify-between mb-4">
+            <h2 className="text-lg font-semibold text-dark-text">Metadata Accuracy</h2>
+            {stats && stats.total_diffs > 0 && (
+              <Link to="/library/diffs" className="link text-sm">View diffs →</Link>
+            )}
+          </div>
+          <div className="flex items-center">
+            <div className="flex-1">
+              <div className="flex items-baseline gap-3">
+                <span className="text-5xl font-bold text-dark-text tabular-nums">
+                  {formattedStats?.metadataAccuracy ?? '0.0'}%
+                </span>
+                <span className="text-sm text-dark-text-secondary">
+                  {formattedStats?.matchedFiles ?? '0'} / {formattedStats?.totalFiles ?? '0'} matched
+                </span>
+              </div>
+              <div className="mt-6 w-full bg-dark-bg-subtle rounded-full h-2 overflow-hidden">
+                <div
+                  className={`h-2 rounded-full transition-all duration-500 ${
+                    (stats?.metadata_accuracy ?? 0) >= 80
+                      ? 'bg-dark-success'
+                      : (stats?.metadata_accuracy ?? 0) >= 50
+                      ? 'bg-dark-accent'
+                      : 'bg-dark-error'
+                  }`}
+                  style={{ width: `${stats?.metadata_accuracy ?? 0}%` }}
+                />
+              </div>
             </div>
-            <div className="mt-6 w-full bg-dark-bg-subtle rounded-full h-2 overflow-hidden">
-              <div
-                className={`h-2 rounded-full transition-all duration-500 ${
-                  (stats?.metadata_accuracy ?? 0) >= 80
-                    ? 'bg-dark-success'
-                    : (stats?.metadata_accuracy ?? 0) >= 50
-                    ? 'bg-dark-accent'
-                    : 'bg-dark-error'
-                }`}
-                style={{ width: `${stats?.metadata_accuracy ?? 0}%` }}
-              />
+          </div>
+        </div>
+
+        <div className="card p-6">
+          <div className="flex items-start justify-between mb-4">
+            <h2 className="text-lg font-semibold text-dark-text">Library Completion</h2>
+            {formattedStats && formattedStats.catalogWanted > 0 && (
+              <Link to="/albums?state=Wanted" className="link text-sm">View wanted →</Link>
+            )}
+          </div>
+          <div className="flex items-center">
+            <div className="flex-1">
+              {(() => {
+                const inLib = formattedStats?.catalogInLibrary ?? 0;
+                const wanted = formattedStats?.catalogWanted ?? 0;
+                const total = inLib + wanted;
+                const pct = total > 0 ? (inLib / total) * 100 : 0;
+                return (
+                  <>
+                    <div className="flex items-baseline gap-3">
+                      <span className="text-5xl font-bold text-dark-text tabular-nums">
+                        {pct.toFixed(1)}%
+                      </span>
+                      <span className="text-sm text-dark-text-secondary">
+                        {inLib.toLocaleString()} / {total.toLocaleString()} albums
+                      </span>
+                    </div>
+                    <div className="mt-6 w-full bg-dark-bg-subtle rounded-full h-2 overflow-hidden">
+                      <div
+                        className={`h-2 rounded-full transition-all duration-500 ${
+                          pct >= 80
+                            ? 'bg-dark-success'
+                            : pct >= 50
+                            ? 'bg-dark-accent'
+                            : 'bg-dark-error'
+                        }`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
