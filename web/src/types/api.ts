@@ -232,6 +232,19 @@ export interface WantedAlbum {
   updated_at: string;
 }
 
+// Acquisition summary types
+export interface AcquisitionSourceStats {
+  source_id: number;
+  artist_count: number;
+  album_count: number;
+}
+
+export interface AcquisitionSummary {
+  sources: AcquisitionSourceStats[];
+  total_artists_followed: number;
+  total_albums_wanted: number;
+}
+
 // Download client types
 export type DownloadClientType = 'sabnzbd' | 'nzbget' | 'transmission' | 'qbittorrent';
 

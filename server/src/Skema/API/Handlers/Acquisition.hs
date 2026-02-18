@@ -5,7 +5,7 @@ module Skema.API.Handlers.Acquisition
   ( acquisitionServer
   ) where
 
-import Skema.API.Types.Acquisition (AcquisitionAPI, AcquisitionRuleResponse(..), CreateRuleRequest(..), UpdateRuleRequest(..))
+import Skema.API.Types.Acquisition (AcquisitionAPI, AcquisitionRuleResponse(..), AcquisitionSummaryResponse(..), SourceStatsResponse(..), CreateRuleRequest(..), UpdateRuleRequest(..))
 import Skema.API.Handlers.Auth (throwJsonError)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
@@ -30,6 +30,7 @@ acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
   :<|> deleteRuleHandler maybeAuthHeader
   :<|> enableRuleHandler maybeAuthHeader
   :<|> disableRuleHandler maybeAuthHeader
+  :<|> getSummaryHandler maybeAuthHeader
   where
     getRulesHandler :: Maybe Text -> Handler [AcquisitionRuleResponse]
     getRulesHandler authHeader = do
@@ -134,3 +135,20 @@ acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
           "UPDATE acquisition_rules SET enabled = ?, updated_at = ? WHERE id = ?"
           (False, now, sourceId)
       pure NoContent
+
+    getSummaryHandler :: Maybe Text -> Handler AcquisitionSummaryResponse
+    getSummaryHandler authHeader = do
+      _ <- requireAuth configVar jwtSecret authHeader
+      liftIO $ withConnection connPool $ \conn -> do
+        (perSource, totalArtists, totalWanted) <- DB.getAcquisitionSummary conn
+        pure $ AcquisitionSummaryResponse
+          { acquisitionSummaryResponseSources = map (\(sid, ac, alc) ->
+              SourceStatsResponse
+                { sourceStatsResponseSourceId = sid
+                , sourceStatsResponseArtistCount = ac
+                , sourceStatsResponseAlbumCount = alc
+                }
+            ) perSource
+          , acquisitionSummaryResponseTotalArtistsFollowed = totalArtists
+          , acquisitionSummaryResponseTotalAlbumsWanted = totalWanted
+          }

@@ -62,6 +62,7 @@ module Skema.Database.Repository
   , updateAcquisitionRule
   , deleteAcquisitionRule
   , getDefaultLibraryArtistsRule
+  , getAcquisitionSummary
     -- * Catalog operations
   , upsertCatalogArtist
   , getCatalogArtists
@@ -155,6 +156,7 @@ import Skema.Database.Repository.Acquisition
   , updateAcquisitionRule
   , deleteAcquisitionRule
   , getDefaultLibraryArtistsRule
+  , getAcquisitionSummary
   )
 
 -- Re-export download operations

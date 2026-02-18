@@ -11,6 +11,8 @@ module Skema.API.Types.Acquisition
   , TrackedArtistResponse(..)
   , AcquisitionRuleResponse(..)
   , WantedAlbumResponse(..)
+  , SourceStatsResponse(..)
+  , AcquisitionSummaryResponse(..)
   ) where
 
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
@@ -25,6 +27,7 @@ type AcquisitionAPI = "acquisition" :> Header "Authorization" Text :>
   :<|> "sources" :> Capture "sourceId" Int64 :> DeleteNoContent
   :<|> "sources" :> Capture "sourceId" Int64 :> "enable" :> Put '[JSON] NoContent
   :<|> "sources" :> Capture "sourceId" Int64 :> "disable" :> Put '[JSON] NoContent
+  :<|> "summary" :> Get '[JSON] AcquisitionSummaryResponse
   )
 
 -- | Create acquisition rule request.
@@ -115,3 +118,29 @@ instance ToJSON WantedAlbumResponse where
 
 instance FromJSON WantedAlbumResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
+
+-- | Per-source stats response.
+data SourceStatsResponse = SourceStatsResponse
+  { sourceStatsResponseSourceId :: Int64
+  , sourceStatsResponseArtistCount :: Int
+  , sourceStatsResponseAlbumCount :: Int
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON SourceStatsResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
+
+instance FromJSON SourceStatsResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
+
+-- | Acquisition summary response.
+data AcquisitionSummaryResponse = AcquisitionSummaryResponse
+  { acquisitionSummaryResponseSources :: [SourceStatsResponse]
+  , acquisitionSummaryResponseTotalArtistsFollowed :: Int
+  , acquisitionSummaryResponseTotalAlbumsWanted :: Int
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON AcquisitionSummaryResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 26 }
+
+instance FromJSON AcquisitionSummaryResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 26 }

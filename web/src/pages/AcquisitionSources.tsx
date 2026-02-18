@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import type { AcquisitionSource, CatalogArtist, WantedAlbum } from '../types/api';
+import type { AcquisitionSource, AcquisitionSummary } from '../types/api';
 import { Settings, CheckCircle, XCircle, Users, Music, Plus, Pencil, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SourceModal, type SourceFormData } from '../components/SourceModal';
@@ -9,8 +9,7 @@ import { LoadingState } from '../components/LoadingState';
 
 export default function AcquisitionSources() {
   const [sources, setSources] = useState<AcquisitionSource[]>([]);
-  const [artists, setArtists] = useState<CatalogArtist[]>([]);
-  const [albums, setAlbums] = useState<WantedAlbum[]>([]);
+  const [summary, setSummary] = useState<AcquisitionSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingSource, setEditingSource] = useState<AcquisitionSource | undefined>(undefined);
@@ -22,14 +21,12 @@ export default function AcquisitionSources() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [sourcesData, artistsResponse, albumsData] = await Promise.all([
+      const [sourcesData, summaryData] = await Promise.all([
         api.getAcquisitionSources(),
-        api.getCatalogArtists(0, 1000, true), // Get all followed artists (manual + source-based)
-        api.getWantedAlbums(),
+        api.getAcquisitionSummary(),
       ]);
       setSources(sourcesData);
-      setArtists(artistsResponse.artists);
-      setAlbums(albumsData);
+      setSummary(summaryData);
     } catch (error) {
       toast.error('Failed to load acquisition sources');
       console.error('Error loading sources:', error);
@@ -39,9 +36,8 @@ export default function AcquisitionSources() {
   };
 
   const getStatsForSource = (sourceId: number) => {
-    const artistCount = artists.filter(a => a.added_by_source_id === sourceId).length;
-    const albumCount = albums.filter(a => a.added_by_source_id === sourceId).length;
-    return { artistCount, albumCount };
+    const stats = summary?.sources.find(s => s.source_id === sourceId);
+    return { artistCount: stats?.artist_count ?? 0, albumCount: stats?.album_count ?? 0 };
   };
 
   const toggleSource = async (sourceId: number, currentlyEnabled: boolean) => {
@@ -303,8 +299,8 @@ export default function AcquisitionSources() {
               <h3 className="text-sm font-medium text-dark-text">Acquisition Summary</h3>
               <p className="mt-1 text-sm text-dark-text-secondary">
                 {sources.filter(s => s.enabled).length} of {sources.length} sources enabled • {' '}
-                {artists.length} artists followed • {' '}
-                {albums.filter(a => a.status === 'wanted').length} albums wanted
+                {summary?.total_artists_followed ?? 0} artists followed • {' '}
+                {summary?.total_albums_wanted ?? 0} albums wanted
               </p>
             </div>
           </div>

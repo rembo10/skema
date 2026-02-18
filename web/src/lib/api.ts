@@ -1,4 +1,4 @@
-import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, ArtistsResponse, CatalogAlbum, Download, DownloadsResponse, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task, AlbumOverviewRequest, AlbumOverviewResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse } from '../types/api';
+import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, AcquisitionSummary, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, ArtistsResponse, CatalogAlbum, Download, DownloadsResponse, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task, AlbumOverviewRequest, AlbumOverviewResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse } from '../types/api';
 import { buildQueryString } from './queryBuilder';
 
 // Base path configuration
@@ -462,6 +462,10 @@ export const api = {
     return fetchApi<void>(`/acquisition/sources/${sourceId}/disable`, {
       method: 'PUT',
     });
+  },
+
+  async getAcquisitionSummary(): Promise<AcquisitionSummary> {
+    return fetchApi<AcquisitionSummary>('/acquisition/summary');
   },
 
   async getWantedAlbums(): Promise<WantedAlbum[]> {
