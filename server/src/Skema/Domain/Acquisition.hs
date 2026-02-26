@@ -2,13 +2,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
--- | Acquisition source filters and evaluation logic.
+-- | Pure acquisition filter types and evaluation logic.
 --
 -- This module defines provider-specific filter types for each acquisition source:
 -- - LibraryArtistsFilters: Filter artists from your library by ID and album criteria
 -- - PitchforkFilters: Filter albums from Pitchfork by genre and score
 -- - MetacriticFilters: Filter albums from Metacritic by genre and scores
-module Skema.Services.Filters
+module Skema.Domain.Acquisition
   ( -- * Legacy types (for backward compatibility during migration)
     RuleFilters(..)
   , ArtistFilter(..)
@@ -324,8 +324,8 @@ data SourceFilters
 -- | Parse provider-specific filters from JSON text based on source type.
 parseSourceFilters :: SourceType -> Maybe Text -> Maybe SourceFilters
 parseSourceFilters _ Nothing = Nothing
-parseSourceFilters sourceType (Just jsonText) =
-  case sourceType of
+parseSourceFilters st (Just jsonText) =
+  case st of
     LibraryArtists ->
       case eitherDecode (BSL.fromStrict $ TE.encodeUtf8 jsonText) of
         Left _ -> Nothing

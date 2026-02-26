@@ -16,19 +16,16 @@ import Skema.Events.Types
 import Skema.Database.Connection
 import Skema.Database.Repository (getAllClusters, getAllTracks, getMetadataForTrack, getTrackByPath, computeClusterHash, findClusterByHash, createCluster, updateTrackCluster, updateClusterQuality)
 import Skema.Database.Types (ClusterRecord(..), LibraryTrackRecord(..))
-import Skema.MusicBrainz.Matching (groupFilesByRelease)
+import Skema.Domain.Identification (mkIdentifyConfig, partitionClusters)
+import Skema.Config.Types (Config(..))
+import Skema.Domain.Matching (groupFilesByRelease)
 import Skema.MusicBrainz.Types (FileGroup(..))
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Exception (try)
-import Data.List (partition)
-import Data.Time (getCurrentTime, UTCTime, NominalDiffTime, addUTCTime)
+import Data.Time (getCurrentTime)
 import Katip
-
--- | Number of hours to wait before retrying failed MusicBrainz identification
-retryIntervalHours :: NominalDiffTime
-retryIntervalHours = 24
 
 -- | Start the grouper service.
 --
@@ -128,9 +125,9 @@ handleMetadataReadComplete GrouperDeps{..} fileCount = do
     allClusters <- liftIO $ withConnection pool getAllClusters
 
     now <- liftIO getCurrentTime
-    let retryThreshold = addUTCTime (negate (retryIntervalHours * 3600)) now
-
-    let (alreadyMatched, needsId) = partitionClusters retryThreshold allClusters
+    config <- liftIO $ readTVarIO groupConfigVar
+    let identifyConfig = mkIdentifyConfig (library config)
+    let (alreadyMatched, needsId) = partitionClusters now identifyConfig allClusters
     let totalGroups = length allClusters
 
     -- Affected = actually changed cluster IDs that also need identification
@@ -151,14 +148,3 @@ handleMetadataReadComplete GrouperDeps{..} fileCount = do
       , affectedClusterIds = affectedIds
       }
 
--- | Partition clusters into those that are already matched and those that need identification.
-partitionClusters :: UTCTime -> [ClusterRecord] -> ([ClusterRecord], [ClusterRecord])
-partitionClusters retryThreshold clusters =
-  let needsIdentification cluster = case clusterMBReleaseId cluster of
-        Just _ -> False  -- Already has MusicBrainz data
-        Nothing -> case clusterLastIdentifiedAt cluster of
-          Just lastTried | lastTried > retryThreshold -> False  -- Tried recently, skip
-          _ -> True  -- Needs identification or retry interval passed
-
-      (needs, matched) = partition needsIdentification clusters
-  in (matched, needs)

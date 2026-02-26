@@ -1,11 +1,11 @@
 {-# LANGUAGE DeriveGeneric #-}
 
--- | Core library types and pure business logic for file system diffing.
+-- | Pure business logic for file system diffing.
 --
 -- This module contains pure functions with no IO, making them easy to test
 -- and reason about. All file system interaction happens in the FileSystem
 -- adapters.
-module Skema.Core.Library
+module Skema.Domain.Library
   ( -- * Types
     LibrarySnapshot (..)
   , FileInfo (..)

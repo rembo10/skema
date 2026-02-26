@@ -8,6 +8,7 @@ module Skema.Domain.Identification
   ( -- * Configuration
     IdentifyConfig(..)
   , defaultIdentifyConfig
+  , mkIdentifyConfig
     -- * Search query building
   , buildSearchQuery
   , normalizeSearchText
@@ -18,11 +19,16 @@ module Skema.Domain.Identification
     -- * Match computation
   , computeReleaseMatch
   , shouldRetryIdentification
+    -- * Cluster classification
+  , clusterNeedsIdentification
+  , partitionClusters
   ) where
 
 import Skema.MusicBrainz.Types
-import Skema.MusicBrainz.Matching
-import Data.List ()
+import Skema.Domain.Matching
+import Skema.Config.Types (LibraryConfig(..))
+import Skema.Database.Types (ClusterRecord(..))
+import Data.List (partition)
 import qualified Data.Text as T
 import Data.Time (UTCTime, NominalDiffTime, addUTCTime)
 
@@ -181,3 +187,27 @@ shouldRetryIdentification config now currentMbReleaseId lastIdentifiedAt =
         let retryThreshold = addUTCTime (negate (cfgRetryIntervalHours config * 3600)) now
         in lastTried <= retryThreshold  -- Retry if enough time has passed
       Nothing -> True  -- Never tried, should identify
+
+-- | Build an IdentifyConfig from LibraryConfig.
+--
+-- Centralizes the config construction that was duplicated in 3 places.
+mkIdentifyConfig :: LibraryConfig -> IdentifyConfig
+mkIdentifyConfig libConfig = IdentifyConfig
+  { cfgMaxCandidates = 5
+  , cfgMinConfidence = 0.35
+  , cfgSearchLimit = 20
+  , cfgNormalizeFeaturing = libraryNormalizeFeaturing libConfig
+  , cfgNormalizeFeaturingTo = libraryNormalizeFeaturingTo libConfig
+  , cfgRetryIntervalHours = 24
+  }
+
+-- | Check if a cluster needs identification (pure domain logic).
+clusterNeedsIdentification :: IdentifyConfig -> UTCTime -> ClusterRecord -> Bool
+clusterNeedsIdentification config now cluster =
+  shouldRetryIdentification config now (clusterMBReleaseId cluster) (clusterLastIdentifiedAt cluster)
+
+-- | Partition clusters into those already matched and those needing identification.
+partitionClusters :: UTCTime -> IdentifyConfig -> [ClusterRecord] -> ([ClusterRecord], [ClusterRecord])
+partitionClusters now config clusters =
+  let (needs, matched) = partition (clusterNeedsIdentification config now) clusters
+  in (matched, needs)

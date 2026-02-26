@@ -10,7 +10,7 @@
 -- - Album state derivation for UI purposes
 --
 -- All logic is centralized here rather than scattered across handlers.
-module Skema.Core.Catalog
+module Skema.Domain.Catalog
   ( -- * Types
     AlbumState(..)
   , DownloadDecision(..)

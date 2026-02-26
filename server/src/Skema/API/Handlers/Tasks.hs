@@ -6,8 +6,8 @@ module Skema.API.Handlers.Tasks
   ) where
 
 import Skema.API.Types.Tasks (TasksAPI)
-import Skema.Core.TaskManager (TaskManager)
-import qualified Skema.Core.TaskManager as TM
+import Skema.Services.TaskManager (TaskManager)
+import qualified Skema.Services.TaskManager as TM
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Config.Types (Config)

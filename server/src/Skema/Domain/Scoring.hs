@@ -1,11 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
--- | Release scoring and ranking logic.
+-- | Pure release scoring and ranking logic.
 --
 -- This module provides utilities for scoring and ranking releases based on
 -- quality metrics like format, seeders, size, and popularity.
-module Skema.Services.Download.Scoring
+module Skema.Domain.Scoring
   ( scoreRelease
   ) where
 

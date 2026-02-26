@@ -10,7 +10,7 @@
 --
 -- The task manager maintains task state in memory and broadcasts
 -- progress updates through the event bus.
-module Skema.Core.TaskManager
+module Skema.Services.TaskManager
   ( TaskManager
   , newTaskManager
   , createTask

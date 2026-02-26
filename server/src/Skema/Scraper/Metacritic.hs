@@ -26,7 +26,7 @@ import qualified Data.ByteString.Lazy as LBS
 import Text.HTML.Scalpel ()
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Skema.Services.Filters (MetacriticGenre, metacriticGenreToUrl)
+import Skema.Domain.Acquisition (MetacriticGenre, metacriticGenreToUrl)
 
 -- | A scraped album from Metacritic.
 data MetacriticAlbum = MetacriticAlbum

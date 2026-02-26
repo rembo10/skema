@@ -1,10 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | MusicBrainz matching using the Hungarian algorithm.
+-- | Pure matching logic using the Hungarian algorithm.
 --
 -- This module implements optimal matching between local files and MusicBrainz
 -- releases/tracks using cost matrices and the Munkres (Hungarian) algorithm.
-module Skema.MusicBrainz.Matching
+module Skema.Domain.Matching
   ( -- * Release Matching
     matchReleases
   , releaseCost

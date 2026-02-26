@@ -13,7 +13,7 @@ module Skema.Services.Download.Search
   ) where
 
 import Skema.Services.Dependencies (DownloadDeps(..))
-import Skema.Services.Download.Scoring (scoreRelease)
+import Skema.Domain.Scoring (scoreRelease)
 import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
 import Skema.Events.Bus
 import Skema.Events.Types

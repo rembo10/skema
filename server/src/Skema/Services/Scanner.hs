@@ -12,7 +12,7 @@ module Skema.Services.Scanner
 import Skema.Services.Dependencies (ScannerDeps(..))
 import Skema.Events.Bus
 import Skema.Events.Types
-import Skema.Core.Library (FileSystemDiff(..), LibrarySnapshot(..))
+import Skema.Domain.Library (FileSystemDiff(..), LibrarySnapshot(..))
 import Skema.FileSystem.Scanner
 import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Monatone.Common (parseMetadata)

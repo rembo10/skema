@@ -33,11 +33,12 @@ import Skema.Database.Utils (downloadStatusToText)
 import Skema.FileSystem.PathFormatter (PathContext(..), formatPath, truncateFileName)
 import Skema.FileSystem.Utils (moveFile, osPathToString, stringToOsPath)
 import Skema.FileSystem.Trash (moveToTrash)
-import Skema.Core.Metadata (scanAndParseMetadata, groupParsedFiles, MetadataResult(..), GroupedFiles(..))
+import Skema.Services.Metadata (scanAndParseMetadata, groupParsedFiles, MetadataResult(..), GroupedFiles(..))
 import Skema.MusicBrainz.Identify (identifyFileGroup)
 import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), IdentificationResult(..), MBRelease(..), MBID(..), unMBID, mbSearchReleases, TrackMatch(..), MBTrack(..), mbReleaseTracks)
 import Skema.MusicBrainz.Client (MBClientEnv, searchReleases)
-import Skema.Domain.Identification (IdentifyConfig(..), buildSearchQuery)
+import Skema.Domain.Identification (IdentifyConfig(..), mkIdentifyConfig, buildSearchQuery)
+import Skema.Domain.Import (ReleaseMetadata(..), extractReleaseMetadata, extractYear)
 import Skema.Config.Types (Config(..), LibraryConfig(..), DownloadConfig(..), download)
 import qualified Monatone.Metadata as M
 import Control.Concurrent.Async (Async, async)
@@ -240,14 +241,7 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
 
         -- 5. Identify against MusicBrainz (reuse identifier)
         let libConfig = library config
-        let identifyConfig = IdentifyConfig
-              { cfgMaxCandidates = 5
-              , cfgMinConfidence = 0.35
-              , cfgSearchLimit = 20
-              , cfgNormalizeFeaturing = libraryNormalizeFeaturing libConfig
-              , cfgNormalizeFeaturingTo = libraryNormalizeFeaturingTo libConfig
-              , cfgRetryIntervalHours = 24
-              }
+        let identifyConfig = mkIdentifyConfig libConfig
 
         -- Log the search query that will be used
         let searchQuery = buildSearchQuery fileGroup
@@ -554,21 +548,6 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
 
                 $(logTM) InfoS $ logStr ("Import completed successfully" :: Text)
 
--- | Extract release metadata from MusicBrainz release for path formatting.
-data ReleaseMetadata = ReleaseMetadata
-  { rmLabel :: Maybe Text
-  , rmCatalogNumber :: Maybe Text
-  , rmCountry :: Maybe Text
-  , rmDiscCount :: Int
-  } deriving (Show)
-
-extractReleaseMetadata :: MBRelease -> ReleaseMetadata
-extractReleaseMetadata release = ReleaseMetadata
-  { rmLabel = mbReleaseLabel release
-  , rmCatalogNumber = mbReleaseCatalogNumber release
-  , rmCountry = mbReleaseCountry release
-  , rmDiscCount = 1  -- TODO: Calculate from tracks
-  }
 
 -- | Create a cluster from a MusicBrainz match.
 -- Inserts the cluster and returns the cluster ID.
@@ -601,14 +580,6 @@ createClusterFromMatch pool fileGroup match = do
           (Just releaseMBID, releaseGroupMBID, Just confidence, clusterId)
 
         pure clusterId
-
--- | Extract year from date string (YYYY-MM-DD or YYYY).
-extractYear :: Maybe Text -> Text
-extractYear Nothing = "Unknown"
-extractYear (Just dateStr) =
-  case T.take 4 dateStr of
-    year | T.length year == 4 -> year
-    _ -> "Unknown"
 
 -- | Mark a download as failed with an error message.
 markDownloadAsFailed :: ConnectionPool -> Int64 -> Text -> IO ()

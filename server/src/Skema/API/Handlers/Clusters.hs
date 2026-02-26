@@ -9,8 +9,8 @@ module Skema.API.Handlers.Clusters
 
 import Skema.API.Types.Clusters (ClustersAPI, ClusterResponse(..), ClustersResponse(..), ClustersPagination(..), ClusterWithTracksResponse(..), ClusterTrackInfo(..), MBTrackInfo(..), CandidateRelease(..), AssignReleaseRequest(..), UpdateTrackRecordingRequest(..), CreateClusterRequest(..), ClusterTaskRequest(..))
 import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
-import Skema.Core.TaskManager (TaskManager)
-import qualified Skema.Core.TaskManager as TM
+import Skema.Services.TaskManager (TaskManager)
+import qualified Skema.Services.TaskManager as TM
 import Skema.API.Handlers.Auth (throwJsonError)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
@@ -25,7 +25,7 @@ import Skema.MusicBrainz.Client (getRelease, searchReleases, searchRecordings)
 import Skema.MusicBrainz.Identify (identifyFileGroup)
 import Skema.Services.Identifier (clusterToFileGroup)
 import Skema.MusicBrainz.Types
-import Skema.Domain.Identification (IdentifyConfig(..))
+import Skema.Domain.Identification (mkIdentifyConfig)
 import Skema.Events.Bus (EventBus, publishAndLog)
 import Skema.Events.Types (Event(..))
 import qualified Data.Text as T
@@ -89,14 +89,7 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
                 let libConfig = Cfg.library config
 
                 -- Build identify config
-                let identifyConfig = IdentifyConfig
-                      { cfgMaxCandidates = 5
-                      , cfgMinConfidence = 0.35
-                      , cfgSearchLimit = 20
-                      , cfgNormalizeFeaturing = Cfg.libraryNormalizeFeaturing libConfig
-                      , cfgNormalizeFeaturingTo = Cfg.libraryNormalizeFeaturingTo libConfig
-                      , cfgRetryIntervalHours = 24
-                      }
+                let identifyConfig = mkIdentifyConfig libConfig
 
                 -- Remove current match to unlock
                 when (isJust $ DBTypes.clusterMBReleaseId cluster) $ do

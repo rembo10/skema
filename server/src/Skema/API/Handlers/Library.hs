@@ -7,8 +7,8 @@ module Skema.API.Handlers.Library
 
 import Skema.API.Types.Library (LibraryAPI, UpdateTrackRequest(..), TracksResponse(..), TracksPagination(..), TracksStats(..), LibraryTaskRequest(..))
 import Skema.API.Types.Tasks (TaskResource(..))
-import Skema.Core.TaskManager (TaskManager)
-import qualified Skema.Core.TaskManager as TM
+import Skema.Services.TaskManager (TaskManager)
+import qualified Skema.Services.TaskManager as TM
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection

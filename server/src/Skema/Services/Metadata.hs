@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
--- | Core metadata operations shared between Scanner and Importer.
+-- | Metadata operations shared between Scanner and Importer.
 --
 -- This module provides common functionality for:
 -- - Scanning directories and parsing audio metadata
@@ -11,7 +11,7 @@
 -- These operations are used by both:
 -- - Scanner: For files already in the music library
 -- - Importer: For files being imported from downloads
-module Skema.Core.Metadata
+module Skema.Services.Metadata
   ( -- * Types
     MetadataResult(..)
   , ParsedFile
@@ -24,8 +24,8 @@ module Skema.Core.Metadata
 import Monatone.Common (parseMetadata)
 import qualified Monatone.Metadata as M
 import Skema.FileSystem.Scanner (scanDirectory)
-import Skema.Core.Library (LibrarySnapshot(..))
-import Skema.MusicBrainz.Matching (groupFilesByRelease)
+import Skema.Domain.Library (LibrarySnapshot(..))
+import Skema.Domain.Matching (groupFilesByRelease)
 import Skema.MusicBrainz.Types (FileGroup(..))
 import System.OsPath (OsPath)
 import qualified Data.Map.Strict as Map

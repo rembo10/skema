@@ -16,7 +16,7 @@ module Skema.FileSystem.Scanner
   , ScanResult (..)
   ) where
 
-import Skema.Core.Library
+import Skema.Domain.Library
 import Skema.FileSystem.Utils (osPathToString)
 import Monatone.Common (parseMetadata)
 import Monatone.Metadata (Metadata)

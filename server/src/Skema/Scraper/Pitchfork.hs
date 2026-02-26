@@ -29,7 +29,7 @@ import qualified Data.ByteString.Lazy as LBS
 import Text.HTML.Scalpel ()
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Skema.Services.Filters (PitchforkGenre, pitchforkGenreToUrl)
+import Skema.Domain.Acquisition (PitchforkGenre, pitchforkGenreToUrl)
 
 -- | A scraped album from Pitchfork.
 data PitchforkAlbum = PitchforkAlbum

@@ -21,7 +21,7 @@ import Skema.Events.Types (Event(..))
 import Skema.Database.Connection
 import Skema.Database.Repository (getEnabledAcquisitionRules, upsertCatalogArtist, upsertCatalogAlbum)
 import Skema.Database.Types (AcquisitionSourceRecord(..), SourceType(..))
-import Skema.Services.Filters
+import Skema.Domain.Acquisition
   ( SourceFilters(..)
   , MetacriticFilters(..)
   , PitchforkFilters(..)

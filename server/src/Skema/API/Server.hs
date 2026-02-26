@@ -23,8 +23,8 @@ import Skema.API.Handlers.Filesystem (filesystemServer)
 import Skema.API.Handlers.QualityProfiles (qualityProfilesServer)
 import Skema.API.Handlers.Tasks (tasksServer)
 import Skema.API.Handlers.Static (staticFileServer, frontendServer)
-import Skema.Core.TaskManager (TaskManager)
-import qualified Skema.Core.TaskManager as TM
+import Skema.Services.TaskManager (TaskManager)
+import qualified Skema.Services.TaskManager as TM
 import Skema.Auth (AuthStore, newAuthStore, checkAuthEnabled)
 import Skema.Auth.JWT (JWTSecret, getJWTSecret)
 import Skema.Database.Connection (ConnectionPool)

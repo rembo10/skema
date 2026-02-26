@@ -36,7 +36,7 @@ module Skema.API.Types.Catalog
 
 import Skema.API.Types.Tasks (TaskResponse)
 import Skema.API.Types.Common (SourceIO)
-import Skema.Core.Catalog (AlbumState(..))
+import Skema.Domain.Catalog (AlbumState(..))
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2, withObject, (.:), object, (.=), encode)
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy as BSL
@@ -282,7 +282,7 @@ instance FromJSON CatalogTaskRequest where
 -- ============================================================================
 
 -- | Album state (computed from catalog + downloads + library).
--- AlbumState is now imported from Skema.Core.Catalog
+-- AlbumState is imported from Skema.Domain.Catalog
 
 -- | Active download information.
 data ActiveDownloadInfo = ActiveDownloadInfo

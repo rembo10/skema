@@ -20,7 +20,7 @@ module Skema.FileSystem.Watcher
   , defaultDebounceMs
   ) where
 
-import Skema.Core.Library
+import Skema.Domain.Library
 import Skema.FileSystem.Scanner (scanDirectory)
 import Skema.FileSystem.Utils (osPathToString)
 import Skema.Events.Bus (EventBus, publishAndLog)

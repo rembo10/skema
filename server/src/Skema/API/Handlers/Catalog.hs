@@ -11,9 +11,9 @@ import Skema.API.Types.Common (SourceIO)
 import Skema.Auth (checkAuthEnabled)
 import Skema.Auth.JWT (validateJWT)
 import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
-import Skema.Core.TaskManager (TaskManager)
-import qualified Skema.Core.TaskManager as TM
-import qualified Skema.Core.Catalog as Core
+import Skema.Services.TaskManager (TaskManager)
+import qualified Skema.Services.TaskManager as TM
+import qualified Skema.Domain.Catalog as Core
 import Skema.API.Handlers.Auth (throwJsonError)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)

@@ -27,7 +27,7 @@ module Skema.Database.Repository.Tracks
 
 import Skema.Database.Connection
 import Skema.Database.Types
-import Skema.Core.Library (LibrarySnapshot(..), FileInfo(..))
+import Skema.Domain.Library (LibrarySnapshot(..), FileInfo(..))
 import Skema.Domain.Quality (detectQualityFromAudio, qualityToText)
 import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Monatone.Metadata (Metadata(..), AudioFormat(..))

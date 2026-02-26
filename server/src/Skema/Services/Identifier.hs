@@ -17,9 +17,9 @@ import Skema.Database.Connection
 import Skema.Database.Repository (getAllClusters, getClusterById, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster)
 import Skema.Database.Types (ClusterRecord(..), LibraryTrackMetadataRecord(..))
 import Skema.MusicBrainz.Identify (identifyFileGroup)
-import Skema.Domain.Identification (IdentifyConfig(..), shouldRetryIdentification)
+import Skema.Domain.Identification (mkIdentifyConfig, clusterNeedsIdentification)
 import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), TrackMatch(..), IdentificationResult(..), MBID(..), unMBID, MBRelease(..), MBTrack(..))
-import Skema.Config.Types (Config(..), LibraryConfig(..))
+import Skema.Config.Types (Config(..))
 import Skema.FileSystem.Utils (osPathToString)
 import qualified Monatone.Metadata as M
 import System.OsPath (OsPath, takeDirectory)
@@ -28,7 +28,7 @@ import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Monad (foldM)
 import Control.Exception (try)
-import Data.Time (getCurrentTime, UTCTime)
+import Data.Time (getCurrentTime)
 import qualified Database.SQLite.Simple as SQLite
 import Katip
 
@@ -81,15 +81,7 @@ handleClustersGenerated IdentifierDeps{..} affectedIds = do
         $(logTM) InfoS $ logStr $ ("Identifying " <> show (length affectedIds) <> " albums with MusicBrainz" :: Text)
 
         -- Configure identification (before using it to filter clusters)
-        let libConfig = library config
-        let identifyConfig = IdentifyConfig
-              { cfgMaxCandidates = 5
-              , cfgMinConfidence = 0.35  -- Lowered from 0.5 with improved scoring algorithm
-              , cfgSearchLimit = 20
-              , cfgNormalizeFeaturing = libraryNormalizeFeaturing libConfig
-              , cfgNormalizeFeaturingTo = libraryNormalizeFeaturingTo libConfig
-              , cfgRetryIntervalHours = 24  -- Retry after 24 hours
-              }
+        let identifyConfig = mkIdentifyConfig (library config)
 
         -- Emit IdentificationStarted
         liftIO $ publishAndLog bus le "identifier" $ IdentificationStarted
@@ -249,11 +241,6 @@ handleClustersGenerated IdentifierDeps{..} affectedIds = do
           { groupsProcessed = length fileGroups
           , matchesFound = matchCount
           }
-
--- | Check if a cluster needs identification (delegates to pure domain logic).
-clusterNeedsIdentification :: IdentifyConfig -> UTCTime -> ClusterRecord -> Bool
-clusterNeedsIdentification config now cluster =
-  shouldRetryIdentification config now (clusterMBReleaseId cluster) (clusterLastIdentifiedAt cluster)
 
 -- | Convert a cluster record to a FileGroup.
 -- Returns Nothing if the cluster has no tracks.

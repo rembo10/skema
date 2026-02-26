@@ -15,7 +15,7 @@ module Skema.Services.Acquisition
   ) where
 
 import Skema.Services.Dependencies (AcquisitionDeps(..))
-import Skema.Services.Filters (shouldProcessArtistById, parseSourceFilters, LibraryArtistsFilters(..), ReleaseStatusFilter(..), SourceFilters(..))
+import Skema.Domain.Acquisition (shouldProcessArtistById, parseSourceFilters, LibraryArtistsFilters(..), ReleaseStatusFilter(..), SourceFilters(..))
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection

@@ -41,9 +41,8 @@ library
   hs-source-dirs: src
 
   exposed-modules:
-    Skema.Core.Catalog
-    Skema.Core.Library
-    Skema.Core.Metadata
+    Skema.Domain.Catalog
+    Skema.Domain.Library
     Skema.FileSystem.Scanner
     Skema.FileSystem.Watcher
     Skema.FileSystem.PathFormatter
@@ -108,7 +107,6 @@ library
     Skema.API.Handlers.QualityProfiles
     Skema.API.Handlers.Tasks
     Skema.API.Handlers.Static
-    Skema.Core.TaskManager
     Skema.API.Handlers.Utils
     Skema.Auth.Types
     Skema.Auth.Store
@@ -118,11 +116,12 @@ library
     Skema.HTTP.Client
     Skema.MusicBrainz.Types
     Skema.MusicBrainz.Utils
-    Skema.MusicBrainz.Matching
+    Skema.Domain.Matching
     Skema.MusicBrainz.Client
     Skema.MusicBrainz.Identify
     Skema.MusicBrainz.ArtistImage
     Skema.Domain.Identification
+    Skema.Domain.Import
     Skema.Domain.Converters
     Skema.Domain.ConfigJSON
     Skema.Domain.Errors
@@ -169,15 +168,17 @@ library
     Skema.Services.Acquisition
     Skema.Services.Image
     Skema.Services.Thumbnailer
-    Skema.Services.Filters
+    Skema.Domain.Acquisition
     Skema.Services.Stats
     Skema.Services.SourceEvaluator
+    Skema.Services.Metadata
     Skema.Services.MetadataWriter
+    Skema.Services.TaskManager
     Skema.Services.Registry
     Skema.Services.TrashCleanup
     Skema.Services.Download
     Skema.Services.Download.Client
-    Skema.Services.Download.Scoring
+    Skema.Domain.Scoring
     Skema.Services.Download.Search
     Skema.Services.Download.Monitor
     Skema.Services.Download.RSSMonitor
@@ -283,6 +284,10 @@ test-suite skema-test
     Unit.IndexerSpec
     Unit.MatchingSpec
     Unit.PathFormatterSpec
+    Unit.Domain.CatalogSpec
+    Unit.Domain.QualitySpec
+    Unit.Domain.MetadataSpec
+    Unit.Domain.ImportSpec
     Helpers.TestEnv
     Helpers.Builders
     Helpers.EventAssertions

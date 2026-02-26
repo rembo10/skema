@@ -14,7 +14,7 @@ module Unit.MatchingSpec
 
 import Test.Tasty
 import Test.Tasty.HUnit
-import Skema.MusicBrainz.Matching
+import Skema.Domain.Matching
 import Skema.MusicBrainz.Types
 import qualified Monatone.Metadata as M
 import System.OsPath (OsPath, encodeUtf)
