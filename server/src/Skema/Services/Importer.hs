@@ -97,7 +97,13 @@ handleDownloadCompleted ImporterDeps{..} downloadId = do
   -- Read current config
   config <- STM.atomically $ STM.readTVar impConfigVar
 
-  runKatipContextT le initialContext initialNamespace $ do
+  -- Skip import if auto-import is disabled
+  unless (downloadAutoImport (download config)) $
+    runKatipContextT le initialContext initialNamespace $
+      $(logTM) InfoS "Auto-import disabled, skipping import"
+
+  when (downloadAutoImport (download config)) $
+   runKatipContextT le initialContext initialNamespace $ do
     -- Get download record
     downloads <- liftIO $ withConnection pool $ \conn ->
       queryRows conn
