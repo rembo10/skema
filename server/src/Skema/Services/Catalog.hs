@@ -147,10 +147,20 @@ handleCatalogArtistFollowed CatalogDeps{..} artistMBID artistName = do
                           albumId <- liftIO $ withConnection pool $ \conn ->
                             upsertCatalogAlbum conn rgId title artistId artistMBID artistName albumType firstReleaseDate
 
+                          -- Resolve quality profile: artist > default (no source for catalog refresh)
+                          resolvedProfileId <- liftIO $ withConnection pool $ \conn ->
+                            resolveQualityProfileId conn Nothing (Just artistId) Nothing
+
+                          -- Set the resolved profile on the album
+                          case resolvedProfileId of
+                            Just _pid -> liftIO $ withConnection pool $ \conn ->
+                              updateCatalogAlbum conn albumId (Just resolvedProfileId)
+                            Nothing -> pure ()
+
                           $(logTM) InfoS $ logStr $ ("Added album to catalog: " <> title :: Text)
 
-                          -- Compute wanted status: album is wanted if artist has a quality profile
-                          let isWanted = DB.catalogArtistQualityProfileId artistRecord /= Nothing
+                          -- Compute wanted status: album is wanted if it got a quality profile
+                          let isWanted = isJust resolvedProfileId
 
                           -- Emit CatalogAlbumAdded event with complete album data
                           -- This eliminates the need for frontend to make GET requests
@@ -259,11 +269,21 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                           albumId <- liftIO $ withConnection pool $ \conn ->
                             upsertCatalogAlbum conn rgId title artistId artistMBID artistName albumType firstReleaseDate
 
+                          -- Resolve quality profile: artist > default (no source for catalog refresh)
+                          resolvedProfileId <- liftIO $ withConnection pool $ \conn ->
+                            resolveQualityProfileId conn Nothing (Just artistId) Nothing
+
+                          -- Set the resolved profile on the album
+                          case resolvedProfileId of
+                            Just _pid -> liftIO $ withConnection pool $ \conn ->
+                              updateCatalogAlbum conn albumId (Just resolvedProfileId)
+                            Nothing -> pure ()
+
                           liftIO $ Data.IORef.modifyIORef' newAlbumsCount (+1)
                           $(logTM) InfoS $ logStr $ ("NEW album discovered: " <> title :: Text)
 
-                          -- Compute wanted status: album is wanted if artist has a quality profile
-                          let isWanted = DB.catalogArtistQualityProfileId artist /= Nothing
+                          -- Compute wanted status: album is wanted if it got a quality profile
+                          let isWanted = isJust resolvedProfileId
 
                           -- Emit CatalogAlbumAdded event with complete album data
                           -- This eliminates the need for frontend to make GET requests

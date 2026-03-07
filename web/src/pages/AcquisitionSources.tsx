@@ -83,6 +83,7 @@ export default function AcquisitionSources() {
         enabled: formData.enabled,
         priority: formData.priority,
         filters: formData.filters ? JSON.stringify(formData.filters) : undefined,
+        quality_profile_id: formData.quality_profile_id,
       };
 
       if (editingSource) {

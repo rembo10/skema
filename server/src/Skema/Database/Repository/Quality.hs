@@ -10,6 +10,7 @@ module Skema.Database.Repository.Quality
   , getEffectiveQualityProfile
   , updateAlbumQuality
   , qualityProfileRecordToDomain
+  , resolveQualityProfileId
   ) where
 
 import Skema.Database.Connection
@@ -105,7 +106,14 @@ getEffectiveQualityProfile pool albumId = withConnection pool $ \conn -> do
 
               case viaNonEmpty head artistResults of
                 Just (Only (Just artistProfileId)) -> getQualityProfile conn artistProfileId
-                _ -> pure Nothing  -- No artist profile, and no global default implemented yet
+                _ -> do
+                  -- Fall back to global default quality profile
+                  defaultResults <- queryRows conn
+                    "SELECT default_quality_profile_id FROM settings WHERE id = 1"
+                    () :: IO [Only (Maybe Int64)]
+                  case viaNonEmpty head defaultResults of
+                    Just (Only (Just defaultProfileId)) -> getQualityProfile conn defaultProfileId
+                    _ -> pure Nothing
 
 -- | Update album quality and status based on new quality.
 -- This function determines the album status based on the quality profile.
@@ -130,3 +138,49 @@ updateAlbumQuality pool albumId newQuality = withConnection pool $ \conn -> do
       executeQuery conn
         "UPDATE catalog_albums SET current_quality = ?, updated_at = ? WHERE id = ?"
         (qualityText, now, albumId)
+
+-- | Resolve quality profile for a new album.
+-- Priority: explicit > artist > source > default
+resolveQualityProfileId
+  :: SQLite.Connection
+  -> Maybe Int64    -- ^ Explicitly chosen profile (from search picker)
+  -> Maybe Int64    -- ^ Artist ID (to look up artist's profile)
+  -> Maybe Int64    -- ^ Source ID (to look up source's profile)
+  -> IO (Maybe Int64)
+resolveQualityProfileId conn explicitProfileId maybeArtistId maybeSourceId =
+  case explicitProfileId of
+    Just pid -> pure (Just pid)
+    Nothing -> do
+      -- Try artist profile
+      artistProfile <- case maybeArtistId of
+        Nothing -> pure Nothing
+        Just artistId -> do
+          results <- queryRows conn
+            "SELECT quality_profile_id FROM catalog_artists WHERE id = ?"
+            (Only artistId) :: IO [Only (Maybe Int64)]
+          pure $ case viaNonEmpty head results of
+            Just (Only pid) -> pid
+            _ -> Nothing
+      case artistProfile of
+        Just pid -> pure (Just pid)
+        Nothing -> do
+          -- Try source profile
+          sourceProfile <- case maybeSourceId of
+            Nothing -> pure Nothing
+            Just sid -> do
+              results <- queryRows conn
+                "SELECT quality_profile_id FROM acquisition_rules WHERE id = ?"
+                (Only sid) :: IO [Only (Maybe Int64)]
+              pure $ case viaNonEmpty head results of
+                Just (Only pid) -> pid
+                _ -> Nothing
+          case sourceProfile of
+            Just pid -> pure (Just pid)
+            Nothing -> do
+              -- Fall back to global default
+              results <- queryRows conn
+                "SELECT default_quality_profile_id FROM settings WHERE id = 1"
+                () :: IO [Only (Maybe Int64)]
+              pure $ case viaNonEmpty head results of
+                Just (Only pid) -> pid
+                _ -> Nothing

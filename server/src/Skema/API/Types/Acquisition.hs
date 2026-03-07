@@ -37,6 +37,7 @@ data CreateRuleRequest = CreateRuleRequest
   , createRuleType :: Text  -- "library_artists" | "metacritic" | "pitchfork"
   , createRuleEnabled :: Bool
   , createRuleFilters :: Maybe Text
+  , createRuleQualityProfileId :: Maybe Int64
   } deriving (Show, Eq, Generic)
 
 instance ToJSON CreateRuleRequest where
@@ -52,6 +53,7 @@ data UpdateRuleRequest = UpdateRuleRequest
   , updateRuleType :: Text
   , updateRuleEnabled :: Bool
   , updateRuleFilters :: Maybe Text
+  , updateRuleQualityProfileId :: Maybe Int64
   } deriving (Show, Eq, Generic)
 
 instance ToJSON UpdateRuleRequest where
@@ -88,6 +90,7 @@ data AcquisitionRuleResponse = AcquisitionRuleResponse
   , acquisitionRuleResponseSourceType :: Text
   , acquisitionRuleResponseEnabled :: Bool
   , acquisitionRuleResponseFilters :: Maybe Text
+  , acquisitionRuleResponseQualityProfileId :: Maybe Int64
   , acquisitionRuleResponseCreatedAt :: Text
   , acquisitionRuleResponseUpdatedAt :: Text
   } deriving (Show, Eq, Generic)

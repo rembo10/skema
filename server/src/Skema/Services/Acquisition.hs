@@ -222,14 +222,9 @@ handleCatalogAlbumAdded AcquisitionDeps{..} releaseGroupMBID albumTitle artistMB
                               when shouldWant $ do
                                 $(logTM) InfoS $ logStr $ ("Album matches acquisition source, marking as wanted: " <> albumTitle :: Text)
 
-                                -- Get the quality profile to assign (artist's profile, or global default)
-                                let artistQualityProfileId = DB.catalogArtistQualityProfileId artist
-
-                                -- Determine which quality profile to use
-                                qualityProfileToAssign <- case artistQualityProfileId of
-                                  Just profileId -> pure (Just profileId)
-                                  Nothing -> liftIO $ withConnection pool $ \conn ->
-                                    getDefaultQualityProfileId conn
+                                -- Resolve quality profile: artist > source > default
+                                qualityProfileToAssign <- liftIO $ withConnection pool $ \conn ->
+                                  resolveQualityProfileId conn Nothing (DB.catalogArtistId artist) (sourceId source)
 
                                 -- Assign quality profile to album
                                 case DB.catalogAlbumId album of
@@ -240,7 +235,7 @@ handleCatalogAlbumAdded AcquisitionDeps{..} releaseGroupMBID albumTitle artistMB
                                           updateCatalogAlbum conn albumId (Just qualityProfileToAssign)
                                         $(logTM) InfoS $ logStr $ ("Assigned quality profile " <> show profileId <> " to album: " <> albumTitle :: Text)
                                       Nothing -> do
-                                        $(logTM) WarningS $ logStr $ ("No quality profile available (artist or default), cannot mark as wanted: " <> albumTitle :: Text)
+                                        $(logTM) WarningS $ logStr $ ("No quality profile available, cannot mark as wanted: " <> albumTitle :: Text)
 
                                     -- Emit WantedAlbumAdded event
                                     case DB.catalogArtistName <$> Just artist of

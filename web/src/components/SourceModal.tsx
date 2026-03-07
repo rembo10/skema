@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import type { AcquisitionSource } from '../types/api';
+import type { AcquisitionSource, QualityProfile } from '../types/api';
 import { FilterBuilder, type Filters } from './FilterBuilder';
+import { api } from '../lib/api';
 
 interface SourceModalProps {
   isOpen: boolean;
@@ -17,6 +18,7 @@ export interface SourceFormData {
   artist_mbid?: string;
   enabled: boolean;
   filters?: Filters;
+  quality_profile_id?: number | null;
 }
 
 export function SourceModal({ isOpen, onClose, onSave, source }: SourceModalProps) {
@@ -27,6 +29,14 @@ export function SourceModal({ isOpen, onClose, onSave, source }: SourceModalProp
     enabled: true,
   });
   const [saving, setSaving] = useState(false);
+  const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
+
+  // Load quality profiles
+  useEffect(() => {
+    if (isOpen) {
+      api.getQualityProfiles().then(setQualityProfiles).catch(console.error);
+    }
+  }, [isOpen]);
 
   // Reset form when modal opens or source changes
   useEffect(() => {
@@ -50,6 +60,7 @@ export function SourceModal({ isOpen, onClose, onSave, source }: SourceModalProp
           artist_mbid: source.artist_mbid || undefined,
           enabled: source.enabled,
           filters: parsedFilters,
+          quality_profile_id: source.quality_profile_id,
         });
       } else {
         // Creating new source
@@ -403,6 +414,32 @@ export function SourceModal({ isOpen, onClose, onSave, source }: SourceModalProp
               </div>
             </div>
           )}
+
+          {/* Quality Profile */}
+          <div>
+            <label htmlFor="quality_profile" className="block text-sm font-medium text-dark-text mb-2">
+              Quality Profile
+            </label>
+            <select
+              id="quality_profile"
+              value={formData.quality_profile_id ?? ''}
+              onChange={(e) => setFormData({
+                ...formData,
+                quality_profile_id: e.target.value ? parseInt(e.target.value) : null
+              })}
+              className="w-full px-3 py-2 bg-dark-bg border border-dark-border rounded-md text-dark-text focus:outline-none focus:ring-2 focus:ring-dark-accent focus:border-transparent transition-all"
+            >
+              <option value="">Use artist or default profile</option>
+              {qualityProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-sm text-dark-text-secondary">
+              Albums from this source will use this profile if no artist-specific profile is set
+            </p>
+          </div>
 
           {/* Enabled */}
           <div className="flex items-center p-4 bg-dark-bg rounded-lg border border-dark-border">

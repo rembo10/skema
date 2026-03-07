@@ -203,6 +203,7 @@ data CreateCatalogArtistRequest = CreateCatalogArtistRequest
   , createCatalogArtistType :: Maybe Text
   , createCatalogArtistImageUrl :: Maybe Text
   , createCatalogArtistFollowed :: Bool
+  , createCatalogArtistQualityProfileId :: Maybe Int64
   } deriving (Show, Eq, Generic)
 
 instance ToJSON CreateCatalogArtistRequest where
@@ -233,6 +234,7 @@ data CreateCatalogAlbumRequest = CreateCatalogAlbumRequest
   , createCatalogAlbumType :: Maybe Text
   , createCatalogAlbumFirstReleaseDate :: Maybe Text
   , createCatalogAlbumWanted :: Bool
+  , createCatalogAlbumQualityProfileId :: Maybe Int64
   } deriving (Show, Eq, Generic)
 
 instance ToJSON CreateCatalogAlbumRequest where

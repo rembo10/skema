@@ -214,6 +214,7 @@ export interface AcquisitionSource {
   source_type: string; // 'library_artists' | 'metacritic' | 'pitchfork'
   enabled: boolean;
   filters: string | null;
+  quality_profile_id: number | null;
   created_at: string;
   updated_at: string;
 }

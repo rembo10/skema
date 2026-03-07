@@ -169,12 +169,24 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       albums <- case albumResults of
         Left err -> throw500 $ "MusicBrainz release-group search failed: " <> prettyClientError err
         Right searchResp -> do
-          -- Check which albums are already in catalog
-          catalogAlbums <- liftIO $ withConnection connPool $ \conn ->
-            mapM (\result -> DB.getCatalogAlbumByReleaseGroupMBID conn (unMBID $ mbrgsReleaseGroupId result))
-                 (mbrgsReleaseGroups searchResp)
+          let releaseGroups = mbrgsReleaseGroups searchResp
+          -- Check which albums are already in catalog and look up cluster matches
+          (catalogAlbums, clusterIds) <- liftIO $ withConnection connPool $ \conn -> do
+            cats <- mapM (\result -> DB.getCatalogAlbumByReleaseGroupMBID conn (unMBID $ mbrgsReleaseGroupId result))
+                         releaseGroups
+            -- Look up cluster IDs for in-library status
+            clusters <- forM releaseGroups $ \result -> do
+              rows <- queryRows conn
+                "SELECT id FROM clusters WHERE mb_release_group_id = ? LIMIT 1"
+                (Only (unMBID $ mbrgsReleaseGroupId result)) :: IO [Only Int64]
+              pure $ case viaNonEmpty head rows of
+                Just (Only cid) -> Just cid
+                Nothing -> Nothing
+            pure (cats, clusters)
 
-          pure $ zipWith mbReleaseGroupSearchToCatalogResponse (mbrgsReleaseGroups searchResp) catalogAlbums
+          let responses = zipWith mbReleaseGroupSearchToCatalogResponse releaseGroups catalogAlbums
+          -- Enrich with cluster IDs for in-library indicator
+          pure $ zipWith (\resp cid -> resp { catalogAlbumResponseMatchedClusterId = cid }) responses clusterIds
 
       pure $ CatalogQueryResponse
         { catalogQueryResponseArtists = artists
@@ -250,6 +262,19 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           Nothing  -- addedByRuleId (manual follow, not by rule)
           Nothing  -- sourceClusterId (not from library scan)
           Nothing  -- lastCheckedAt (not checked yet)
+
+      -- If quality_profile_id is provided, set it on the artist
+      case createCatalogArtistQualityProfileId req of
+        Just profileId -> do
+          maybeArtistForProfile <- liftIO $ withConnection connPool $ \conn ->
+            DB.getCatalogArtistByMBID conn (createCatalogArtistMBID req)
+          case maybeArtistForProfile >>= DBTypes.catalogArtistId of
+            Just artistId -> liftIO $ withConnection connPool $ \conn ->
+              DB.updateCatalogArtist conn artistId
+                (createCatalogArtistFollowed req)
+                (Just (Just profileId))
+            Nothing -> pure ()
+        Nothing -> pure ()
 
       -- Emit event for image fetching if artist is being followed and no image URL provided
       when (createCatalogArtistFollowed req && isNothing (createCatalogArtistImageUrl req)) $ do
@@ -348,7 +373,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
               Nothing  -- source_cluster_id
               Nothing  -- last_checked_at
 
-      _ <- liftIO $ withConnection connPool $ \conn ->
+      albumId' <- liftIO $ withConnection connPool $ \conn ->
         DB.upsertCatalogAlbum
           conn
           (createCatalogAlbumReleaseGroupMBID req)
@@ -359,6 +384,18 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           (createCatalogAlbumType req)
           (createCatalogAlbumFirstReleaseDate req)
 
+      -- Resolve quality profile: explicit from request > artist > default
+      resolvedProfileId <- liftIO $ withConnection connPool $ \conn ->
+        DB.resolveQualityProfileId conn
+          (createCatalogAlbumQualityProfileId req)
+          (Just artistId)
+          Nothing  -- No source for manual search
+
+      -- Set the resolved profile on the album
+      when (isJust resolvedProfileId && createCatalogAlbumWanted req) $
+        liftIO $ withConnection connPool $ \conn ->
+          DB.updateCatalogAlbum conn albumId' (Just resolvedProfileId)
+
       -- Fetch the created/updated album
       maybeAlbum <- liftIO $ withConnection connPool $ \conn ->
         DB.getCatalogAlbumByReleaseGroupMBID conn (createCatalogAlbumReleaseGroupMBID req)
@@ -367,10 +404,10 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         Nothing -> throw500 "Failed to retrieve created album"
         Just album -> do
           -- Compute wanted status using Core.Catalog logic
-          maybeProfile <- liftIO $ withConnection connPool $ \conn ->
-            case DBTypes.catalogAlbumQualityProfileId album of
-              Nothing -> pure Nothing
-              Just profileId -> DB.getQualityProfile conn profileId
+          -- Use effective profile (album's own, or inherited from artist)
+          maybeProfile <- liftIO $ case DBTypes.catalogAlbumId album of
+            Nothing -> pure Nothing
+            Just albumId -> DB.getEffectiveQualityProfile connPool albumId
 
           let albumContext = Core.AlbumContext
                 { Core.acQualityProfile = maybeProfile
@@ -379,6 +416,18 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
                 , Core.acActiveDownloadStatus = Nothing
                 }
               wanted = Core.isAlbumWanted albumContext
+
+          -- Emit WantedAlbumAdded event if album is wanted
+          when wanted $ do
+            case DBTypes.catalogAlbumId album of
+              Nothing -> pure ()
+              Just albumId ->
+                liftIO $ EventBus.publishAndLog bus le "api.catalog" $ Events.WantedAlbumAdded
+                  { Events.wantedCatalogAlbumId = albumId
+                  , Events.wantedReleaseGroupId = DBTypes.catalogAlbumReleaseGroupMBID album
+                  , Events.wantedAlbumTitle = DBTypes.catalogAlbumTitle album
+                  , Events.wantedArtistName = DBTypes.catalogAlbumArtistName album
+                  }
 
           pure $ CatalogAlbumResponse
             { catalogAlbumResponseId = DBTypes.catalogAlbumId album
@@ -502,10 +551,10 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
                 pure $ find (\row -> DB.caorAlbumId row == albumId) overviews
 
               -- Re-compute wanted status for the response
-              maybeProfile <- liftIO $ withConnection connPool $ \conn ->
-                case DBTypes.catalogAlbumQualityProfileId album of
-                  Nothing -> pure Nothing
-                  Just profileId -> DB.getQualityProfile conn profileId
+              -- Use effective profile (album's own, or inherited from artist)
+              maybeProfile <- liftIO $ case DBTypes.catalogAlbumId album of
+                Nothing -> pure Nothing
+                Just albumId' -> DB.getEffectiveQualityProfile connPool albumId'
 
               let albumContext = Core.AlbumContext
                     { Core.acQualityProfile = maybeProfile
@@ -826,10 +875,10 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
               let releases = concatMap convertIndexerResult results
 
               -- Compute wanted status using Core.Catalog logic
-              maybeProfile <- liftIO $ withConnection connPool $ \conn ->
-                case DBTypes.catalogAlbumQualityProfileId album of
-                  Nothing -> pure Nothing
-                  Just profileId -> DB.getQualityProfile conn profileId
+              -- Use effective profile (album's own, or inherited from artist)
+              maybeProfile <- liftIO $ case DBTypes.catalogAlbumId album of
+                Nothing -> pure Nothing
+                Just albumId' -> DB.getEffectiveQualityProfile connPool albumId'
 
               let albumContext = Core.AlbumContext
                     { Core.acQualityProfile = maybeProfile

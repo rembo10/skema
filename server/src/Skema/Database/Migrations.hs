@@ -531,6 +531,19 @@ runIncrementalMigrations le conn = do
         recordMigration conn "007_add_slskd_columns"
       $(logTM) InfoS "Completed migration: 007_add_slskd_columns"
 
+    -- Migration 008: Add quality_profile_id to acquisition_rules (sources)
+    applied008 <- liftIO $ migrationApplied conn "008_add_source_quality_profile"
+    unless applied008 $ do
+      $(logTM) InfoS "Running migration: 008_add_source_quality_profile"
+      liftIO $ do
+        qpExists <- columnExists conn "acquisition_rules" "quality_profile_id"
+        unless qpExists $
+          executeQuery_ conn
+            "ALTER TABLE acquisition_rules ADD COLUMN quality_profile_id INTEGER REFERENCES quality_profiles(id) ON DELETE SET NULL"
+
+        recordMigration conn "008_add_source_quality_profile"
+      $(logTM) InfoS "Completed migration: 008_add_source_quality_profile"
+
 -- | Normalize text for search by:
 -- 1. Decomposing accented characters (NFD normalization)
 -- 2. Removing diacritical marks

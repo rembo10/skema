@@ -19,7 +19,7 @@ import Skema.Services.Dependencies (SourceEvaluatorDeps(..))
 import Skema.Events.Bus (EventBus, publishAndLog)
 import Skema.Events.Types (Event(..))
 import Skema.Database.Connection
-import Skema.Database.Repository (getEnabledAcquisitionRules, upsertCatalogArtist, upsertCatalogAlbum)
+import Skema.Database.Repository (getEnabledAcquisitionRules, upsertCatalogArtist, upsertCatalogAlbum, resolveQualityProfileId, updateCatalogAlbum)
 import Skema.Database.Types (AcquisitionSourceRecord(..), SourceType(..))
 import Skema.Domain.Acquisition
   ( SourceFilters(..)
@@ -212,7 +212,7 @@ matchesPitchforkFilters PitchforkFilters{..} album =
 -- | Match an album to MusicBrainz and add it to the wanted list.
 -- Returns True if successfully added, False otherwise.
 matchAndAddAlbum :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> AcquisitionSourceRecord -> Text -> Text -> IO Bool
-matchAndAddAlbum pool bus le mbClient _source artistName albumTitle = do
+matchAndAddAlbum pool bus le mbClient source artistName albumTitle = do
   -- Search MusicBrainz for the release group
   let query = "artist:\"" <> artistName <> "\" AND releasegroup:\"" <> albumTitle <> "\""
   searchResult <- searchReleaseGroups mbClient query (Just 5) Nothing
@@ -246,6 +246,14 @@ matchAndAddAlbum pool bus le mbClient _source artistName albumTitle = do
               (mbrgsArtistName rg)
               (mbrgsType rg)
               (mbrgsFirstReleaseDate rg)
+
+            -- Resolve quality profile: artist > source > default
+            resolvedProfileId <- resolveQualityProfileId conn Nothing (Just artistId) (sourceId source)
+
+            -- Set the resolved profile on the album
+            case resolvedProfileId of
+              Just _pid -> updateCatalogAlbum conn albumId (Just resolvedProfileId)
+              Nothing -> pure ()
 
             -- Emit WantedAlbumAdded event
             publishAndLog bus le "source_evaluator" $ WantedAlbumAdded

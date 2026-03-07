@@ -44,6 +44,7 @@ acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
           , acquisitionRuleResponseSourceType = DBUtils.sourceTypeToText (DBTypes.sourceType source)
           , acquisitionRuleResponseEnabled = DBTypes.sourceEnabled source
           , acquisitionRuleResponseFilters = DBTypes.sourceFilters source
+          , acquisitionRuleResponseQualityProfileId = DBTypes.sourceQualityProfileId source
           , acquisitionRuleResponseCreatedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.sourceCreatedAt source)
           , acquisitionRuleResponseUpdatedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.sourceUpdatedAt source)
           }
@@ -65,6 +66,7 @@ acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
           sourceType
           (createRuleEnabled req)
           (createRuleFilters req)
+          (createRuleQualityProfileId req)
 
       -- Return the created source as a response
       pure $ AcquisitionRuleResponse
@@ -74,6 +76,7 @@ acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
         , acquisitionRuleResponseSourceType = createRuleType req
         , acquisitionRuleResponseEnabled = createRuleEnabled req
         , acquisitionRuleResponseFilters = createRuleFilters req
+        , acquisitionRuleResponseQualityProfileId = createRuleQualityProfileId req
         , acquisitionRuleResponseCreatedAt = ""  -- Will be set by database
         , acquisitionRuleResponseUpdatedAt = ""  -- Will be set by database
         }
@@ -96,6 +99,7 @@ acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
           sourceType
           (updateRuleEnabled req)
           (updateRuleFilters req)
+          (updateRuleQualityProfileId req)
 
       -- Return the updated source as a response
       pure $ AcquisitionRuleResponse
@@ -105,6 +109,7 @@ acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
         , acquisitionRuleResponseSourceType = updateRuleType req
         , acquisitionRuleResponseEnabled = updateRuleEnabled req
         , acquisitionRuleResponseFilters = updateRuleFilters req
+        , acquisitionRuleResponseQualityProfileId = updateRuleQualityProfileId req
         , acquisitionRuleResponseCreatedAt = ""  -- Preserve existing
         , acquisitionRuleResponseUpdatedAt = ""  -- Will be set by database
         }

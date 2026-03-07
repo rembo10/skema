@@ -6,6 +6,7 @@
 -- - isAlbumWanted: profile/library/cutoff combinations
 -- - computeAlbumState: all derived album states
 -- - makeDownloadDecision: initiate, allow, cancel decisions
+-- - artistQualityProfileChanged: artist profile inheritance propagation
 module Unit.Domain.CatalogSpec
   ( tests
   ) where
@@ -46,6 +47,7 @@ tests = testGroup "Unit.Domain.Catalog"
   [ isAlbumWantedTests
   , computeAlbumStateTests
   , makeDownloadDecisionTests
+  , artistQualityProfileChangedTests
   ]
 
 -- =============================================================================
@@ -219,4 +221,62 @@ makeDownloadDecisionTests = testGroup "makeDownloadDecision"
       case makeDownloadDecision ctx of
         CancelDownload _ -> pure ()
         other -> assertFailure $ "Expected CancelDownload, got: " <> show other
+  ]
+
+-- =============================================================================
+-- artistQualityProfileChanged Tests
+-- =============================================================================
+
+artistQualityProfileChangedTests :: TestTree
+artistQualityProfileChangedTests = testGroup "artistQualityProfileChanged"
+  [ testCase "album added from search: no own profile + artist has profile -> wanted" $ do
+      -- Bug report: albums added through universal search don't get marked as wanted.
+      -- When an album is created from search, it has no quality profile of its own.
+      -- The artist's quality profile should be inherited, making the album wanted.
+      let (wanted, _shouldCancel, shouldSearch) =
+            artistQualityProfileChanged
+              Nothing           -- album has no own quality profile
+              Nothing           -- not in library (just added from search)
+              Nothing           -- no current quality
+              Nothing           -- no active download
+              Nothing           -- no active download quality
+              (Just testProfile) -- artist has a quality profile
+      wanted @?= True
+      shouldSearch @?= True
+
+  , testCase "album has own profile -> artist profile ignored" $ do
+      let (wanted, _, _) =
+            artistQualityProfileChanged
+              (Just 99)          -- album has its own quality profile
+              Nothing            -- not in library
+              Nothing            -- no current quality
+              Nothing            -- no active download
+              Nothing            -- no active download quality
+              (Just testProfile) -- artist also has a profile
+      -- Album's own profile takes precedence; artist change doesn't affect it
+      wanted @?= False
+
+  , testCase "artist profile removed -> album no longer wanted" $ do
+      let (wanted, _, shouldSearch) =
+            artistQualityProfileChanged
+              Nothing  -- album has no own profile
+              Nothing  -- not in library
+              Nothing  -- no current quality
+              Nothing  -- no active download
+              Nothing  -- no active download quality
+              Nothing  -- artist profile removed
+      wanted @?= False
+      shouldSearch @?= False
+
+  , testCase "album in library below cutoff + artist has profile -> wanted" $ do
+      let (wanted, _, shouldSearch) =
+            artistQualityProfileChanged
+              Nothing            -- album has no own profile
+              (Just 1)           -- in library (cluster ID)
+              (Just MP3_320)     -- current quality below Lossless cutoff
+              Nothing            -- no active download
+              Nothing            -- no active download quality
+              (Just testProfile) -- artist has a quality profile
+      wanted @?= True
+      shouldSearch @?= True
   ]

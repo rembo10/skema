@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../lib/api';
 import { CatalogArtist, CatalogAlbum, QualityProfile } from '../types/api';
 import { toast } from 'react-hot-toast';
-import { X } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 
 export default function UniversalSearch() {
   const [query, setQuery] = useState('');
@@ -11,21 +11,29 @@ export default function UniversalSearch() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
-  const [defaultProfile, setDefaultProfile] = useState<QualityProfile | null>(null);
+  const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
+  const [defaultProfileId, setDefaultProfileId] = useState<number | null>(null);
+  const [profileMenuKey, setProfileMenuKey] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Load default quality profile
+  // Load quality profiles and default
   useEffect(() => {
-    const loadDefaultProfile = async () => {
+    const loadProfiles = async () => {
       try {
-        const profile = await api.getDefaultQualityProfile();
-        setDefaultProfile(profile);
+        const [profiles, defaultProfile] = await Promise.all([
+          api.getQualityProfiles(),
+          api.getDefaultQualityProfile(),
+        ]);
+        setQualityProfiles(profiles);
+        if (defaultProfile) {
+          setDefaultProfileId(defaultProfile.id);
+        }
       } catch (error) {
-        console.error('Failed to load default quality profile:', error);
+        console.error('Failed to load quality profiles:', error);
       }
     };
-    loadDefaultProfile();
+    loadProfiles();
   }, []);
 
   // Close dropdown when clicking outside
@@ -33,6 +41,7 @@ export default function UniversalSearch() {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
+        setProfileMenuKey(null);
       }
     };
 
@@ -70,25 +79,24 @@ export default function UniversalSearch() {
     return () => clearTimeout(timeoutId);
   }, [query]);
 
-  const handleFollowArtist = useCallback(async (artist: CatalogArtist) => {
+  const handleFollowArtist = useCallback(async (artist: CatalogArtist, profileId?: number | null) => {
     try {
       const newFollowedState = !artist.followed;
+      const profileToSet = newFollowedState ? (profileId ?? defaultProfileId) : undefined;
 
       if (artist.id) {
-        // Update existing artist
-        await api.updateCatalogArtist(artist.id, newFollowedState);
+        await api.updateCatalogArtist(artist.id, newFollowedState, profileToSet);
       } else {
-        // Create new artist in catalog
         await api.createCatalogArtist({
           mbid: artist.mbid,
           name: artist.name,
           type: artist.type || undefined,
           image_url: artist.image_url || undefined,
           followed: newFollowedState,
+          quality_profile_id: profileToSet,
         });
       }
 
-      // Update local state
       setArtists((prev) =>
         prev.map((a) =>
           a.mbid === artist.mbid ? { ...a, followed: newFollowedState, id: artist.id || a.id } : a
@@ -100,27 +108,20 @@ export default function UniversalSearch() {
       const message = err instanceof Error ? err.message : 'Failed to update artist';
       toast.error(message);
     }
-  }, []);
+  }, [defaultProfileId]);
 
-  const handleWantAlbum = useCallback(async (album: CatalogAlbum) => {
+  const handleWantAlbum = useCallback(async (album: CatalogAlbum, profileId?: number | null) => {
     try {
       const newWantedState = !album.wanted;
+      const profileToUse = newWantedState ? (album.quality_profile_id || (profileId ?? defaultProfileId)) : null;
+
+      if (newWantedState && !profileToUse) {
+        toast.error('No quality profile available. Please set a default quality profile first.');
+        return;
+      }
 
       if (album.id) {
-        // Update existing album
-        // If wanting: use album's profile or default profile
-        // If unwanting: set to null
-        let profileToUse: number | null = null;
-        if (newWantedState) {
-          profileToUse = album.quality_profile_id || defaultProfile?.id || null;
-          if (!profileToUse) {
-            toast.error('No quality profile available. Please set a default quality profile first.');
-            return;
-          }
-        }
         await api.updateCatalogAlbum(album.id, profileToUse);
-
-        // Update local state
         setAlbums((prev) =>
           prev.map((a) =>
             a.release_group_mbid === album.release_group_mbid
@@ -129,13 +130,6 @@ export default function UniversalSearch() {
           )
         );
       } else {
-        // Create new album in catalog
-        const profileToUse = album.quality_profile_id || defaultProfile?.id || null;
-        if (newWantedState && !profileToUse) {
-          toast.error('No quality profile available. Please set a default quality profile first.');
-          return;
-        }
-
         await api.createCatalogAlbum({
           release_group_mbid: album.release_group_mbid,
           title: album.title,
@@ -146,8 +140,6 @@ export default function UniversalSearch() {
           wanted: newWantedState,
           quality_profile_id: newWantedState ? profileToUse : undefined,
         });
-
-        // Update local state
         setAlbums((prev) =>
           prev.map((a) =>
             a.release_group_mbid === album.release_group_mbid
@@ -162,7 +154,10 @@ export default function UniversalSearch() {
       const message = err instanceof Error ? err.message : 'Failed to update album';
       toast.error(message);
     }
-  }, [defaultProfile]);
+  }, [defaultProfileId]);
+
+  const defaultProfileName = qualityProfiles.find(p => p.id === defaultProfileId)?.name;
+  const hasMultipleProfiles = qualityProfiles.length > 1;
 
   return (
     <div ref={dropdownRef} className="relative w-full max-w-2xl">
@@ -240,16 +235,56 @@ export default function UniversalSearch() {
                           )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleFollowArtist(artist)}
-                        className={`w-full sm:w-auto sm:ml-3 flex-shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
-                          artist.followed
-                            ? 'bg-dark-bg-subtle text-dark-text-secondary hover:bg-dark-bg-hover'
-                            : 'btn-primary'
-                        }`}
-                      >
-                        {artist.followed ? 'Unfollow' : 'Follow'}
-                      </button>
+                      {artist.followed ? (
+                        <button
+                          onClick={() => handleFollowArtist(artist)}
+                          className="w-full sm:w-auto sm:ml-3 flex-shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-200 bg-dark-bg-subtle text-dark-text-secondary hover:bg-dark-bg-hover"
+                        >
+                          Unfollow
+                        </button>
+                      ) : (
+                        <div className="relative w-full sm:w-auto sm:ml-3 flex-shrink-0">
+                          <div className="flex rounded-lg overflow-hidden">
+                            <button
+                              onClick={() => handleFollowArtist(artist)}
+                              className="flex-1 sm:flex-initial px-3 py-1.5 text-xs font-medium btn-primary rounded-none rounded-l-lg"
+                              title={defaultProfileName ? `Follow with ${defaultProfileName}` : 'Follow'}
+                            >
+                              Follow
+                            </button>
+                            {hasMultipleProfiles && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setProfileMenuKey(profileMenuKey === `artist-${artist.mbid}` ? null : `artist-${artist.mbid}`);
+                                }}
+                                className="px-1.5 py-1.5 text-xs font-medium btn-primary rounded-none rounded-r-lg border-l border-white/20"
+                              >
+                                <ChevronDown className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                          {profileMenuKey === `artist-${artist.mbid}` && (
+                            <div className="absolute right-0 top-full mt-1 z-[60] min-w-[160px] rounded-lg border border-dark-border bg-dark-bg-elevated shadow-xl py-1">
+                              {qualityProfiles.map((profile) => (
+                                <button
+                                  key={profile.id}
+                                  onClick={() => {
+                                    setProfileMenuKey(null);
+                                    handleFollowArtist(artist, profile.id);
+                                  }}
+                                  className="w-full text-left px-3 py-1.5 text-xs text-dark-text hover:bg-dark-bg-hover transition-colors flex items-center justify-between gap-2"
+                                >
+                                  <span>{profile.name}</span>
+                                  {profile.id === defaultProfileId && (
+                                    <span className="text-dark-text-tertiary">(default)</span>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -287,17 +322,57 @@ export default function UniversalSearch() {
                           )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleWantAlbum(album)}
-                        className={`w-full sm:w-auto sm:ml-3 flex-shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-200 flex items-center justify-center gap-1.5 ${
-                          album.wanted
-                            ? 'bg-dark-bg-subtle text-dark-text-secondary hover:bg-dark-bg-hover'
-                            : 'bg-dark-success text-dark-bg hover:bg-dark-success/90'
-                        }`}
-                      >
-                        {album.wanted && <X className="h-3.5 w-3.5" />}
-                        {album.wanted ? 'Remove' : 'Add to Wanted'}
-                      </button>
+                      {album.wanted ? (
+                        <button
+                          disabled
+                          className="w-full sm:w-auto sm:ml-3 flex-shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium bg-dark-bg-subtle text-dark-text-tertiary cursor-default flex items-center justify-center gap-1.5"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                          Wanted
+                        </button>
+                      ) : (
+                        <div className="relative w-full sm:w-auto sm:ml-3 flex-shrink-0">
+                          <div className="flex rounded-lg overflow-hidden">
+                            <button
+                              onClick={() => handleWantAlbum(album)}
+                              className="flex-1 sm:flex-initial px-3 py-1.5 text-xs font-medium rounded-none rounded-l-lg bg-dark-success text-dark-bg hover:bg-dark-success/90 transition-all duration-200"
+                              title={defaultProfileName ? `Add with ${defaultProfileName}` : 'Add to Wanted'}
+                            >
+                              Add to Wanted
+                            </button>
+                            {hasMultipleProfiles && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setProfileMenuKey(profileMenuKey === `album-${album.release_group_mbid}` ? null : `album-${album.release_group_mbid}`);
+                                }}
+                                className="px-1.5 py-1.5 text-xs font-medium rounded-none rounded-r-lg bg-dark-success text-dark-bg hover:bg-dark-success/90 transition-all duration-200 border-l border-white/20"
+                              >
+                                <ChevronDown className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                          {profileMenuKey === `album-${album.release_group_mbid}` && (
+                            <div className="absolute right-0 top-full mt-1 z-[60] min-w-[160px] rounded-lg border border-dark-border bg-dark-bg-elevated shadow-xl py-1">
+                              {qualityProfiles.map((profile) => (
+                                <button
+                                  key={profile.id}
+                                  onClick={() => {
+                                    setProfileMenuKey(null);
+                                    handleWantAlbum(album, profile.id);
+                                  }}
+                                  className="w-full text-left px-3 py-1.5 text-xs text-dark-text hover:bg-dark-bg-hover transition-colors flex items-center justify-between gap-2"
+                                >
+                                  <span>{profile.name}</span>
+                                  {profile.id === defaultProfileId && (
+                                    <span className="text-dark-text-tertiary">(default)</span>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

@@ -92,6 +92,7 @@ module Skema.Database.Repository
   , getAllQualityProfiles
   , getEffectiveQualityProfile
   , updateAlbumQuality
+  , resolveQualityProfileId
     -- * Settings operations
   , getDefaultQualityProfileId
   , setDefaultQualityProfileId
@@ -174,6 +175,7 @@ import Skema.Database.Repository.Quality
   , getAllQualityProfiles
   , getEffectiveQualityProfile
   , updateAlbumQuality
+  , resolveQualityProfileId
   )
 
 -- Re-export stats operations

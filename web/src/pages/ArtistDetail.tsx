@@ -204,6 +204,48 @@ export default function ArtistDetail() {
       updateFollowedArtist(artist.id, { quality_profile_id: updatedArtist.quality_profile_id });
 
       toast.success(newProfileId === null ? 'Using default quality profile' : 'Quality profile updated');
+
+      // Offer to propagate to existing albums
+      if (newProfileId !== null && albums.length > 0) {
+        const albumIds = albums.filter(a => a.id !== null && a.id !== undefined).map(a => a.id!);
+        if (albumIds.length > 0) {
+          toast(
+            (t) => (
+              <div className="flex flex-col gap-2">
+                <span className="text-sm">Update quality profile for {albumIds.length} album{albumIds.length !== 1 ? 's' : ''} by this artist?</span>
+                <div className="flex gap-2">
+                  <button
+                    className="px-3 py-1 text-xs font-medium bg-dark-accent text-dark-bg rounded hover:bg-dark-accent/80"
+                    onClick={async () => {
+                      toast.dismiss(t.id);
+                      try {
+                        await api.bulkAlbumAction({
+                          album_ids: albumIds,
+                          action: { tag: 'SetQualityProfile', contents: newProfileId },
+                        });
+                        // Update local album state
+                        albumIds.forEach(id => updateCatalogAlbum(id, { quality_profile_id: newProfileId }));
+                        toast.success(`Updated ${albumIds.length} album${albumIds.length !== 1 ? 's' : ''}`);
+                      } catch {
+                        toast.error('Failed to update album profiles');
+                      }
+                    }}
+                  >
+                    Update All
+                  </button>
+                  <button
+                    className="px-3 py-1 text-xs font-medium bg-dark-bg-hover text-dark-text rounded hover:bg-dark-bg-subtle"
+                    onClick={() => toast.dismiss(t.id)}
+                  >
+                    Skip
+                  </button>
+                </div>
+              </div>
+            ),
+            { duration: 10000 }
+          );
+        }
+      }
     } catch (error) {
       toast.error('Failed to update quality profile');
       console.error('Error updating quality profile:', error);

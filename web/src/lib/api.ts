@@ -408,6 +408,7 @@ export const api = {
     enabled: boolean;
     priority: number;
     filters?: string;
+    quality_profile_id?: number | null;
   }): Promise<AcquisitionSource> {
     return fetchApi<AcquisitionSource>('/acquisition/sources', {
       method: 'POST',
@@ -419,6 +420,7 @@ export const api = {
         enabled: source.enabled,
         priority: source.priority,
         filters: source.filters,
+        quality_profile_id: source.quality_profile_id,
       }),
     });
   },
@@ -431,6 +433,7 @@ export const api = {
     enabled: boolean;
     priority: number;
     filters?: string;
+    quality_profile_id?: number | null;
   }): Promise<AcquisitionSource> {
     return fetchApi<AcquisitionSource>(`/acquisition/sources/${sourceId}`, {
       method: 'PUT',
@@ -442,6 +445,7 @@ export const api = {
         enabled: source.enabled,
         priority: source.priority,
         filters: source.filters,
+        quality_profile_id: source.quality_profile_id,
       }),
     });
   },
@@ -514,6 +518,7 @@ export const api = {
     type?: string;
     image_url?: string;
     followed: boolean;
+    quality_profile_id?: number | null;
   }): Promise<CatalogArtist> {
     return fetchApi<CatalogArtist>('/catalog/artists', {
       method: 'POST',
@@ -590,6 +595,7 @@ export const api = {
     type?: string;
     first_release_date?: string;
     wanted: boolean;
+    quality_profile_id?: number | null;
   }): Promise<CatalogAlbum> {
     return fetchApi<CatalogAlbum>('/catalog/albums', {
       method: 'POST',
