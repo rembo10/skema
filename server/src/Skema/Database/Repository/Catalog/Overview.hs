@@ -160,6 +160,7 @@ getCatalogAlbumsOverview conn query = do
         \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
         \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
         \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
+        \  AND d_active.id = (SELECT MAX(d2.id) FROM downloads d2 WHERE d2.catalog_album_id = ca.id AND d2.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure')) \
         \LEFT JOIN ( \
         \  SELECT catalog_album_id, COUNT(*) as download_count, MAX(queued_at) as last_download_at \
         \  FROM downloads \
@@ -247,6 +248,7 @@ getCatalogAlbumsOverview conn query = do
                          \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
                          \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
                          \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
+                         \  AND d_active.id = (SELECT MAX(d2.id) FROM downloads d2 WHERE d2.catalog_album_id = ca.id AND d2.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure')) \
                          \LEFT JOIN ( \
                          \  SELECT catalog_album_id, COUNT(*) as download_count, MAX(queued_at) as last_download_at \
                          \  FROM downloads \
@@ -303,6 +305,7 @@ getCatalogAlbumsOverviewCount conn query = do
                          \FROM catalog_albums ca \
                          \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
                          \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
+                         \  AND d_active.id = (SELECT MAX(d2.id) FROM downloads d2 WHERE d2.catalog_album_id = ca.id AND d2.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure')) \
                          \LEFT JOIN clusters c ON c.mb_release_group_id = ca.release_group_mbid \
                          \WHERE 1=1 " <> whereClause <> ") sub WHERE computed_state IN (" <> T.intercalate "," (replicate (length states) "?") <> ")"
               stateParams = map toField states
@@ -377,6 +380,7 @@ getCatalogAlbumsByArtistOverview conn artistId = do
         \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
         \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
         \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
+        \  AND d_active.id = (SELECT MAX(d2.id) FROM downloads d2 WHERE d2.catalog_album_id = ca.id AND d2.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure')) \
         \LEFT JOIN ( \
         \  SELECT catalog_album_id, COUNT(*) as download_count, MAX(queued_at) as last_download_at \
         \  FROM downloads \
@@ -422,6 +426,7 @@ getCatalogAlbumsStatsByState conn maybeArtistId maybeSearch maybeReleaseDateAfte
         \FROM catalog_albums ca \
         \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
         \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
+        \  AND d_active.id = (SELECT MAX(d2.id) FROM downloads d2 WHERE d2.catalog_album_id = ca.id AND d2.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure')) \
         \LEFT JOIN ( \
         \  SELECT mb_release_group_id, MIN(id) as id \
         \  FROM clusters \
