@@ -14,6 +14,7 @@ data AlbumQuery = AlbumQuery
   , aqOffset :: Int
   , aqStates :: Maybe [Text]
   , aqQualities :: Maybe [Text]
+  , aqAlbumId :: Maybe Int64
   , aqArtistId :: Maybe Int64
   , aqSearch :: Maybe Text
   , aqSort :: Maybe Text
@@ -29,6 +30,7 @@ defaultAlbumQuery = AlbumQuery
   , aqOffset = 0
   , aqStates = Nothing
   , aqQualities = Nothing
+  , aqAlbumId = Nothing
   , aqArtistId = Nothing
   , aqSearch = Nothing
   , aqSort = Nothing

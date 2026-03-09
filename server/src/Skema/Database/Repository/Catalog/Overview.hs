@@ -108,6 +108,7 @@ getCatalogAlbumsOverview conn query = do
       offset = aqOffset query
       maybeStates = aqStates query
       maybeQualities = aqQualities query
+      maybeAlbumId = aqAlbumId query
       maybeArtistId = aqArtistId query
       maybeSearch = aqSearch query
       maybeSort = aqSort query
@@ -175,7 +176,7 @@ getCatalogAlbumsOverview conn query = do
         \WHERE 1=1 "
 
   -- Build filter conditions
-  let (whereClause, params) = buildOverviewFilters maybeQualities maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore
+  let (whereClause, params) = buildOverviewFilters maybeAlbumId maybeQualities maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore
 
   -- Wrap the base query in a subquery if we need to filter by state
   let (finalQuery, finalParams, sortClause) = case maybeStates of
@@ -277,11 +278,12 @@ getCatalogAlbumsOverviewCount
 getCatalogAlbumsOverviewCount conn query = do
   let maybeStates = aqStates query
       maybeQualities = aqQualities query
+      maybeAlbumId = aqAlbumId query
       maybeArtistId = aqArtistId query
       maybeSearch = aqSearch query
       maybeReleaseDateAfter = aqReleaseDateAfter query
       maybeReleaseDateBefore = aqReleaseDateBefore query
-  let (whereClause, params) = buildOverviewFilters maybeQualities maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore
+  let (whereClause, params) = buildOverviewFilters maybeAlbumId maybeQualities maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore
 
   let (fullQuery, finalParams) = case maybeStates of
         Nothing ->
@@ -441,10 +443,13 @@ getCatalogAlbumsStatsByState conn maybeArtistId maybeSearch maybeReleaseDateAfte
 -- * Helper functions
 
 -- Helper function to build filter WHERE clauses
-buildOverviewFilters :: Maybe [Text] -> Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> (Text, [SQLite.SQLData])
-buildOverviewFilters maybeQualities maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore =
+buildOverviewFilters :: Maybe Int64 -> Maybe [Text] -> Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> (Text, [SQLite.SQLData])
+buildOverviewFilters maybeAlbumId maybeQualities maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore =
   let (clauses, params) = mconcat
-        [ case maybeQualities of
+        [ case maybeAlbumId of
+            Nothing -> ([], [])
+            Just albumId -> (["AND ca.id = ?"], [toField albumId])
+        , case maybeQualities of
             Nothing -> ([], [])
             Just qualities ->
               let placeholders = T.intercalate "," (replicate (length qualities) "?")

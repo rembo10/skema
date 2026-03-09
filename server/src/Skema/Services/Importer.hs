@@ -47,7 +47,6 @@ import Control.Concurrent.STM (readTChan)
 import Control.Exception (try, throwIO)
 import Data.Time (getCurrentTime)
 import Database.SQLite.Simple (Only(..))
-import qualified Database.SQLite.Simple as SQLite
 import System.OsPath ((</>))
 import qualified System.OsPath as OP
 import qualified System.Directory as Dir
@@ -604,14 +603,5 @@ markDownloadAsIdentificationFailure pool downloadId errorMsg = do
       "UPDATE downloads SET status = ?, error_message = ? WHERE id = ?"
       (downloadStatusToText DB.DownloadIdentificationFailure, errorMsg, downloadId)
 
--- Helper to get catalog album by ID
-getCatalogAlbumById :: SQLite.Connection -> Int64 -> IO (Maybe CatalogAlbumRecord)
-getCatalogAlbumById conn albumId = do
-  albums <- queryRows conn
-    "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, \
-    \album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, \
-    \quality_profile_id, current_quality, created_at, updated_at \
-    \FROM catalog_albums WHERE id = ?"
-    (Only albumId) :: IO [CatalogAlbumRecord]
-  pure $ viaNonEmpty head albums
+
 

@@ -66,6 +66,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
   taskHandler maybeAuthHeader
   :<|> queryHandler maybeAuthHeader
   :<|> getArtistsHandler maybeAuthHeader
+  :<|> getArtistHandler maybeAuthHeader
   :<|> createArtistHandler maybeAuthHeader
   :<|> updateArtistHandler maybeAuthHeader
   :<|> deleteArtistHandler maybeAuthHeader
@@ -93,9 +94,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             -- Spawn async worker to execute the refresh
             _ <- async $ do
               -- Get artist by ID to find MBID
-              maybeArtist <- withConnection connPool $ \conn -> do
-                artists <- DB.getCatalogArtists conn Nothing Nothing Nothing Nothing
-                pure $ find (\a -> DBTypes.catalogArtistId a == Just artistId) artists
+              maybeArtist <- withConnection connPool $ \conn ->
+                DB.getCatalogArtistById conn artistId
               case maybeArtist of
                 Nothing -> do
                   TM.failTask tm taskId $ "Artist not found: " <> show artistId
@@ -241,6 +241,40 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         , artistsResponseArtists = responses
         }
 
+    -- Get single catalog artist by ID
+    getArtistHandler :: Maybe Text -> Int64 -> Handler CatalogArtistResponse
+    getArtistHandler authHeader artistId = do
+      _ <- requireAuth configVar jwtSecret authHeader
+
+      maybeArtist <- liftIO $ withConnection connPool $ \conn ->
+        DB.getCatalogArtistById conn artistId
+
+      case maybeArtist of
+        Nothing -> throw404 $ "Artist not found: " <> show artistId
+        Just artist -> do
+          -- Include album overview data
+          maybeAlbums <- liftIO $ case DBTypes.catalogArtistId artist of
+            Just aid -> do
+              albumRows <- withConnection connPool $ \conn ->
+                DB.getCatalogAlbumsByArtistOverview conn aid
+              pure $ Just $ map rowToResponse albumRows
+            Nothing -> pure Nothing
+
+          pure $ CatalogArtistResponse
+            { catalogArtistResponseId = DBTypes.catalogArtistId artist
+            , catalogArtistResponseMBID = DBTypes.catalogArtistMBID artist
+            , catalogArtistResponseName = DBTypes.catalogArtistName artist
+            , catalogArtistResponseType = DBTypes.catalogArtistType artist
+            , catalogArtistResponseImageUrl = DBTypes.catalogArtistImageUrl artist
+            , catalogArtistResponseThumbnailUrl = DBTypes.catalogArtistThumbnailUrl artist
+            , catalogArtistResponseFollowed = DBTypes.catalogArtistFollowed artist
+            , catalogArtistResponseQualityProfileId = DBTypes.catalogArtistQualityProfileId artist
+            , catalogArtistResponseScore = Nothing
+            , catalogArtistResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistCreatedAt artist)
+            , catalogArtistResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistUpdatedAt artist)
+            , catalogArtistResponseAlbums = maybeAlbums
+            }
+
     -- Create/upsert catalog artist
     createArtistHandler :: Maybe Text -> CreateCatalogArtistRequest -> Handler CatalogArtistResponse
     createArtistHandler authHeader req = do
@@ -314,9 +348,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           (updateCatalogArtistQualityProfileId req)
 
       -- Fetch the updated artist by ID
-      maybeArtist <- liftIO $ withConnection connPool $ \conn -> do
-        artists <- DB.getCatalogArtists conn Nothing Nothing Nothing Nothing
-        pure $ find (\a -> DBTypes.catalogArtistId a == Just artistId) artists
+      maybeArtist <- liftIO $ withConnection connPool $ \conn ->
+        DB.getCatalogArtistById conn artistId
 
       case maybeArtist of
         Nothing -> throw404 $ "Artist not found: " <> show artistId
@@ -453,9 +486,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       _ <- requireAuth configVar jwtSecret authHeader
 
       -- Fetch the album BEFORE updating to get current status
-      maybeAlbumBefore <- liftIO $ withConnection connPool $ \conn -> do
-        albums <- DB.getCatalogAlbums conn
-        pure $ find (\a -> DBTypes.catalogAlbumId a == Just albumId) albums
+      maybeAlbumBefore <- liftIO $ withConnection connPool $ \conn ->
+        DB.getCatalogAlbumById conn albumId
 
       case maybeAlbumBefore of
         Nothing -> throw404 $ "Album not found: " <> show albumId
@@ -471,8 +503,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
           -- Get active download info from overview
           maybeAlbumWithDownload <- liftIO $ withConnection connPool $ \conn -> do
-            overviews <- DB.getCatalogAlbumsOverview conn DB.defaultAlbumQuery { DB.aqLimit = 1 }
-            pure $ find (\row -> DB.caorAlbumId row == albumId) overviews
+            overviews <- DB.getCatalogAlbumsOverview conn DB.defaultAlbumQuery { DB.aqAlbumId = Just albumId, DB.aqLimit = 1 }
+            pure $ viaNonEmpty head overviews
 
           let maybeActiveDownloadId = maybeAlbumWithDownload >>= DB.caorActiveDownloadId
               maybeActiveDownloadQuality = maybeAlbumWithDownload >>= DB.caorActiveDownloadQuality >>= textToQuality
@@ -538,17 +570,16 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
               }
 
           -- Fetch the updated album
-          maybeAlbum <- liftIO $ withConnection connPool $ \conn -> do
-            albums <- DB.getCatalogAlbums conn
-            pure $ find (\a -> DBTypes.catalogAlbumId a == Just albumId) albums
+          maybeAlbum <- liftIO $ withConnection connPool $ \conn ->
+            DB.getCatalogAlbumById conn albumId
 
           case maybeAlbum of
             Nothing -> throw404 $ "Album not found: " <> show albumId
             Just album -> do
               -- Fetch overview data for complete state information
               overviewRow <- liftIO $ withConnection connPool $ \conn -> do
-                overviews <- DB.getCatalogAlbumsOverview conn DB.defaultAlbumQuery { DB.aqLimit = 1 }
-                pure $ find (\row -> DB.caorAlbumId row == albumId) overviews
+                overviews <- DB.getCatalogAlbumsOverview conn DB.defaultAlbumQuery { DB.aqAlbumId = Just albumId, DB.aqLimit = 1 }
+                pure $ viaNonEmpty head overviews
 
               -- Re-compute wanted status for the response
               -- Use effective profile (album's own, or inherited from artist)
@@ -631,6 +662,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             , DB.aqOffset = offset
             , DB.aqStates = maybeStates
             , DB.aqQualities = maybeQualities
+            , DB.aqAlbumId = Nothing
             , DB.aqArtistId = maybeArtistId
             , DB.aqSearch = maybeSearch
             , DB.aqSort = maybeSort
@@ -826,9 +858,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       _ <- requireAuth configVar jwtSecret authHeader
 
       -- Get the album from the database
-      maybeAlbum <- liftIO $ withConnection connPool $ \conn -> do
-        albums <- DB.getCatalogAlbums conn
-        pure $ find (\a -> DBTypes.catalogAlbumId a == Just albumId) albums
+      maybeAlbum <- liftIO $ withConnection connPool $ \conn ->
+        DB.getCatalogAlbumById conn albumId
 
       case maybeAlbum of
         Nothing -> throw404 $ "Album not found: " <> show albumId
@@ -928,9 +959,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
               Right _claims -> pure ()
 
       -- Get the album from the database
-      maybeAlbum <- liftIO $ withConnection connPool $ \conn -> do
-        albums <- DB.getCatalogAlbums conn
-        pure $ find (\a -> DBTypes.catalogAlbumId a == Just albumId) albums
+      maybeAlbum <- liftIO $ withConnection connPool $ \conn ->
+        DB.getCatalogAlbumById conn albumId
 
       case maybeAlbum of
         Nothing -> throwError err404 { errBody = "Album not found" }

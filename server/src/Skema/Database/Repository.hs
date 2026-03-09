@@ -66,12 +66,14 @@ module Skema.Database.Repository
     -- * Catalog operations
   , upsertCatalogArtist
   , getCatalogArtists
+  , getCatalogArtistById
   , getCatalogArtistByMBID
   , updateCatalogArtistFollowed
   , updateCatalogArtist
   , deleteCatalogArtist
   , upsertCatalogAlbum
   , getCatalogAlbums
+  , getCatalogAlbumById
   , getCatalogAlbumsByArtistId
   , getCatalogAlbumByReleaseGroupMBID
   , updateCatalogAlbum
@@ -193,12 +195,14 @@ import Skema.Database.Repository.Settings
 import Skema.Database.Repository.Catalog
   ( upsertCatalogArtist
   , getCatalogArtists
+  , getCatalogArtistById
   , getCatalogArtistByMBID
   , updateCatalogArtistFollowed
   , updateCatalogArtist
   , deleteCatalogArtist
   , upsertCatalogAlbum
   , getCatalogAlbums
+  , getCatalogAlbumById
   , getCatalogAlbumsByArtistId
   , getCatalogAlbumByReleaseGroupMBID
   , updateCatalogAlbum

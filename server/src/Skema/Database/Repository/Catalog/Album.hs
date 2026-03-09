@@ -7,6 +7,7 @@ module Skema.Database.Repository.Catalog.Album
   ( -- * Album operations
     upsertCatalogAlbum
   , getCatalogAlbums
+  , getCatalogAlbumById
   , getCatalogAlbumsByArtistId
   , getCatalogAlbumByReleaseGroupMBID
   , updateCatalogAlbum
@@ -52,6 +53,15 @@ getCatalogAlbums conn =
   queryRows_ conn
     "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, quality_profile_id, current_quality, created_at, updated_at \
     \FROM catalog_albums ORDER BY created_at DESC"
+
+-- | Get a catalog album by database ID.
+getCatalogAlbumById :: SQLite.Connection -> Int64 -> IO (Maybe CatalogAlbumRecord)
+getCatalogAlbumById conn albumId = do
+  results <- queryRows conn
+    "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, quality_profile_id, current_quality, created_at, updated_at \
+    \FROM catalog_albums WHERE id = ?"
+    (Only albumId)
+  pure $ viaNonEmpty head results
 
 -- | Get catalog albums by internal artist ID.
 getCatalogAlbumsByArtistId :: SQLite.Connection -> Int64 -> IO [CatalogAlbumRecord]

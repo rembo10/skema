@@ -7,6 +7,7 @@ module Skema.Database.Repository.Catalog.Artist
   ( -- * Artist operations
     upsertCatalogArtist
   , getCatalogArtists
+  , getCatalogArtistById
   , getCatalogArtistByMBID
   , updateCatalogArtistFollowed
   , updateCatalogArtist
@@ -142,6 +143,15 @@ buildArtistSortClause maybeSort maybeOrder =
         Just "date_added" -> "created_at"
         _ -> "created_at"  -- Default: by creation date
   in " ORDER BY " <> sortField <> order
+
+-- | Get a catalog artist by database ID.
+getCatalogArtistById :: SQLite.Connection -> Int64 -> IO (Maybe CatalogArtistRecord)
+getCatalogArtistById conn artistId = do
+  results <- queryRows conn
+    "SELECT id, artist_mbid, artist_name, artist_type, image_url, thumbnail_url, followed, added_by_rule_id, source_cluster_id, last_checked_at, quality_profile_id, created_at, updated_at \
+    \FROM catalog_artists WHERE id = ?"
+    (Only artistId)
+  pure $ viaNonEmpty head results
 
 -- | Get a catalog artist by MusicBrainz ID.
 getCatalogArtistByMBID :: SQLite.Connection -> Text -> IO (Maybe CatalogArtistRecord)

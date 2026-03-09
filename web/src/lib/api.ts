@@ -512,6 +512,10 @@ export const api = {
     return fetchApi<ArtistsResponse>(`/catalog/artists?${query}`);
   },
 
+  async getCatalogArtist(artistId: number): Promise<CatalogArtist> {
+    return fetchApi<CatalogArtist>(`/catalog/artists/${artistId}`);
+  },
+
   async createCatalogArtist(artist: {
     mbid: string;
     name: string;
