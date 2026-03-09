@@ -32,7 +32,7 @@ jobs:
           ~/.cabal/packages
           ~/.cabal/store
           server/dist-newstyle
-        key: ${{ runner.os }}-cabal-${{ hashFiles('server/skema.cabal') }}
+        key: ${{ runner.os }}-cabal-${{ hashFiles('server/skema.cabal', 'server/cabal.project') }}
         restore-keys: |
           ${{ runner.os }}-cabal-
 
