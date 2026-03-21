@@ -238,9 +238,12 @@ export default function Albums() {
     }
   };
 
-  const handleForceSearch = async (_albumId: number) => {
+  const handleForceSearch = async (albumId: number) => {
     try {
-      // TODO: Implement force search API call
+      await api.bulkAlbumAction({
+        album_ids: [albumId],
+        action: { tag: 'TriggerSearch' },
+      });
       toast.success('Search triggered for album');
     } catch (error) {
       console.error('Failed to trigger search:', error);
@@ -324,8 +327,16 @@ export default function Albums() {
   const handleBulkForceSearch = async () => {
     if (selectedAlbumIds.size === 0) return;
 
-    toast(`Force search for ${selectedAlbumIds.size} album(s) - feature coming soon`);
-    // TODO: Implement bulk force search API call
+    try {
+      await api.bulkAlbumAction({
+        album_ids: Array.from(selectedAlbumIds),
+        action: { tag: 'TriggerSearch' },
+      });
+      toast.success(`Search triggered for ${selectedAlbumIds.size} album(s)`);
+    } catch (error) {
+      console.error('Failed to trigger bulk search:', error);
+      toast.error('Failed to trigger search');
+    }
   };
 
   const handleBulkQualityChange = async (profileId: number | null, isExisting: boolean = false) => {
