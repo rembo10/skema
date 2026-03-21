@@ -1,6 +1,7 @@
 import { useDraggable } from '@dnd-kit/core';
 import { ClusterTrack } from '../types/api';
 import { Music, GripVertical } from 'lucide-react';
+import { formatTrackDuration } from '../lib/formatters';
 
 interface TrackItemProps {
   track: ClusterTrack;
@@ -16,13 +17,6 @@ export function TrackItem({ track, clusterId }: TrackItemProps) {
       clusterId,
     },
   });
-
-  const formatDuration = (seconds: number | null) => {
-    if (!seconds) return '--:--';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
 
   return (
     <div
@@ -59,7 +53,7 @@ export function TrackItem({ track, clusterId }: TrackItemProps) {
           </div>
         )}
         <div className="font-mono">
-          {formatDuration(track.duration)}
+          {formatTrackDuration(track.duration)}
         </div>
       </div>
     </div>

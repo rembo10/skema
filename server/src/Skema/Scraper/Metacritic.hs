@@ -20,12 +20,10 @@ module Skema.Scraper.Metacritic
   , parseMetacriticPage
   ) where
 
-import qualified Data.Text as T
 import Data.Time (Day)
 import qualified Data.ByteString.Lazy as LBS
 import Text.HTML.Scalpel ()
-import Network.HTTP.Client
-import Network.HTTP.Client.TLS (tlsManagerSettings)
+import Skema.Scraper.Http (fetchPage)
 import Skema.Domain.Acquisition (MetacriticGenre, metacriticGenreToUrl)
 
 -- | A scraped album from Metacritic.
@@ -54,22 +52,12 @@ buildGenreUrl genre =
 -- | Scrape albums from a specific URL, tagging them with genres.
 scrapeGenreUrl :: Text -> [MetacriticGenre] -> IO (Either String [MetacriticAlbum])
 scrapeGenreUrl url genres = do
-  manager <- newManager tlsManagerSettings
-  req <- parseRequest (T.unpack url)
-  let reqWithHeaders = req
-        { requestHeaders =
-            [ ("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            , ("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
-            , ("Accept-Language", "en-US,en;q=0.5")
-            ]
-        }
-
-  response <- httpLbs reqWithHeaders manager
-  let htmlBody = responseBody response
-
-  case parseMetacriticPage htmlBody genres of
-    Nothing -> return $ Left "Failed to parse Metacritic page"
-    Just albums -> return $ Right albums
+  result <- fetchPage url
+  case result of
+    Left err -> pure $ Left err
+    Right htmlBody -> case parseMetacriticPage htmlBody genres of
+      Nothing -> pure $ Left "Failed to parse Metacritic page"
+      Just albums -> pure $ Right albums
 
 -- | Parse a Metacritic genre page HTML and extract album information.
 -- NOTE: This is a placeholder implementation. The actual HTML structure needs to be verified

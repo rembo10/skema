@@ -2,6 +2,9 @@ import { useState, useEffect, memo } from 'react';
 import { Link } from 'react-router-dom';
 import { Heart, Disc, ExternalLink } from 'lucide-react';
 import { api } from '../lib/api';
+import { formatDate } from '../lib/formatters';
+import { ImageWithFallback } from './ImageWithFallback';
+import { Skeleton } from './LoadingSkeleton';
 import type { CatalogAlbumOverview } from '../types/api';
 
 function WantedAlbumsSummaryComponent() {
@@ -30,20 +33,6 @@ function WantedAlbumsSummaryComponent() {
     }
   };
 
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return null;
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
-    } catch {
-      return dateString;
-    }
-  };
-
   if (loading) {
     return (
       <div className="card p-6">
@@ -53,11 +42,11 @@ function WantedAlbumsSummaryComponent() {
         </div>
         <div className="space-y-3">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="animate-pulse flex gap-3">
-              <div className="w-12 h-12 bg-dark-bg-subtle rounded" />
+            <div key={i} className="flex gap-3">
+              <Skeleton className="w-12 h-12" />
               <div className="flex-1 space-y-2">
-                <div className="h-4 bg-dark-bg-subtle rounded w-3/4" />
-                <div className="h-3 bg-dark-bg-subtle rounded w-1/2" />
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/2" />
               </div>
             </div>
           ))}
@@ -109,20 +98,13 @@ function WantedAlbumsSummaryComponent() {
           >
             {/* Album Cover */}
             <div className="w-12 h-12 flex-shrink-0 relative">
-              {album.cover_thumbnail_url ? (
-                <img
-                  src={album.cover_thumbnail_url}
-                  alt={album.title}
-                  className="w-full h-full object-cover rounded border border-dark-border"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                    (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
-                  }}
-                />
-              ) : null}
-              <div className={`absolute inset-0 bg-dark-bg-subtle rounded border border-dark-border flex items-center justify-center ${album.cover_thumbnail_url ? 'hidden' : ''}`}>
-                <Disc className="w-6 h-6 text-dark-text-tertiary" />
-              </div>
+              <ImageWithFallback
+                src={album.cover_thumbnail_url}
+                alt={album.title}
+                imgClassName="w-full h-full object-cover rounded border border-dark-border"
+                fallbackClassName="absolute inset-0 bg-dark-bg-subtle rounded border border-dark-border flex items-center justify-center"
+                fallbackIcon={<Disc className="w-6 h-6 text-dark-text-tertiary" />}
+              />
             </div>
 
             {/* Album Info */}

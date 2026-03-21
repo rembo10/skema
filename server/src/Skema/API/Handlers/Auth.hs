@@ -3,32 +3,14 @@
 -- | Authentication API handlers.
 module Skema.API.Handlers.Auth
   ( authServer
-  , throwJsonError
   ) where
 
-import Skema.API.Types.Common (mkErrorResponse)
 import Skema.API.Types.Auth (AuthAPI, AuthStatusResponse(..))
+import Skema.API.Handlers.Utils (throw401, throw500, readConfig)
 import Skema.Auth
 import Skema.Auth.JWT (JWTSecret, generateJWT)
 import qualified Skema.Config.Types as Cfg
 import Servant
-import qualified Control.Concurrent.STM as STM
-import Data.Aeson (encode)
-
--- | Helper to throw a JSON error with a specific status code.
-throwJsonError :: ServerError -> Text -> Handler a
-throwJsonError statusErr msg = throwError $ statusErr
-  { errBody = encode $ mkErrorResponse msg
-  , errHeaders = [("Content-Type", "application/json")]
-  }
-
--- | Throw a 401 Unauthorized error.
-throw401 :: Text -> Handler a
-throw401 = throwJsonError err401
-
--- | Throw a 500 Internal Server Error.
-throw500 :: Text -> Handler a
-throw500 = throwJsonError err500
 
 -- | Auth API handlers.
 authServer :: AuthStore -> JWTSecret -> TVar Cfg.Config -> Server AuthAPI
@@ -38,7 +20,7 @@ authServer _authStore jwtSecret configVar =
     statusHandler :: Handler AuthStatusResponse
     statusHandler = do
       -- Read current config to check if auth is enabled
-      currentCfg <- liftIO $ STM.atomically $ STM.readTVar configVar
+      currentCfg <- liftIO $ readConfig configVar
       let serverCfg = Cfg.server currentCfg
       authEnabled <- liftIO $ checkAuthEnabled serverCfg
       pure $ AuthStatusResponse { authStatusEnabled = authEnabled }
@@ -46,7 +28,7 @@ authServer _authStore jwtSecret configVar =
     credentialsHandler :: CredentialsRequest -> Handler AuthResponse
     credentialsHandler req = do
       -- Read current config from TVar to get latest credentials
-      currentCfg <- liftIO $ STM.atomically $ STM.readTVar configVar
+      currentCfg <- liftIO $ readConfig configVar
       let serverCfg = Cfg.server currentCfg
 
       -- Authenticate credentials

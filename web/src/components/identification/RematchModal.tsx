@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Cluster, ClusterTrack, CandidateRelease, MBTrackInfo } from '../../types/api';
 import { api } from '../../lib/api';
+import { formatTrackDuration, formatTrackDurationMs } from '../../lib/formatters';
 import { useAppStore } from '../../store';
 import toast from 'react-hot-toast';
 import {
@@ -88,7 +89,7 @@ function SortableTrackItem({ track }: { track: ClusterTrack }) {
         )}
         {track.duration && (
           <div className="text-xs text-dark-text-tertiary mt-0.5">
-            {Math.floor(track.duration / 60)}:{String(Math.floor(track.duration % 60)).padStart(2, '0')}
+            {formatTrackDuration(track.duration)}
           </div>
         )}
       </div>
@@ -146,7 +147,7 @@ function MBTrackItem({ track }: { track: MBTrackInfo }) {
         )}
         {track.length && (
           <div className="text-xs text-dark-text-tertiary mt-0.5">
-            {Math.floor(track.length / 60000)}:{String(Math.floor((track.length % 60000) / 1000)).padStart(2, '0')}
+            {formatTrackDurationMs(track.length)}
           </div>
         )}
       </div>

@@ -9,6 +9,7 @@ import Skema.API.Types.Library (LibraryAPI, UpdateTrackRequest(..), TracksRespon
 import Skema.API.Types.Tasks (TaskResource(..))
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
+import Skema.API.Handlers.Utils (readConfig, parsePagination)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
@@ -21,7 +22,6 @@ import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
 import Servant
 import Katip
-import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.Async (async)
 import Data.Aeson (toJSON, object, (.=))
 import Skema.API.Types.Tasks (TaskResponse(..))
@@ -38,7 +38,7 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
   where
     taskHandler authHeader req = do
       _ <- requireAuth configVar jwtSecret authHeader
-      config <- liftIO $ STM.atomically $ STM.readTVar configVar
+      config <- liftIO $ readConfig configVar
 
       -- Create task based on request type
       case libraryTaskType req of
@@ -80,8 +80,7 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
     tracksHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler TracksResponse
     tracksHandler authHeader maybeOffset maybeLimit maybeFilter maybeSort maybeOrder maybeSearch = do
       _ <- requireAuth configVar jwtSecret authHeader
-      let offset = fromMaybe 0 maybeOffset
-      let limit = fromMaybe 50 maybeLimit
+      let (offset, limit) = parsePagination maybeOffset maybeLimit
       let filterStatus = fromMaybe "all" maybeFilter
       let sortField = fromMaybe "album" maybeSort
       let sortOrder = fromMaybe "asc" maybeOrder

@@ -11,7 +11,7 @@ import Skema.API.Types.Clusters (ClustersAPI, ClusterResponse(..), ClustersRespo
 import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
-import Skema.API.Handlers.Auth (throwJsonError)
+import Skema.API.Handlers.Utils (throw404, throw500, readConfig, parsePagination)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
@@ -34,18 +34,24 @@ import qualified Data.ByteString.Lazy as BSL
 import Data.Aeson (eitherDecode, toJSON, object, (.=))
 import Data.Time (getCurrentTime)
 import Database.SQLite.Simple (Only(..))
-import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.Async (async)
 import Servant
 import Katip
 
--- | Throw a 404 Not Found error.
-throw404 :: Text -> Handler a
-throw404 = throwJsonError err404
-
--- | Throw a 500 Internal Server Error.
-throw500 :: Text -> Handler a
-throw500 = throwJsonError err500
+-- | Convert an MBRelease to a CandidateRelease for the API response.
+mbReleaseToCandidateRelease :: MBRelease -> CandidateRelease
+mbReleaseToCandidateRelease release = CandidateRelease
+  { candidateReleaseId = unMBID (mbReleaseId release)
+  , candidateTitle = mbReleaseTitle release
+  , candidateArtist = mbReleaseArtist release
+  , candidateDate = mbReleaseDate release
+  , candidateCountry = mbReleaseCountry release
+  , candidateTrackCount = sum (map mbMediumTrackCount (mbReleaseMedia release))
+  , candidateConfidence = 0.0
+  , candidateBarcode = mbReleaseBarcode release
+  , candidateLabel = mbReleaseLabel release
+  , candidateCatalogNumber = mbReleaseCatalogNumber release
+  }
 
 -- | Clusters API handlers.
 clustersServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> TVar Cfg.Config -> Server ClustersAPI
@@ -65,7 +71,7 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
     taskHandler :: Maybe Text -> ClusterTaskRequest -> Handler TaskResponse
     taskHandler authHeader req = do
       _ <- requireAuth configVar jwtSecret authHeader
-      config <- liftIO $ STM.atomically $ STM.readTVar configVar
+      config <- liftIO $ readConfig configVar
 
       let clusterId = clusterTaskClusterId req
 
@@ -93,11 +99,8 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
 
                 -- Remove current match to unlock
                 when (isJust $ DBTypes.clusterMBReleaseId cluster) $ do
-                  withConnection connPool $ \conn -> do
-                    now <- getCurrentTime
-                    executeQuery conn
-                      "UPDATE clusters SET mb_release_id = NULL, mb_release_group_id = NULL, mb_confidence = NULL, match_source = NULL, match_locked = 0, mb_candidates = NULL, updated_at = ? WHERE id = ?"
-                      (now, clusterId)
+                  withConnection connPool $ \conn ->
+                    DB.clearClusterRelease conn clusterId True
 
                 TM.updateTaskProgress tm taskId 0.2 (Just "Converting cluster to file group...")
 
@@ -167,8 +170,7 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
     getAllClustersHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler ClustersResponse
     getAllClustersHandler authHeader maybeOffset maybeLimit maybeSearch maybeFilter maybeSortField maybeOrder = do
       _ <- requireAuth configVar jwtSecret authHeader
-      let offset = fromMaybe 0 maybeOffset
-      let limit = fromMaybe 50 maybeLimit
+      let (offset, limit) = parsePagination maybeOffset maybeLimit
       let searchQuery = maybeSearch
       let filterStatus = maybeFilter  -- "all", "matched", "unmatched", or "locked"
       let sortField = fromMaybe "album" maybeSortField  -- "album", "artist", "confidence", "status", "track_count"
@@ -312,20 +314,6 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
             Right releases ->
               -- Convert MBRelease to CandidateRelease format
               pure $ map mbReleaseToCandidateRelease releases
-      where
-        mbReleaseToCandidateRelease :: MBRelease -> CandidateRelease
-        mbReleaseToCandidateRelease release = CandidateRelease
-          { candidateReleaseId = unMBID (mbReleaseId release)
-          , candidateTitle = mbReleaseTitle release
-          , candidateArtist = mbReleaseArtist release
-          , candidateDate = mbReleaseDate release
-          , candidateCountry = mbReleaseCountry release
-          , candidateTrackCount = length (mbReleaseTracks release)
-          , candidateConfidence = 0.0  -- We don't have individual candidate confidence scores
-          , candidateBarcode = mbReleaseBarcode release
-          , candidateLabel = mbReleaseLabel release
-          , candidateCatalogNumber = mbReleaseCatalogNumber release
-          }
 
     assignReleaseHandler :: Maybe Text -> Int64 -> AssignReleaseRequest -> Handler ClusterResponse
     assignReleaseHandler authHeader clusterId req = do
@@ -365,12 +353,8 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
     removeReleaseHandler :: Maybe Text -> Int64 -> Handler NoContent
     removeReleaseHandler authHeader clusterId = do
       _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn -> do
-        now <- getCurrentTime
-        -- Remove release assignment by setting MB fields to NULL and unlocking
-        executeQuery conn
-          "UPDATE clusters SET mb_release_id = NULL, mb_release_group_id = NULL, mb_confidence = NULL, match_source = NULL, match_locked = 0, updated_at = ? WHERE id = ?"
-          (now, clusterId)
+      liftIO $ withConnection connPool $ \conn ->
+        DB.clearClusterRelease conn clusterId False
       pure NoContent
 
     updateTrackRecordingHandler :: Maybe Text -> Int64 -> Int64 -> UpdateTrackRecordingRequest -> Handler NoContent
@@ -410,21 +394,6 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
         Right searchResp -> do
           -- Convert MBRelease to CandidateRelease
           pure $ map mbReleaseToCandidateRelease (mbSearchReleases searchResp)
-      where
-        mbReleaseToCandidateRelease :: MBRelease -> CandidateRelease
-        mbReleaseToCandidateRelease release = CandidateRelease
-          { candidateReleaseId = unMBID (mbReleaseId release)
-          , candidateTitle = mbReleaseTitle release
-          , candidateArtist = mbReleaseArtist release
-          , candidateDate = mbReleaseDate release
-          , candidateCountry = mbReleaseCountry release
-          -- Sum track counts from all media (works for both search results and full releases)
-          , candidateTrackCount = sum (map mbMediumTrackCount (mbReleaseMedia release))
-          , candidateConfidence = 0.0  -- Search results don't have confidence scores
-          , candidateBarcode = mbReleaseBarcode release
-          , candidateLabel = mbReleaseLabel release
-          , candidateCatalogNumber = mbReleaseCatalogNumber release
-          }
 
     searchRecordingsHandler :: Maybe Text -> Text -> Maybe Int -> Handler [MBTrackInfo]
     searchRecordingsHandler authHeader query maybeLimit = do

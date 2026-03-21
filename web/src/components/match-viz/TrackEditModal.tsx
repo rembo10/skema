@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../../lib/api';
+import { formatTrackDurationMs } from '../../lib/formatters';
 import { MBTrackInfo } from '../../types/api';
 import toast from 'react-hot-toast';
 import { X, Music, Search, Loader2, ExternalLink } from 'lucide-react';
@@ -59,14 +60,6 @@ export function TrackEditModal({
       console.error('Failed to update track recording:', error);
       toast.error('Failed to update recording');
     }
-  };
-
-  const formatDuration = (ms: number | null | undefined) => {
-    if (!ms) return '—';
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -145,7 +138,7 @@ export function TrackEditModal({
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-dark-text">{recording.title}</div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-dark-text-secondary">
-                        <span>Duration: {formatDuration(recording.length)}</span>
+                        <span>Duration: {formatTrackDurationMs(recording.length)}</span>
                         <a
                           href={`https://musicbrainz.org/recording/${recording.recording_id}`}
                           target="_blank"

@@ -2,6 +2,8 @@ import { useMemo, memo } from 'react';
 import { Link } from 'react-router-dom';
 import { Music, ExternalLink, ArrowRight } from 'lucide-react';
 import { useAppStore } from '../store';
+import { formatTimeAgo } from '../lib/formatters';
+import { ImageWithFallback } from './ImageWithFallback';
 
 function RecentlyFollowedArtistsComponent() {
   // Purely presentational - just display what's in the store
@@ -13,19 +15,6 @@ function RecentlyFollowedArtistsComponent() {
   if (recentArtists.length === 0) {
     return null;
   }
-
-  const formatTimeAgo = (dateString: string) => {
-    const date = new Date(dateString);
-    const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
-
-    if (seconds < 60) return 'just now';
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
-  };
 
   return (
     <div className="card p-6">
@@ -47,20 +36,13 @@ function RecentlyFollowedArtistsComponent() {
               className="card-hover p-4 flex flex-col items-center text-center group"
             >
               <div className="mb-3 relative">
-                {artist.thumbnail_url ? (
-                  <img
-                    src={artist.thumbnail_url}
-                    alt={artist.name}
-                    className="w-16 h-16 rounded-full object-cover ring-2 ring-dark-border group-hover:ring-dark-accent transition-all duration-200"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                      (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
-                    }}
-                  />
-                ) : null}
-                <div className={`w-16 h-16 bg-dark-bg-subtle rounded-full flex items-center justify-center ring-2 ring-dark-border group-hover:ring-dark-accent transition-all duration-200 ${artist.thumbnail_url ? 'hidden' : ''}`}>
-                  <Music className="w-8 h-8 text-dark-text-secondary" />
-                </div>
+                <ImageWithFallback
+                  src={artist.thumbnail_url}
+                  alt={artist.name}
+                  imgClassName="w-16 h-16 rounded-full object-cover ring-2 ring-dark-border group-hover:ring-dark-accent transition-all duration-200"
+                  fallbackClassName="w-16 h-16 bg-dark-bg-subtle rounded-full flex items-center justify-center ring-2 ring-dark-border group-hover:ring-dark-accent transition-all duration-200"
+                  fallbackIcon={<Music className="w-8 h-8 text-dark-text-secondary" />}
+                />
               </div>
               <div className="min-w-0 w-full">
                 <p className="text-sm font-medium text-dark-text truncate group-hover:text-dark-accent transition-colors" title={artist.name}>

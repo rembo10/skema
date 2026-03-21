@@ -6,8 +6,13 @@ module Skema.Database.Repository.Downloads
   , insertDownload
   , deleteDownload
   , hasActiveDownloadForAlbum
+  , downloadSelectColumns
+  , getDownloadById
+  , getAllDownloads
   ) where
 
+import Skema.Database.Connection (queryRows, queryRows_)
+import Skema.Database.Types (DownloadRecord)
 import Skema.Database.Utils (insertReturningId)
 import Data.Time (UTCTime)
 import Database.SQLite.Simple (Only(..))
@@ -107,3 +112,25 @@ hasActiveDownloadForAlbum conn catalogAlbumId = do
   case results of
     [Only count] -> pure (count > 0)
     _ -> pure False
+
+-- | Standard SELECT column list for download queries.
+downloadSelectColumns :: Text
+downloadSelectColumns =
+  "id, catalog_album_id, indexer_name, download_url, download_client, \
+  \download_client_id, status, download_path, title, size_bytes, quality, \
+  \format, seeders, progress, error_message, queued_at, started_at, \
+  \completed_at, imported_at, updated_at, matched_cluster_id, library_path"
+
+-- | Get a download by ID.
+getDownloadById :: SQLite.Connection -> Int64 -> IO (Maybe DownloadRecord)
+getDownloadById conn downloadId = do
+  results <- queryRows conn
+    ("SELECT " <> downloadSelectColumns <> " FROM downloads WHERE id = ?")
+    (Only downloadId)
+  pure $ viaNonEmpty head results
+
+-- | Get all downloads ordered by most recently queued first.
+getAllDownloads :: SQLite.Connection -> IO [DownloadRecord]
+getAllDownloads conn =
+  queryRows_ conn
+    ("SELECT " <> downloadSelectColumns <> " FROM downloads ORDER BY queued_at DESC")

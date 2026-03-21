@@ -7,6 +7,7 @@ module Skema.API.Handlers.Stats
   ) where
 
 import Skema.API.Types.Library (StatsAPI, LibraryStats(..))
+import Skema.API.Handlers.Utils (readConfig)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
@@ -14,7 +15,6 @@ import Skema.Database.Repository
 import qualified Skema.Config.Types as Cfg
 import Skema.FileSystem.Utils (osPathToString)
 import Servant
-import qualified Control.Concurrent.STM as STM
 
 -- | Stats API handler.
 statsServer :: Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> TVar Cfg.Config -> Server StatsAPI
@@ -24,7 +24,7 @@ statsServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader -> do
     (totalFiles, totalAlbums, totalArtists, matchedFiles, unmatchedFiles, accuracy, totalDiffs, totalSize, totalRuntime, catalogInLibrary, catalogWanted) <- getLibraryStats conn
 
     -- Read current library path from config
-    config <- STM.atomically $ STM.readTVar configVar
+    config <- readConfig configVar
     libPath <- case Cfg.libraryPath (Cfg.library config) of
       Nothing -> pure Nothing
       Just osPath -> Just . toText <$> osPathToString osPath

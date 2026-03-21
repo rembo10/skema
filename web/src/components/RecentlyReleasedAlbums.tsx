@@ -2,6 +2,9 @@ import { useState, useEffect, memo } from 'react';
 import { Link } from 'react-router-dom';
 import { Disc, ExternalLink, ArrowRight } from 'lucide-react';
 import { api } from '../lib/api';
+import { formatRelativeDate } from '../lib/formatters';
+import { ImageWithFallback } from './ImageWithFallback';
+import { Skeleton } from './LoadingSkeleton';
 import type { CatalogAlbumOverview } from '../types/api';
 
 function RecentlyReleasedAlbumsComponent() {
@@ -51,10 +54,10 @@ function RecentlyReleasedAlbumsComponent() {
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="animate-pulse">
-              <div className="w-16 h-16 bg-dark-bg-subtle rounded mb-3" />
-              <div className="h-3 bg-dark-bg-subtle rounded w-full mb-1" />
-              <div className="h-3 bg-dark-bg-subtle rounded w-3/4" />
+            <div key={i}>
+              <Skeleton className="w-16 h-16 mb-3" />
+              <Skeleton className="h-3 w-full mb-1" />
+              <Skeleton className="h-3 w-3/4" />
             </div>
           ))}
         </div>
@@ -66,21 +69,6 @@ function RecentlyReleasedAlbumsComponent() {
   if (albums.length === 0) {
     return null;
   }
-
-  const formatReleaseDate = (dateString: string | null) => {
-    if (!dateString) return null;
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays}d ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
-    if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
-    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
-  };
 
   return (
     <div className="card p-6">
@@ -102,20 +90,13 @@ function RecentlyReleasedAlbumsComponent() {
             className="card-hover p-4 flex flex-col items-center text-center group"
           >
             <div className="mb-3 relative">
-              {album.cover_thumbnail_url ? (
-                <img
-                  src={album.cover_thumbnail_url}
-                  alt={album.title}
-                  className="w-16 h-16 rounded object-cover ring-2 ring-dark-border group-hover:ring-dark-accent transition-all duration-200"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                    (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
-                  }}
-                />
-              ) : null}
-              <div className={`w-16 h-16 bg-dark-bg-subtle rounded flex items-center justify-center ring-2 ring-dark-border group-hover:ring-dark-accent transition-all duration-200 ${album.cover_thumbnail_url ? 'hidden' : ''}`}>
-                <Disc className="w-8 h-8 text-dark-text-secondary" />
-              </div>
+              <ImageWithFallback
+                src={album.cover_thumbnail_url}
+                alt={album.title}
+                imgClassName="w-16 h-16 rounded object-cover ring-2 ring-dark-border group-hover:ring-dark-accent transition-all duration-200"
+                fallbackClassName="w-16 h-16 bg-dark-bg-subtle rounded flex items-center justify-center ring-2 ring-dark-border group-hover:ring-dark-accent transition-all duration-200"
+                fallbackIcon={<Disc className="w-8 h-8 text-dark-text-secondary" />}
+              />
             </div>
             <div className="min-w-0 w-full">
               <p className="text-sm font-medium text-dark-text truncate group-hover:text-dark-accent transition-colors" title={album.title}>
@@ -125,7 +106,7 @@ function RecentlyReleasedAlbumsComponent() {
                 {album.artist_name}
               </p>
               <p className="text-xs text-dark-text-tertiary mt-1">
-                {formatReleaseDate(album.first_release_date)}
+                {formatRelativeDate(album.first_release_date)}
               </p>
             </div>
             <span

@@ -10,6 +10,7 @@ module Skema.Database.Repository.Clusters
   , updateClusterWithMBDataManual
   , updateClusterLastIdentified
   , updateClusterWithCandidates
+  , clearClusterRelease
   , updateTrackCluster
   , getClusterById
   , getAllClusters
@@ -128,6 +129,19 @@ updateClusterWithCandidates conn cid candidates = do
   executeQuery conn
     "UPDATE clusters SET mb_candidates = ?, last_identified_at = ?, updated_at = ? WHERE id = ?"
     (candidatesJson, Just now, now, cid)
+
+-- | Clear MusicBrainz release data from a cluster.
+-- When @clearCandidates@ is True, also clears the cached candidates list.
+clearClusterRelease :: SQLite.Connection -> Int64 -> Bool -> IO ()
+clearClusterRelease conn cid clearCandidates = do
+  now <- getCurrentTime
+  if clearCandidates
+    then executeQuery conn
+      "UPDATE clusters SET mb_release_id = NULL, mb_release_group_id = NULL, mb_confidence = NULL, match_source = NULL, match_locked = 0, mb_candidates = NULL, updated_at = ? WHERE id = ?"
+      (now, cid)
+    else executeQuery conn
+      "UPDATE clusters SET mb_release_id = NULL, mb_release_group_id = NULL, mb_confidence = NULL, match_source = NULL, match_locked = 0, updated_at = ? WHERE id = ?"
+      (now, cid)
 
 -- | Update the cluster_id for tracks.
 -- Replaces the old junction table approach with direct FK assignment.

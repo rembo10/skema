@@ -186,6 +186,7 @@ library
     Skema.Services.Slskd
     Skema.Services.Importer
     Skema.Services.Notifications
+    Skema.Scraper.Http
     Skema.Scraper.Metacritic
     Skema.Scraper.Pitchfork
 

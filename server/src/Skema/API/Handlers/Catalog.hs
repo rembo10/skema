@@ -14,7 +14,7 @@ import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import qualified Skema.Domain.Catalog as Core
-import Skema.API.Handlers.Auth (throwJsonError)
+import Skema.API.Handlers.Utils (throw400, throw404, throw500, readConfig, parsePagination)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
@@ -47,18 +47,6 @@ import qualified Data.IORef as IORef
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime)
 import qualified Data.Text as Text
 import qualified Control.Concurrent.STM as STM
-
--- | Throw a 400 Bad Request error.
-throw400 :: Text -> Handler a
-throw400 = throwJsonError err400
-
--- | Throw a 404 Not Found error.
-throw404 :: Text -> Handler a
-throw404 = throwJsonError err404
-
--- | Throw a 500 Internal Server Error.
-throw500 :: Text -> Handler a
-throw500 = throwJsonError err500
 
 -- | Catalog API handlers.
 catalogServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> FilePath -> TVar Cfg.Config -> Server CatalogAPI
@@ -198,8 +186,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
     getArtistsHandler authHeader maybeOffset maybeLimit maybeFollowed maybeSearch maybeSort maybeOrder = do
       _ <- requireAuth configVar jwtSecret authHeader
 
-      let offset = fromMaybe 0 maybeOffset
-      let limit = fromMaybe 50 maybeLimit
+      let (offset, limit) = parsePagination maybeOffset maybeLimit
 
       (allArtists', responses) <- liftIO $ withConnection connPool $ \conn -> do
         allArtists' <- DB.getCatalogArtists conn maybeFollowed maybeSearch maybeSort maybeOrder
@@ -648,8 +635,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
     albumOverviewHandler authHeader maybeOffset maybeLimit _maybeWanted maybeArtistId maybeSearch maybeSort maybeOrder maybeStateFilter maybeQualityFilter maybeReleaseDateAfter maybeReleaseDateBefore = do
       _ <- requireAuth configVar jwtSecret authHeader
 
-      let offset = fromMaybe 0 maybeOffset
-      let limit = fromMaybe 50 maybeLimit
+      let (offset, limit) = parsePagination maybeOffset maybeLimit
 
       -- Parse comma-separated filters
       let maybeStates = fmap (map Text.strip . Text.splitOn ",") maybeStateFilter
@@ -868,7 +854,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           let artistName = DBTypes.catalogAlbumArtistName album
 
           -- Read current config to get indexers
-          config <- liftIO $ STM.atomically $ STM.readTVar configVar
+          config <- liftIO $ readConfig configVar
           let indexerCfg = Cfg.indexers config
           let enabledIndexers = filter Cfg.indexerEnabled (Cfg.indexerList indexerCfg)
 
@@ -945,7 +931,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
     streamAlbumReleasesHandler :: Int64 -> Maybe Text -> Handler (SourceIO ReleaseStreamEvent)
     streamAlbumReleasesHandler albumId maybeToken = do
       -- Validate JWT from query parameter (since EventSource doesn't support custom headers)
-      currentCfg <- liftIO $ STM.atomically $ STM.readTVar configVar
+      currentCfg <- liftIO $ readConfig configVar
       let cfg = Cfg.server currentCfg
       authEnabled <- liftIO $ checkAuthEnabled cfg
 
@@ -969,7 +955,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           let artistName = DBTypes.catalogAlbumArtistName album
 
           -- Read current config to get indexers and slskd
-          config <- liftIO $ STM.atomically $ STM.readTVar configVar
+          config <- liftIO $ readConfig configVar
           let indexerCfg = Cfg.indexers config
           let enabledIndexers = filter Cfg.indexerEnabled (Cfg.indexerList indexerCfg)
           let maybeSlskdConfig = Cfg.downloadSlskdClient (Cfg.download config)
@@ -1068,7 +1054,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       let httpClient = srHttpClient registry
 
       -- Get slskd config
-      config <- STM.atomically $ STM.readTVar configVar
+      config <- readConfig configVar
       let maybeSlskdConfig = Cfg.downloadSlskdClient (Cfg.download config)
 
       -- Search indexers

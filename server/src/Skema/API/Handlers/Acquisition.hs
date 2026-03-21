@@ -6,7 +6,7 @@ module Skema.API.Handlers.Acquisition
   ) where
 
 import Skema.API.Types.Acquisition (AcquisitionAPI, AcquisitionRuleResponse(..), AcquisitionSummaryResponse(..), SourceStatsResponse(..), CreateRuleRequest(..), UpdateRuleRequest(..))
-import Skema.API.Handlers.Auth (throwJsonError)
+import Skema.API.Handlers.Utils (throw400, withAuthDB)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
@@ -16,10 +16,6 @@ import qualified Skema.Database.Utils as DBUtils
 import qualified Skema.Config.Types as Cfg
 import Servant
 import Data.Time (UTCTime, getCurrentTime)
-
--- | Throw a 400 Bad Request error.
-throw400 :: Text -> Handler a
-throw400 = throwJsonError err400
 
 -- | Acquisition API handlers.
 acquisitionServer :: Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> TVar Cfg.Config -> Server AcquisitionAPI
@@ -33,9 +29,8 @@ acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
   :<|> getSummaryHandler maybeAuthHeader
   where
     getRulesHandler :: Maybe Text -> Handler [AcquisitionRuleResponse]
-    getRulesHandler authHeader = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn -> do
+    getRulesHandler authHeader =
+      withAuthDB configVar jwtSecret connPool authHeader $ \conn -> do
         sources <- DB.getAllAcquisitionRules conn
         forM sources $ \source -> pure $ AcquisitionRuleResponse
           { acquisitionRuleResponseId = fromMaybe 0 (DBTypes.sourceId source)
@@ -116,15 +111,13 @@ acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
 
     deleteRuleHandler :: Maybe Text -> Int64 -> Handler NoContent
     deleteRuleHandler authHeader sourceId = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn ->
+      withAuthDB configVar jwtSecret connPool authHeader $ \conn ->
         DB.deleteAcquisitionRule conn sourceId
       pure NoContent
 
     enableRuleHandler :: Maybe Text -> Int64 -> Handler NoContent
     enableRuleHandler authHeader sourceId = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn -> do
+      withAuthDB configVar jwtSecret connPool authHeader $ \conn -> do
         now <- getCurrentTime
         executeQuery conn
           "UPDATE acquisition_rules SET enabled = ?, updated_at = ? WHERE id = ?"
@@ -133,8 +126,7 @@ acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
 
     disableRuleHandler :: Maybe Text -> Int64 -> Handler NoContent
     disableRuleHandler authHeader sourceId = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn -> do
+      withAuthDB configVar jwtSecret connPool authHeader $ \conn -> do
         now <- getCurrentTime
         executeQuery conn
           "UPDATE acquisition_rules SET enabled = ?, updated_at = ? WHERE id = ?"
@@ -142,9 +134,8 @@ acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
       pure NoContent
 
     getSummaryHandler :: Maybe Text -> Handler AcquisitionSummaryResponse
-    getSummaryHandler authHeader = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn -> do
+    getSummaryHandler authHeader =
+      withAuthDB configVar jwtSecret connPool authHeader $ \conn -> do
         (perSource, totalArtists, totalWanted) <- DB.getAcquisitionSummary conn
         pure $ AcquisitionSummaryResponse
           { acquisitionSummaryResponseSources = map (\(sid, ac, alc) ->

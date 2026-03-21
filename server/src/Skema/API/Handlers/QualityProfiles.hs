@@ -6,7 +6,7 @@ module Skema.API.Handlers.QualityProfiles
   ) where
 
 import Skema.API.Types.QualityProfiles (QualityProfilesAPI, CreateQualityProfileRequest(..), UpdateQualityProfileRequest(..))
-import Skema.API.Handlers.Auth (throwJsonError)
+import Skema.API.Handlers.Utils (throw404, withAuthDB)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
@@ -14,10 +14,6 @@ import qualified Skema.Database.Repository as DB
 import qualified Skema.Config.Types as Cfg
 import Skema.Domain.Quality (QualityProfile(..))
 import Servant
-
--- | Throw a 404 Not Found error.
-throw404 :: Text -> Handler a
-throw404 = throwJsonError err404
 
 -- | Quality Profiles API handlers.
 qualityProfilesServer :: Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> TVar Cfg.Config -> Server QualityProfilesAPI
@@ -31,10 +27,8 @@ qualityProfilesServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader
   :<|> setDefaultProfileHandler maybeAuthHeader
   where
     getAllProfilesHandler :: Maybe Text -> Handler [QualityProfile]
-    getAllProfilesHandler authHeader = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn ->
-        DB.getAllQualityProfiles conn
+    getAllProfilesHandler authHeader =
+      withAuthDB configVar jwtSecret connPool authHeader DB.getAllQualityProfiles
 
     getProfileHandler :: Maybe Text -> Int64 -> Handler QualityProfile
     getProfileHandler authHeader profileId = do
@@ -92,8 +86,7 @@ qualityProfilesServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader
 
     deleteProfileHandler :: Maybe Text -> Int64 -> Handler NoContent
     deleteProfileHandler authHeader profileId = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn ->
+      withAuthDB configVar jwtSecret connPool authHeader $ \conn ->
         DB.deleteQualityProfile conn profileId
       pure NoContent
 
@@ -109,7 +102,6 @@ qualityProfilesServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader
 
     setDefaultProfileHandler :: Maybe Text -> Int64 -> Handler NoContent
     setDefaultProfileHandler authHeader profileId = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn ->
+      withAuthDB configVar jwtSecret connPool authHeader $ \conn ->
         DB.setDefaultQualityProfileId conn (Just profileId)
       pure NoContent

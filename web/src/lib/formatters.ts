@@ -101,3 +101,74 @@ export const formatDuration = (seconds: number): string => {
 
   return parts.join(' ') || '0s';
 };
+
+/**
+ * Format a time relative to now, e.g. "just now", "5m ago", "2h ago", "3d ago"
+ */
+export const formatTimeAgo = (dateString: string): string => {
+  const date = new Date(dateString);
+  const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000);
+
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+};
+
+/**
+ * Format a release date relative to now: "Today", "Yesterday", "5d ago", "2w ago", "1mo ago", or "Jan 2024"
+ */
+export const formatRelativeDate = (dateString: string | null): string | null => {
+  if (!dateString) return null;
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffTime = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
+  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+};
+
+/**
+ * Format days until a future date: "Today", "Tomorrow", "5 days", "2 weeks", "1 months"
+ */
+export const getDaysUntil = (dateString: string): string => {
+  const releaseDate = new Date(dateString);
+  const now = new Date();
+  const diffTime = releaseDate.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Tomorrow';
+  if (diffDays < 7) return `${diffDays} days`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks`;
+  return `${Math.floor(diffDays / 30)} months`;
+};
+
+/**
+ * Format a track duration from seconds to "M:SS" format
+ */
+export const formatTrackDuration = (seconds: number | null): string => {
+  if (!seconds) return '--:--';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+/**
+ * Format a track duration from milliseconds to "M:SS" format
+ */
+export const formatTrackDurationMs = (ms: number | null | undefined): string => {
+  if (!ms) return '\u2014';
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+};

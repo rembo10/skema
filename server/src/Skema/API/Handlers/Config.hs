@@ -10,7 +10,7 @@ module Skema.API.Handlers.Config
   ) where
 
 import Skema.API.Types.Config (ConfigAPI, ConfigSchemaAPI)
-import Skema.API.Handlers.Auth (throwJsonError)
+import Skema.API.Handlers.Utils (throw400, throw500, readConfig)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
@@ -26,15 +26,6 @@ import Servant
 import Katip
 import Data.Aeson (Value(..))
 import qualified Data.Aeson.KeyMap as KM
-import qualified Control.Concurrent.STM as STM
-
--- | Throw a 400 Bad Request error.
-throw400 :: Text -> Handler a
-throw400 = throwJsonError err400
-
--- | Throw a 500 Internal Server Error.
-throw500 :: Text -> Handler a
-throw500 = throwJsonError err500
 
 -- | Config API handlers.
 --
@@ -47,12 +38,12 @@ configServer le bus _serverCfg jwtSecret _connPool configVar configPath = \maybe
   where
     getConfigHandler authHeader = do
       _ <- requireAuth configVar jwtSecret authHeader
-      cfg <- liftIO $ STM.atomically $ STM.readTVar configVar
+      cfg <- liftIO $ readConfig configVar
       liftIO $ configToAPIJSON cfg
 
     updateConfigHandler authHeader updateValue = do
       _ <- requireAuth configVar jwtSecret authHeader
-      currentCfg <- liftIO $ STM.atomically $ STM.readTVar configVar
+      currentCfg <- liftIO $ readConfig configVar
 
       -- Extract password from update if present, and hash it
       maybeHashedPassword <- case extractPassword updateValue of

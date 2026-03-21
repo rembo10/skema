@@ -10,7 +10,7 @@ import Skema.API.Types.Downloads (DownloadsAPI, DownloadResponse(..), DownloadsP
 import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
-import Skema.API.Handlers.Auth (throwJsonError)
+import Skema.API.Handlers.Utils (throw404, readConfig, parsePagination)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
@@ -38,10 +38,6 @@ import Database.SQLite.Simple (Only(..))
 import qualified Data.Map.Strict as Map
 import qualified Control.Concurrent.STM as STM
 import qualified Data.Text as T
-
--- | Throw a 404 Not Found error.
-throw404 :: Text -> Handler a
-throw404 = throwJsonError err404
 
 -- | Downloads API handlers.
 downloadsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> STM.TVar (Map.Map Int64 (Double, Text)) -> TVar Cfg.Config -> Server DownloadsAPI
@@ -91,17 +87,10 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
             TM.updateTaskProgress tm taskId 0.2 (Just "Looking up download...")
 
             -- Get the download record to determine what stage it failed at
-            downloads <- withConnection connPool $ \conn ->
-              queryRows conn
-                "SELECT id, catalog_album_id, indexer_name, download_url, download_client, \
-                \download_client_id, status, download_path, title, size_bytes, quality, \
-                \format, seeders, progress, error_message, queued_at, started_at, \
-                \completed_at, imported_at, updated_at, \
-                \matched_cluster_id, library_path \
-                \FROM downloads WHERE id = ?"
-                (Only downloadId) :: IO [DBTypes.DownloadRecord]
+            maybeDownload <- withConnection connPool $ \conn ->
+              DownloadsRepo.getDownloadById conn downloadId
 
-            case viaNonEmpty head downloads of
+            case maybeDownload of
               Nothing -> do
                 TM.failTask tm taskId "Download not found"
               Just download -> do
@@ -167,17 +156,10 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
     getAllDownloadsHandler authHeader maybeOffset maybeLimit = do
       _ <- requireAuth configVar jwtSecret authHeader
 
-      let offset = fromMaybe 0 maybeOffset
-      let limit = fromMaybe 50 maybeLimit
+      let (offset, limit) = parsePagination maybeOffset maybeLimit
 
       (allDownloads, responses) <- liftIO $ withConnection connPool $ \conn -> do
-        allDownloads <- queryRows conn
-          "SELECT id, catalog_album_id, indexer_name, download_url, download_client, \
-          \download_client_id, status, download_path, title, size_bytes, quality, \
-          \format, seeders, progress, error_message, queued_at, started_at, \
-          \completed_at, imported_at, updated_at, matched_cluster_id, library_path \
-          \FROM downloads ORDER BY queued_at DESC"
-          () :: IO [DBTypes.DownloadRecord]
+        allDownloads <- DownloadsRepo.getAllDownloads conn
 
         let paginated = take limit $ drop offset $ allDownloads
 
@@ -215,17 +197,11 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
     getDownloadHandler :: Maybe Text -> Int64 -> Handler DownloadResponse
     getDownloadHandler authHeader downloadId = do
       _ <- requireAuth configVar jwtSecret authHeader
-      downloads <- liftIO $ withConnection connPool $ \conn ->
-        queryRows conn
-          "SELECT id, catalog_album_id, indexer_name, download_url, download_client, \
-          \download_client_id, status, download_path, title, size_bytes, quality, \
-          \format, seeders, progress, error_message, queued_at, started_at, \
-          \completed_at, imported_at, updated_at, matched_cluster_id, library_path \
-          \FROM downloads WHERE id = ?"
-          (Only downloadId) :: IO [DBTypes.DownloadRecord]
-      case downloads of
-        [] -> throw404 $ "Download not found: " <> show downloadId
-        (download:_) -> do
+      maybeDownload <- liftIO $ withConnection connPool $ \conn ->
+        DownloadsRepo.getDownloadById conn downloadId
+      case maybeDownload of
+        Nothing -> throw404 $ "Download not found: " <> show downloadId
+        Just download -> do
           -- Read current progress and status from memory
           progressMapData <- liftIO $ STM.atomically $ STM.readTVar progressMap
           -- Use in-memory data if available, otherwise use database values
@@ -243,7 +219,7 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
       _ <- requireAuth configVar jwtSecret authHeader
 
       -- Read current config from TVar
-      config <- liftIO $ STM.atomically $ STM.readTVar configVar
+      config <- liftIO $ readConfig configVar
 
       let catalogAlbumId = queueDownloadCatalogAlbumId req
           indexerName = queueDownloadIndexerName req
@@ -330,26 +306,19 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
       _ <- requireAuth configVar jwtSecret authHeader
 
       -- Look up the download to check if it's in progress
-      downloads <- liftIO $ withConnection connPool $ \conn ->
-        queryRows conn
-          "SELECT id, catalog_album_id, indexer_name, download_url, download_client, \
-          \download_client_id, status, download_path, title, size_bytes, quality, \
-          \format, seeders, progress, error_message, queued_at, started_at, \
-          \completed_at, imported_at, updated_at, \
-          \matched_cluster_id, library_path \
-          \FROM downloads WHERE id = ?"
-          (Only downloadId) :: IO [DBTypes.DownloadRecord]
+      maybeDownload <- liftIO $ withConnection connPool $ \conn ->
+        DownloadsRepo.getDownloadById conn downloadId
 
       -- If download is in progress, try to cancel it from the client
-      case downloads of
-        (download:_) -> do
+      case maybeDownload of
+        Just download -> do
           let status = DBTypes.downloadStatus download
               clientName = DBTypes.downloadClient download
               clientId = DBTypes.downloadClientId download
 
           -- Cancel if downloading or queued
           when (status == DBTypes.DownloadDownloading || status == DBTypes.DownloadQueued) $ do
-            config <- liftIO $ STM.atomically $ STM.readTVar configVar
+            config <- liftIO $ readConfig configVar
             liftIO $ runKatipContextT le () "api.downloads.delete" $ do
               $(logTM) InfoS $ logStr $ ("Cancelling in-progress download " <> show downloadId <> " from client: " <> show clientName :: Text)
 
@@ -419,7 +388,7 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
 
               _ -> pure ()  -- Unknown client, just delete from DB
 
-        [] -> pure ()  -- Download not found, just proceed with delete
+        Nothing -> pure ()  -- Download not found, just proceed with delete
 
       -- Delete the download record from the database
       liftIO $ withConnection connPool $ \conn ->

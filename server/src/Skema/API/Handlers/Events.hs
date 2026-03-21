@@ -13,6 +13,7 @@ module Skema.API.Handlers.Events
 import Skema.API.Types.Events (EventsAPI, ServerEvent(..), EventRequest(..), EventResponse(..))
 import Skema.API.Types.Common (SourceIO)
 import Skema.API.Types.Library (LibraryStats(..))
+import Skema.API.Handlers.Utils (readConfig)
 import Skema.Auth (checkAuthEnabled, requireAuth)
 import Skema.Auth.JWT (JWTSecret, validateJWT)
 import Skema.Database.Connection
@@ -41,7 +42,7 @@ eventsServer le bus _serverCfg jwtSecret connPool libPath configVar =
     getEventsHandler maybeToken = do
       -- Validate JWT from query parameter (since EventSource doesn't support custom headers)
       -- Read current config to check if auth is enabled
-      currentCfg <- liftIO $ STM.atomically $ STM.readTVar configVar
+      currentCfg <- liftIO $ readConfig configVar
       let cfg = Cfg.server currentCfg
       authEnabled <- liftIO $ checkAuthEnabled cfg
 
@@ -64,7 +65,7 @@ eventsServer le bus _serverCfg jwtSecret connPool libPath configVar =
       -- Parse and handle the event
       case eventRequestType req of
         "LibraryScanRequested" -> do
-          config <- liftIO $ STM.atomically $ STM.readTVar configVar
+          config <- liftIO $ readConfig configVar
           case Cfg.libraryPath (Cfg.library config) of
             Nothing -> pure $ EventResponse
               { eventResponseSuccess = False

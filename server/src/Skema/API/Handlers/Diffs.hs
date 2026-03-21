@@ -6,7 +6,7 @@ module Skema.API.Handlers.Diffs
   ) where
 
 import Skema.API.Types.Diffs (DiffsAPI, MetadataDiffResponse(..), GroupedDiffResponse(..), GroupedDiffsResponse(..), DiffsPagination(..), ApplyGroupedDiffRequest(..), ApplyToFileRequest(..), ApplyChangesRequest(..), MetadataChangeResponse(..), MetadataChangesResponse(..))
-import Skema.API.Handlers.Auth (throwJsonError)
+import Skema.API.Handlers.Utils (throw500, parsePagination, withAuthDB)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
@@ -22,10 +22,6 @@ import qualified Data.Map.Strict as Map
 import Servant
 import Katip
 import Data.Time (UTCTime)
-
--- | Throw a 500 Internal Server Error.
-throw500 :: Text -> Handler a
-throw500 = throwJsonError err500
 
 -- | Diffs API handlers (includes both diffs and metadata-changes endpoints).
 diffsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> ConnectionPool -> TVar Cfg.Config -> Server DiffsAPI
@@ -43,9 +39,8 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
   where
     -- Diffs handlers
     getAllDiffsHandler :: Maybe Text -> Handler [MetadataDiffResponse]
-    getAllDiffsHandler authHeader = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn -> do
+    getAllDiffsHandler authHeader =
+      withAuthDB configVar jwtSecret connPool authHeader $ \conn -> do
         diffs <- DB.getAllMetadataDiffs conn
         forM diffs $ \(diff, path) -> do
           pathStr <- osPathToString path
@@ -62,8 +57,7 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
     getGroupedDiffsHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Handler GroupedDiffsResponse
     getGroupedDiffsHandler authHeader maybeOffset maybeLimit = do
       _ <- requireAuth configVar jwtSecret authHeader
-      let offset = fromMaybe 0 maybeOffset
-      let limit = fromMaybe 50 maybeLimit
+      let (offset, limit) = parsePagination maybeOffset maybeLimit
 
       liftIO $ withConnection connPool $ \conn -> do
         diffs <- DB.getAllMetadataDiffs conn
@@ -108,16 +102,14 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
           }
 
     applyGroupedHandler :: Maybe Text -> ApplyGroupedDiffRequest -> Handler ()
-    applyGroupedHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn -> do
+    applyGroupedHandler authHeader req =
+      withAuthDB configVar jwtSecret connPool authHeader $ \conn -> do
         _ <- DB.applyGroupedMetadataDiff conn (applyFieldName req) (applyFileValue req) (applyMBValue req)
         pure ()
 
     applyToFileHandler :: Maybe Text -> ApplyToFileRequest -> Handler ()
-    applyToFileHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
-      liftIO $ withConnection connPool $ \conn -> do
+    applyToFileHandler authHeader req =
+      withAuthDB configVar jwtSecret connPool authHeader $ \conn ->
         DB.applyMetadataChange conn (applyToTrackId req) (applyToFieldName req) (applyToValue req)
 
     -- Metadata changes handlers
@@ -137,8 +129,7 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
     getChangesHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Handler MetadataChangesResponse
     getChangesHandler authHeader maybeOffset maybeLimit = do
       _ <- requireAuth configVar jwtSecret authHeader
-      let offset = fromMaybe 0 maybeOffset
-      let limit = fromMaybe 50 maybeLimit
+      let (offset, limit) = parsePagination maybeOffset maybeLimit
 
       liftIO $ withConnection connPool $ \conn -> do
         changes <- DB.getMetadataChanges conn False  -- False = get all changes, not just active
