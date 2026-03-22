@@ -13,16 +13,18 @@ module Skema.MusicBrainz.Client
   , searchRecordings
   , getRelease
   , getArtist
+  , getArtistConditional
   , searchArtists
   , searchReleaseGroups
   , MBClientEnv(..)
   , newMBClientEnv
   , MBClientError(..)
+  , ConditionalResult(..)
   , prettyClientError
   ) where
 
 import Skema.MusicBrainz.Types
-import Skema.HTTP.Client (HttpClient, HttpError, getJSON, getJSONWithBasicAuth, clientLogEnv, prettyHttpError)
+import Skema.HTTP.Client (HttpClient, HttpError, getJSON, getJSONWithBasicAuth, getJSONConditional, getJSONConditionalWithBasicAuth, ConditionalResult(..), clientLogEnv, prettyHttpError)
 import Skema.Config.Types (MusicBrainzConfig, getMusicBrainzServerUrl, mbUsername, mbPassword)
 import Data.Aeson (FromJSON)
 import qualified Data.Text as T
@@ -143,6 +145,27 @@ getArtist env@MBClientEnv{..} (MBID mbid) = do
   pure $ case result of
     Left err -> Left $ MBHttpError err
     Right artist -> Right artist
+
+-- | Get an artist with conditional ETag support.
+-- If the stored ETag matches, returns NotModified without fetching data.
+getArtistConditional :: MBClientEnv -> ArtistMBID -> Maybe Text -> IO (Either MBClientError (ConditionalResult MBArtist))
+getArtistConditional env@MBClientEnv{..} (MBID mbid) maybeEtag = do
+  let includes = "release-groups"
+      params = [("inc", includes), ("fmt", "json")]
+      url = buildMBUrl mbBaseUrl ("artist/" <> mbid) params
+  result <- mbGetJSONConditional env url maybeEtag
+  pure $ case result of
+    Left err -> Left $ MBHttpError err
+    Right r  -> Right r
+
+-- | Make a conditional request with appropriate auth based on config
+mbGetJSONConditional :: FromJSON a => MBClientEnv -> Text -> Maybe Text -> IO (Either HttpError (ConditionalResult a))
+mbGetJSONConditional MBClientEnv{..} url maybeEtag =
+  case (mbUsername mbConfig, mbPassword mbConfig) of
+    (Just user, Just password) ->
+      getJSONConditionalWithBasicAuth mbHttpClient url user password maybeEtag
+    _ ->
+      getJSONConditional mbHttpClient url maybeEtag
 
 -- | Search for artists matching a query.
 --

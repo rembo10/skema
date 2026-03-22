@@ -11,6 +11,8 @@ module Skema.Database.Repository.Catalog.Artist
   , getCatalogArtistByMBID
   , updateCatalogArtistFollowed
   , updateCatalogArtist
+  , updateCatalogArtistEtag
+  , updateCatalogArtistName
   , deleteCatalogArtist
     -- * Internal helpers (for other submodules)
   , normalizeForSearch
@@ -77,7 +79,7 @@ getCatalogArtists conn maybeFollowed maybeSearch maybeSort maybeOrder = do
       -- Complex query with completion calculation
       let query = "SELECT ca.id, ca.artist_mbid, ca.artist_name, ca.artist_type, ca.image_url, ca.thumbnail_url, \
                   \ca.followed, ca.added_by_rule_id, ca.source_cluster_id, ca.last_checked_at, ca.quality_profile_id, \
-                  \ca.created_at, ca.updated_at \
+                  \ca.mb_etag, ca.created_at, ca.updated_at \
                   \FROM catalog_artists ca \
                   \LEFT JOIN ( \
                   \  SELECT artist_id, \
@@ -97,7 +99,7 @@ getCatalogArtists conn maybeFollowed maybeSearch maybeSort maybeOrder = do
       queryRows conn (query <> whereClause <> orderClause) params
     else do
       -- Simple query without completion calculation
-      let baseQuery = "SELECT id, artist_mbid, artist_name, artist_type, image_url, thumbnail_url, followed, added_by_rule_id, source_cluster_id, last_checked_at, quality_profile_id, created_at, updated_at \
+      let baseQuery = "SELECT id, artist_mbid, artist_name, artist_type, image_url, thumbnail_url, followed, added_by_rule_id, source_cluster_id, last_checked_at, quality_profile_id, mb_etag, created_at, updated_at \
                       \FROM catalog_artists WHERE 1=1 "
 
       -- Build WHERE clause
@@ -148,7 +150,7 @@ buildArtistSortClause maybeSort maybeOrder =
 getCatalogArtistById :: SQLite.Connection -> Int64 -> IO (Maybe CatalogArtistRecord)
 getCatalogArtistById conn artistId = do
   results <- queryRows conn
-    "SELECT id, artist_mbid, artist_name, artist_type, image_url, thumbnail_url, followed, added_by_rule_id, source_cluster_id, last_checked_at, quality_profile_id, created_at, updated_at \
+    "SELECT id, artist_mbid, artist_name, artist_type, image_url, thumbnail_url, followed, added_by_rule_id, source_cluster_id, last_checked_at, quality_profile_id, mb_etag, created_at, updated_at \
     \FROM catalog_artists WHERE id = ?"
     (Only artistId)
   pure $ viaNonEmpty head results
@@ -157,7 +159,7 @@ getCatalogArtistById conn artistId = do
 getCatalogArtistByMBID :: SQLite.Connection -> Text -> IO (Maybe CatalogArtistRecord)
 getCatalogArtistByMBID conn artistMBID = do
   results <- queryRows conn
-    "SELECT id, artist_mbid, artist_name, artist_type, image_url, thumbnail_url, followed, added_by_rule_id, source_cluster_id, last_checked_at, quality_profile_id, created_at, updated_at \
+    "SELECT id, artist_mbid, artist_name, artist_type, image_url, thumbnail_url, followed, added_by_rule_id, source_cluster_id, last_checked_at, quality_profile_id, mb_etag, created_at, updated_at \
     \FROM catalog_artists WHERE artist_mbid = ?"
     (Only artistMBID)
   pure $ viaNonEmpty head results
@@ -190,6 +192,27 @@ updateCatalogArtist conn artistId followed maybeProfileId = do
       executeQuery conn
         "UPDATE catalog_artists SET followed = ?, quality_profile_id = ?, updated_at = ? WHERE id = ?"
         (followed, profileId, now, artistId)
+
+-- | Update the MusicBrainz ETag for conditional requests.
+updateCatalogArtistEtag :: SQLite.Connection -> Int64 -> Maybe Text -> IO ()
+updateCatalogArtistEtag conn artistId etag =
+  executeQuery conn
+    "UPDATE catalog_artists SET mb_etag = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    (etag, artistId)
+
+-- | Update an artist's name (when MusicBrainz corrects it).
+-- Also updates the normalized name for search and the artist_name on all their catalog albums.
+updateCatalogArtistName :: SQLite.Connection -> Int64 -> Text -> IO ()
+updateCatalogArtistName conn artistId newName = do
+  let normalizedName = normalizeForSearch newName
+  executeQuery conn
+    "UPDATE catalog_artists SET artist_name = ?, artist_name_normalized = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    (newName, normalizedName, artistId)
+  -- Also update denormalized artist_name on catalog_albums
+  let normalizedAlbumArtist = normalizeForSearch newName
+  executeQuery conn
+    "UPDATE catalog_albums SET artist_name = ?, artist_name_normalized = ?, updated_at = CURRENT_TIMESTAMP WHERE artist_id = ?"
+    (newName, normalizedAlbumArtist, artistId)
 
 -- | Delete a catalog artist.
 deleteCatalogArtist :: SQLite.Connection -> Int64 -> IO ()

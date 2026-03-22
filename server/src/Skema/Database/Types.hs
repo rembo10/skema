@@ -257,6 +257,7 @@ data CatalogArtistRecord = CatalogArtistRecord
   , catalogArtistSourceClusterId :: Maybe Int64
   , catalogArtistLastCheckedAt :: Maybe UTCTime
   , catalogArtistQualityProfileId :: Maybe Int64
+  , catalogArtistEtag :: Maybe Text
   , catalogArtistCreatedAt :: Maybe UTCTime
   , catalogArtistUpdatedAt :: Maybe UTCTime
   } deriving (Show, Eq, Generic)
@@ -556,7 +557,7 @@ instance SQLite.FromRow CatalogArtistRecord where
     <$> SQLite.field <*> SQLite.field <*> SQLite.field <*> SQLite.field
     <*> SQLite.field <*> SQLite.field <*> (toBool <$> SQLite.field)
     <*> SQLite.field <*> SQLite.field <*> SQLite.field <*> SQLite.field
-    <*> SQLite.field <*> SQLite.field
+    <*> SQLite.field <*> SQLite.field <*> SQLite.field
     where
       toBool :: Int -> Bool
       toBool 0 = False

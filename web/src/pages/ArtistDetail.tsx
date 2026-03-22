@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../lib/api';
-import { formatDate } from '../lib/formatters';
+import { formatDate, formatTimeAgo } from '../lib/formatters';
 import type { CatalogArtist, CatalogAlbum, QualityProfile } from '../types/api';
 import { Music, ExternalLink, Calendar, ArrowLeft, Disc, UserMinus, AlertCircle, RefreshCw, X, Award } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -447,8 +447,8 @@ export default function ArtistDetail() {
               </div>
             )}
 
-            {/* External Links */}
-            <div className="mt-6 flex gap-4">
+            {/* External Links & Last Checked */}
+            <div className="mt-6 flex flex-wrap items-center gap-4">
               <a
                 href={`https://musicbrainz.org/artist/${artist.mbid}`}
                 target="_blank"
@@ -458,6 +458,12 @@ export default function ArtistDetail() {
                 <ExternalLink className="h-4 w-4" />
                 View on MusicBrainz
               </a>
+              {artist.last_checked_at && (
+                <span className="text-xs text-dark-text-tertiary flex items-center gap-1.5" title={artist.last_checked_at}>
+                  <RefreshCw className="h-3 w-3" />
+                  Last checked {formatTimeAgo(artist.last_checked_at)}
+                </span>
+              )}
             </div>
           </div>
         </div>

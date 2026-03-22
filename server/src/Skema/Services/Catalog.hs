@@ -10,8 +10,10 @@
 -- - Storing all albums in catalog_albums
 -- - Emitting CatalogAlbumAdded events for downstream services
 -- - Keeping the catalog in sync with external providers
+-- - Periodically refreshing followed artists on a smart schedule
 module Skema.Services.Catalog
   ( startCatalogService
+  , startCatalogRefreshScheduler
   ) where
 
 import Skema.Services.Dependencies (CatalogDeps(..))
@@ -20,17 +22,21 @@ import Skema.Events.Types
 import Skema.Database.Connection
 import Skema.Database.Repository
 import qualified Skema.Database.Types as DB
-import Skema.MusicBrainz.Client (getArtist)
+import Skema.MusicBrainz.Client (getArtist, getArtistConditional, ConditionalResult(..))
 import Skema.MusicBrainz.Types (MBID(..), MBArtist(..), MBReleaseGroup(..))
 import Skema.Config.Types (Config(..), MusicBrainzConfig(..), mbAlbumTypes, mbExcludeSecondaryTypes)
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Monad ()
 import Control.Exception (try)
-import Data.Time (getCurrentTime, formatTime, defaultTimeLocale)
-import Data.IORef (newIORef, modifyIORef', readIORef)
+import Data.Time (getCurrentTime, formatTime, defaultTimeLocale, UTCTime, NominalDiffTime, diffUTCTime, nominalDay)
+import Data.Time.Format (parseTimeM)
 import Data.Text (pack)
+import qualified Data.Text as T
+import qualified Data.List as List
+import Database.SQLite.Simple (Only(..))
 import Katip
 
 -- | Start the catalog service.
@@ -178,8 +184,9 @@ handleCatalogArtistFollowed CatalogDeps{..} artistMBID artistName = do
 
 -- | Handle a catalog artist refresh request.
 --
--- Re-fetches the artist's discography from MusicBrainz and adds any new albums
--- that aren't already in the catalog.
+-- Re-fetches the artist's discography from MusicBrainz using conditional requests
+-- (ETags). Updates existing album metadata when it has changed and adds new albums.
+-- Triggers diff regeneration for affected library clusters.
 handleCatalogArtistRefresh :: CatalogDeps -> Text -> IO ()
 handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
   let le = catLogEnv
@@ -208,22 +215,20 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
           $(logTM) WarningS $ logStr $ ("Artist not found in catalog, cannot refresh: " <> artistMBID :: Text)
         Just artist -> do
           let artistName = DB.catalogArtistName artist
+          let storedEtag = DB.catalogArtistEtag artist
 
           katipAddContext (sl "artist_name" artistName) $ do
             $(logTM) InfoS $ logStr $ ("Refreshing discography for: " <> artistName :: Text)
 
-            -- Fetch artist discography from MusicBrainz
-            result <- liftIO $ getArtist mbEnv (MBID artistMBID)
+            -- Fetch artist discography from MusicBrainz using conditional request
+            result <- liftIO $ getArtistConditional mbEnv (MBID artistMBID) storedEtag
 
             case result of
               Left err -> do
                 $(logTM) ErrorS $ logStr $ ("Failed to fetch artist discography: " <> show err :: Text)
-              Right mbArtist -> do
-                let allReleaseGroups = mbArtistReleaseGroups mbArtist
-                -- Filter release groups by configured album types and excluded secondary types
-                let releaseGroups = filter (shouldIncludeReleaseGroup allowedTypes excludedSecondaryTypes) allReleaseGroups
 
-                -- Update last_checked_at timestamp
+              Right NotModified -> do
+                -- Data hasn't changed, just update last_checked_at
                 now <- liftIO getCurrentTime
                 case DB.catalogArtistId artist of
                   Just artistId -> do
@@ -231,43 +236,90 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                       executeQuery conn
                         "UPDATE catalog_artists SET last_checked_at = ? WHERE id = ?"
                         (now, artistId)
+                    $(logTM) InfoS $ logStr $ ("Catalog unchanged for " <> artistName <> " (304 Not Modified)" :: Text)
+                  Nothing -> pure ()
+
+              Right (Modified mbArtist newEtag) -> do
+                let allReleaseGroups = mbArtistReleaseGroups mbArtist
+                -- Filter release groups by configured album types and excluded secondary types
+                let releaseGroups = filter (shouldIncludeReleaseGroup allowedTypes excludedSecondaryTypes) allReleaseGroups
+
+                -- Update last_checked_at timestamp and ETag
+                now <- liftIO getCurrentTime
+                case DB.catalogArtistId artist of
+                  Just artistId -> do
+                    liftIO $ withConnection pool $ \conn -> do
+                      executeQuery conn
+                        "UPDATE catalog_artists SET last_checked_at = ? WHERE id = ?"
+                        (now, artistId)
+                      updateCatalogArtistEtag conn artistId (if T.null newEtag then Nothing else Just newEtag)
+
+                    -- Check if artist name changed in MusicBrainz
+                    when (mbArtistName mbArtist /= artistName) $ do
+                      $(logTM) InfoS $ logStr $ ("Artist name changed: " <> artistName <> " -> " <> mbArtistName mbArtist :: Text)
+                      liftIO $ withConnection pool $ \conn ->
+                        updateCatalogArtistName conn artistId (mbArtistName mbArtist)
+
+                    let currentArtistName = mbArtistName mbArtist
 
                     -- Emit event for observability with updated timestamp
                     liftIO $ publishAndLog bus le "catalog" $ ArtistDiscographyFetched
                       { artistDiscographyArtistId = artistId
                       , artistMBID = artistMBID
-                      , artistDiscographyArtistName = artistName
+                      , artistDiscographyArtistName = currentArtistName
                       , releaseGroupCount = length releaseGroups
                       , artistLastCheckedAt = pack $ formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" now
                       }
-                  Nothing -> pure ()
 
-                -- Check for new albums and add them
-                newAlbumsCount <- liftIO $ Data.IORef.newIORef (0 :: Int)
+                    -- Process albums: add new ones, update existing ones
+                    newAlbumsCount <- liftIO $ newIORef (0 :: Int)
+                    updatedAlbumsCount <- liftIO $ newIORef (0 :: Int)
 
-                forM_ releaseGroups $ \rg -> do
-                  let rgId = unMBID (mbrgId rg)
-                  let title = mbrgTitle rg
-                  let firstReleaseDate = mbrgFirstReleaseDate rg
-                  let albumType = mbrgType rg
+                    forM_ releaseGroups $ \rg -> do
+                      let rgId = unMBID (mbrgId rg)
+                      let title = mbrgTitle rg
+                      let firstReleaseDate = mbrgFirstReleaseDate rg
+                      let albumType = mbrgType rg
 
-                  -- Check if album already exists in catalog
-                  existingAlbum <- liftIO $ withConnection pool $ \conn ->
-                    getCatalogAlbumByReleaseGroupMBID conn rgId
+                      -- Check if album already exists in catalog
+                      existingAlbum <- liftIO $ withConnection pool $ \conn ->
+                        getCatalogAlbumByReleaseGroupMBID conn rgId
 
-                  case existingAlbum of
-                    Just _ -> do
-                      -- Album already exists, skip
-                      $(logTM) DebugS $ logStr $ ("Album already in catalog: " <> title :: Text)
-                    Nothing -> do
-                      -- New album discovered! Add to catalog
-                      -- artistId is already available from the artist record
-                      case DB.catalogArtistId artist of
+                      case existingAlbum of
+                        Just existing -> do
+                          -- Album exists - check if metadata changed
+                          let titleChanged = DB.catalogAlbumTitle existing /= title
+                          let typeChanged = DB.catalogAlbumType existing /= albumType
+                          let dateChanged = DB.catalogAlbumFirstReleaseDate existing /= firstReleaseDate
+                          let nameChanged = DB.catalogAlbumArtistName existing /= currentArtistName
+
+                          when (titleChanged || typeChanged || dateChanged || nameChanged) $ do
+                            -- Update via upsert (ON CONFLICT handles the update)
+                            _ <- liftIO $ withConnection pool $ \conn ->
+                              upsertCatalogAlbum conn rgId title artistId artistMBID currentArtistName albumType firstReleaseDate
+                            liftIO $ modifyIORef' updatedAlbumsCount (+1)
+                            $(logTM) InfoS $ logStr $ ("Album metadata updated: " <> title :: Text)
+
+                            -- Find clusters matched to this release group and trigger diff regeneration
+                            affectedClusters <- liftIO $ withConnection pool $ \conn ->
+                              queryRows conn
+                                "SELECT id, mb_release_id, mb_confidence, track_count FROM clusters WHERE mb_release_group_id = ? AND mb_release_id IS NOT NULL"
+                                (Only rgId) :: IO [(Int64, Text, Maybe Double, Int)]
+
+                            forM_ affectedClusters $ \(cid, releaseId, confidence, trackCount) -> do
+                              $(logTM) InfoS $ logStr $ ("Triggering diff regeneration for cluster " <> show cid :: Text)
+                              liftIO $ publishAndLog bus le "catalog" $ ClusterIdentified
+                                { identifiedClusterId = cid
+                                , identifiedReleaseId = releaseId
+                                , identifiedReleaseGroupId = Just rgId
+                                , identifiedConfidence = fromMaybe 1.0 confidence
+                                , identifiedTrackCount = trackCount
+                                }
+
                         Nothing -> do
-                          $(logTM) ErrorS $ logStr $ ("Artist has no ID, skipping album: " <> title :: Text)
-                        Just artistId -> do
+                          -- New album discovered! Add to catalog
                           albumId <- liftIO $ withConnection pool $ \conn ->
-                            upsertCatalogAlbum conn rgId title artistId artistMBID artistName albumType firstReleaseDate
+                            upsertCatalogAlbum conn rgId title artistId artistMBID currentArtistName albumType firstReleaseDate
 
                           -- Resolve quality profile: artist > default (no source for catalog refresh)
                           resolvedProfileId <- liftIO $ withConnection pool $ \conn ->
@@ -279,29 +331,115 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                               updateCatalogAlbum conn albumId (Just resolvedProfileId)
                             Nothing -> pure ()
 
-                          liftIO $ Data.IORef.modifyIORef' newAlbumsCount (+1)
+                          liftIO $ modifyIORef' newAlbumsCount (+1)
                           $(logTM) InfoS $ logStr $ ("NEW album discovered: " <> title :: Text)
 
                           -- Compute wanted status: album is wanted if it got a quality profile
                           let isWanted = isJust resolvedProfileId
 
                           -- Emit CatalogAlbumAdded event with complete album data
-                          -- This eliminates the need for frontend to make GET requests
                           liftIO $ publishAndLog bus le "catalog" $ CatalogAlbumAdded
                             { catalogAlbumId = albumId
                             , catalogAlbumReleaseGroupMBID = rgId
                             , catalogAlbumTitle = title
                             , catalogAlbumArtistId = artistId
                             , catalogAlbumArtistMBID = artistMBID
-                            , catalogAlbumArtistName = artistName
+                            , catalogAlbumArtistName = currentArtistName
                             , catalogAlbumType = albumType
                             , catalogAlbumFirstReleaseDate = firstReleaseDate
                             , catalogAlbumWanted = isWanted
                             }
 
-                newCount <- liftIO $ Data.IORef.readIORef newAlbumsCount
-                let totalAlbums = length releaseGroups
-                $(logTM) InfoS $ logStr $ ("Catalog refresh complete for " <> artistName <> " (total: " <> show totalAlbums <> ", new: " <> show newCount <> ")" :: Text)
+                    newCount <- liftIO $ readIORef newAlbumsCount
+                    updatedCount <- liftIO $ readIORef updatedAlbumsCount
+                    let totalAlbums = length releaseGroups
+                    $(logTM) InfoS $ logStr $ ("Catalog refresh complete for " <> currentArtistName <> " (total: " <> show totalAlbums <> ", new: " <> show newCount <> ", updated: " <> show updatedCount <> ")" :: Text)
+
+                  Nothing -> pure ()
+
+-- | Start the catalog refresh scheduler.
+--
+-- Periodically checks which followed artists are due for a refresh based on
+-- smart scheduling tiers (albums released recently are checked more frequently).
+-- Emits CatalogArtistRefreshRequested events for artists that are due.
+startCatalogRefreshScheduler :: CatalogDeps -> IO (Async ())
+startCatalogRefreshScheduler deps = async $ do
+  let le = catLogEnv deps
+  let pool = catDbPool deps
+  let bus = catEventBus deps
+
+  -- Wait 5 minutes before first check to let the system stabilize on startup
+  threadDelay (5 * 60 * 1000000)
+
+  runKatipContextT le () "catalog-refresh" $ do
+    $(logTM) InfoS "Starting catalog refresh scheduler"
+
+    forever $ do
+      -- Get all followed artists
+      artists <- liftIO $ withConnection pool $ \conn ->
+        getCatalogArtists conn (Just True) Nothing Nothing Nothing
+
+      now <- liftIO getCurrentTime
+      scheduledCount <- liftIO $ newIORef (0 :: Int)
+
+      forM_ artists $ \artist -> do
+        case DB.catalogArtistId artist of
+          Nothing -> pure ()
+          Just artistId -> do
+            -- Get this artist's albums to compute freshness
+            albums <- liftIO $ withConnection pool $ \conn ->
+              getCatalogAlbumsByArtistId conn artistId
+
+            let interval = computeRefreshInterval now albums
+            let isDue = case DB.catalogArtistLastCheckedAt artist of
+                  Nothing -> True  -- Never checked
+                  Just checked -> diffUTCTime now checked >= interval
+
+            when isDue $ do
+              liftIO $ modifyIORef' scheduledCount (+1)
+              liftIO $ publishAndLog bus le "catalog-refresh" $
+                CatalogArtistRefreshRequested { refreshArtistMBID = DB.catalogArtistMBID artist }
+
+      count <- liftIO $ readIORef scheduledCount
+      when (count > 0) $
+        $(logTM) InfoS $ logStr $ ("Scheduled refresh for " <> show count <> " artists" :: Text)
+
+      -- Run scheduler every hour
+      liftIO $ threadDelay (60 * 60 * 1000000)
+
+-- | Compute the refresh interval for an artist based on album freshness.
+--
+-- Artists with upcoming or recently released albums are checked more frequently:
+-- - Has upcoming/future-dated album: every 12 hours
+-- - Most recent album < 3 months: every 1 day
+-- - Most recent album < 1 year: every 3 days
+-- - Most recent album < 3 years: every 1 week
+-- - All albums older than 3 years: every 2 weeks
+computeRefreshInterval :: UTCTime -> [DB.CatalogAlbumRecord] -> NominalDiffTime
+computeRefreshInterval now albums =
+  let parsedDates = mapMaybe (DB.catalogAlbumFirstReleaseDate >=> parseAlbumDate) albums
+      hasFutureAlbum = any (> now) parsedDates
+      daysSinceLatest = case filter (<= now) parsedDates of
+        [] -> 365 * 5  -- No past albums, check infrequently
+        dates -> floor (diffUTCTime now (List.maximum dates) / nominalDay) :: Int
+  in if hasFutureAlbum
+     then 12 * 3600                -- 12 hours
+     else if daysSinceLatest < 90
+     then 24 * 3600                -- 1 day
+     else if daysSinceLatest < 365
+     then 3 * nominalDay           -- 3 days
+     else if daysSinceLatest < 365 * 3
+     then 7 * nominalDay           -- 1 week
+     else 14 * nominalDay          -- 2 weeks
+
+-- | Parse a MusicBrainz date string into UTCTime.
+-- Handles "YYYY", "YYYY-MM", and "YYYY-MM-DD" formats.
+parseAlbumDate :: Text -> Maybe UTCTime
+parseAlbumDate dateText =
+  let s = T.unpack dateText
+  in parseTimeM True defaultTimeLocale "%Y-%m-%d" s
+     <|> parseTimeM True defaultTimeLocale "%Y-%m" s
+     <|> parseTimeM True defaultTimeLocale "%Y" s
 
 -- | Check if a release group should be included based on configured album types.
 --

@@ -18,7 +18,7 @@ import Skema.Services.Grouper (startGrouperService)
 import Skema.Services.Identifier (startIdentifierService)
 import Skema.Services.DiffGenerator (startDiffGeneratorService)
 import Skema.Services.Persister (startPersisterService)
-import Skema.Services.Catalog (startCatalogService)
+import Skema.Services.Catalog (startCatalogService, startCatalogRefreshScheduler)
 import Skema.Services.Acquisition (startAcquisitionService)
 import Skema.Services.Image (startImageService)
 import Skema.Services.Thumbnailer (startThumbnailerService)
@@ -275,6 +275,10 @@ startAllServices le bus pool config cacheDir configPath = do
           }
     catalogHandle <- liftIO $ startCatalogService catalogDeps
     liftIO $ registerAsync asyncRegistry "Catalog" catalogHandle
+
+    $(logTM) InfoS $ logStr ("Starting Catalog Refresh Scheduler..." :: Text)
+    catalogRefreshHandle <- liftIO $ startCatalogRefreshScheduler catalogDeps
+    liftIO $ registerAsync asyncRegistry "Catalog.RefreshScheduler" catalogRefreshHandle
 
     $(logTM) InfoS $ logStr ("Starting Acquisition service..." :: Text)
     let acquisitionDeps = AcquisitionDeps

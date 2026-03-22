@@ -94,6 +94,7 @@ mbArtistSearchToCatalogResponse searchResult maybeCatalogRecord =
     , catalogArtistResponseScore = Just (mbasScore searchResult)
     , catalogArtistResponseCreatedAt = maybeCatalogRecord >>= DBTypes.catalogArtistCreatedAt >>= (Just . show)
     , catalogArtistResponseUpdatedAt = maybeCatalogRecord >>= DBTypes.catalogArtistUpdatedAt >>= (Just . show)
+    , catalogArtistResponseLastCheckedAt = maybeCatalogRecord >>= DBTypes.catalogArtistLastCheckedAt >>= (Just . show)
     , catalogArtistResponseAlbums = Nothing  -- Not needed for search results
     }
 

@@ -15,6 +15,8 @@ module Skema.Database.Repository.Catalog
   , getCatalogArtistByMBID
   , updateCatalogArtistFollowed
   , updateCatalogArtist
+  , updateCatalogArtistEtag
+  , updateCatalogArtistName
   , deleteCatalogArtist
     -- * Album operations
   , upsertCatalogAlbum

@@ -16,6 +16,7 @@ module Skema.HTTP.Client
   , RetryConfig(..)
   , UserAgentFormat(..)
   , UserAgentData(..)
+  , ConditionalResult(..)
     -- * Client creation
   , newHttpClient
   , defaultHttpConfig
@@ -39,6 +40,8 @@ module Skema.HTTP.Client
   , postForm
   , getJSON
   , getJSONWithBasicAuth
+  , getJSONConditional
+  , getJSONConditionalWithBasicAuth
   , postJSON
   , prettyHttpError
   ) where
@@ -105,6 +108,12 @@ data HttpError
   | HttpTimeoutError          -- ^ Request timed out
   | HttpDecodeError Text      -- ^ Failed to decode JSON response
   | HttpRateLimitExceeded Text (Maybe Int) -- ^ Rate limited by server with optional Retry-After (microseconds)
+  deriving (Show, Eq)
+
+-- | Result of a conditional GET request (using If-None-Match / ETag).
+data ConditionalResult a
+  = NotModified        -- ^ Server returned 304, data unchanged
+  | Modified a Text    -- ^ Data changed, includes new ETag
   deriving (Show, Eq)
 
 -- | Pretty print HTTP error for user display
@@ -606,3 +615,53 @@ postJSON client url reqData = do
       case decode respBody of
         Nothing -> pure $ Left $ HttpDecodeError "Failed to parse JSON response"
         Just val -> pure $ Right val
+
+-- | Convenience method: GET request with conditional ETag support.
+-- If an ETag is provided, sends If-None-Match header. Returns NotModified on 304,
+-- or Modified with the parsed body and new ETag on 200.
+getJSONConditional :: FromJSON a => HttpClient -> Text -> Maybe Text -> IO (Either HttpError (ConditionalResult a))
+getJSONConditional client url maybeEtag =
+  getJSONConditionalInternal client url maybeEtag Nothing
+
+-- | Like getJSONConditional but with Basic Auth (overrides domain-based auth).
+getJSONConditionalWithBasicAuth :: FromJSON a => HttpClient -> Text -> Text -> Text -> Maybe Text -> IO (Either HttpError (ConditionalResult a))
+getJSONConditionalWithBasicAuth client url username password maybeEtag =
+  getJSONConditionalInternal client url maybeEtag (Just (username, password))
+
+-- | Internal implementation for conditional GET requests.
+getJSONConditionalInternal :: FromJSON a => HttpClient -> Text -> Maybe Text -> Maybe (Text, Text) -> IO (Either HttpError (ConditionalResult a))
+getJSONConditionalInternal client url maybeEtag maybeAuth = do
+  case parseRequest (toString url) of
+    Nothing -> pure $ Left $ HttpParseError ("Invalid URL: " <> url)
+    Just req -> do
+      let domain = fromMaybe "unknown" $ extractDomain url
+          userAgent = getUserAgentForDomain client domain
+          etagHeaders = case maybeEtag of
+            Just etag -> [("If-None-Match", TE.encodeUtf8 etag)]
+            Nothing   -> []
+          reqWithHeaders = req
+            { requestHeaders = (hUserAgent, TE.encodeUtf8 userAgent) : etagHeaders <> requestHeaders req
+            , method = "GET"
+            }
+          reqWithAuth = case maybeAuth of
+            Just (username, password) -> applyBasicAuth (TE.encodeUtf8 username) (TE.encodeUtf8 password) reqWithHeaders
+            Nothing -> applyAuthForDomain client domain reqWithHeaders
+      result <- makeRequestWithRetry client reqWithAuth
+      case result of
+        Right response -> do
+          let body' = responseBody response
+              headers = responseHeaders response
+              newEtag = TE.decodeUtf8 <$> List.lookup "ETag" headers
+          case decode body' of
+            Nothing -> do
+              let bodyText = TE.decodeUtf8 (LBS.toStrict body')
+                  bodyPreview = T.take 500 bodyText
+              runKatipContextT (hcLogEnv client) () "http-client" $ do
+                $(logTM) ErrorS $ logStr $ ("Failed to decode JSON from " <> url <> ". Response body: " <> bodyPreview :: Text)
+              pure $ Left $ HttpDecodeError "Failed to parse JSON response"
+            Just val -> case newEtag of
+              Just etag -> pure $ Right $ Modified val etag
+              Nothing   -> pure $ Right $ Modified val ""
+        -- 304 Not Modified is returned as HttpStatusError 304 by makeRequest
+        Left (HttpStatusError 304 _ _) -> pure $ Right NotModified
+        Left err -> pure $ Left err

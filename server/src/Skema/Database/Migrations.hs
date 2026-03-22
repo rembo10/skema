@@ -544,6 +544,19 @@ runIncrementalMigrations le conn = do
         recordMigration conn "008_add_source_quality_profile"
       $(logTM) InfoS "Completed migration: 008_add_source_quality_profile"
 
+    -- Migration 009: Add mb_etag to catalog_artists for conditional MusicBrainz requests
+    applied009 <- liftIO $ migrationApplied conn "009_add_catalog_artist_etag"
+    unless applied009 $ do
+      $(logTM) InfoS "Running migration: 009_add_catalog_artist_etag"
+      liftIO $ do
+        etagExists <- columnExists conn "catalog_artists" "mb_etag"
+        unless etagExists $
+          executeQuery_ conn
+            "ALTER TABLE catalog_artists ADD COLUMN mb_etag TEXT"
+
+        recordMigration conn "009_add_catalog_artist_etag"
+      $(logTM) InfoS "Completed migration: 009_add_catalog_artist_etag"
+
 -- | Normalize text for search by:
 -- 1. Decomposing accented characters (NFD normalization)
 -- 2. Removing diacritical marks

@@ -127,6 +127,8 @@ data CatalogArtistResponse = CatalogArtistResponse
     -- ^ Quality profile ID for this artist (Nothing = use default)
   , catalogArtistResponseScore :: Maybe Int
     -- ^ MusicBrainz search score (0-100), present in search results
+  , catalogArtistResponseLastCheckedAt :: Maybe Text
+    -- ^ When the artist was last checked against MusicBrainz
   , catalogArtistResponseCreatedAt :: Maybe Text
   , catalogArtistResponseUpdatedAt :: Maybe Text
   , catalogArtistResponseAlbums :: Maybe [CatalogAlbumOverviewResponse]
