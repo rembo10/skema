@@ -340,8 +340,7 @@ runSlskdMonitor SlskdDeps {..} = forever $ do
                 -- If all completed, mark download as completed
                 when (completedFiles == totalFiles && totalFiles > 0 && null erroredFiles) $ do
                   -- Extract the album directory from the transfer filenames
-                  -- slskd filenames look like: @@username\path\to\album\track.flac
-                  -- We need to find the common parent directory
+                  -- We find the common parent directory and use the full path
                   let albumDir = extractAlbumDirectory slskdConfig username userTransfers
 
                   runKatipContextT slskdLogEnv () "slskd.monitor" $ do
@@ -396,9 +395,10 @@ runSlskdMonitor SlskdDeps {..} = forever $ do
       in filename <> ": " <> fromMaybe "unknown error" (stException t)
 
     -- Extract the album directory from transfer filenames
-    -- slskd downloads files to: <download_dir>/<album_folder>
-    -- Remote paths look like: @@username\Music\Artist\Album\track.flac
-    -- slskd extracts just the album folder name (parent of the files)
+    -- slskd preserves the full remote directory structure when downloading
+    -- Remote paths may look like: @@username\Plex music\Artist\Album\track.flac
+    -- or just: Plex music\Artist\Album\track.flac
+    -- The on-disk path is: <download_dir>/Plex music/Artist/Album/track.flac
     extractAlbumDirectory :: SlskdConfig -> Text -> [SlskdTransfer] -> Text
     extractAlbumDirectory config _username transfers =
       let baseDir = slskdDownloadDirectory config
@@ -408,11 +408,15 @@ runSlskdMonitor SlskdDeps {..} = forever $ do
           commonDir = case directories of
             [] -> ""
             (d:ds) -> foldl' commonPrefix d ds
-          -- slskd stores files using just the album folder name (last component of path)
-          -- e.g., "@@user\Music\Artist\Album" -> "Album"
-          albumFolder = T.takeWhileEnd (\c -> c /= '\\' && c /= '/') $
-                        T.dropWhileEnd (\c -> c == '\\' || c == '/') commonDir
-      in baseDir <> "/" <> albumFolder
+          -- Strip @@username prefix if present (first path component starting with @@)
+          parts = T.splitOn "/" commonDir
+          strippedParts = case parts of
+            (p:rest) | "@@" `T.isPrefixOf` p -> rest
+            ps -> ps
+          albumPath = T.intercalate "/" strippedParts
+      in if T.null albumPath
+         then baseDir
+         else baseDir <> "/" <> albumPath
 
     -- Get directory part of a path (works with both / and \ separators)
     getDirectory :: Text -> Text
