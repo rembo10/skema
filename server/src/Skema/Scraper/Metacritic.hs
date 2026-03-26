@@ -21,8 +21,10 @@ module Skema.Scraper.Metacritic
   ) where
 
 import Data.Time (Day)
+import Data.Time.Format (parseTimeM, defaultTimeLocale)
 import qualified Data.ByteString.Lazy as LBS
-import Text.HTML.Scalpel ()
+import qualified Data.Text as T
+import Text.HTML.Scalpel (scrapeStringLike, chroots, text, attr, (@:), (//), hasClass)
 import Skema.Scraper.Http (fetchPage)
 import Skema.Domain.Acquisition (MetacriticGenre, metacriticGenreToUrl)
 
@@ -60,10 +62,44 @@ scrapeGenreUrl url genres = do
       Just albums -> pure $ Right albums
 
 -- | Parse a Metacritic genre page HTML and extract album information.
--- NOTE: This is a placeholder implementation. The actual HTML structure needs to be verified
--- by inspecting Metacritic pages, as their HTML structure may have changed.
+-- Extracts albums from browse-score-clamp divs containing title, artist,
+-- critic score, user score, and release date.
 parseMetacriticPage :: LBS.ByteString -> [MetacriticGenre] -> Maybe [MetacriticAlbum]
-parseMetacriticPage _html _genres = do
-  -- For now, return an empty list as a placeholder
-  -- This will be implemented once we verify the actual HTML structure
-  Just []
+parseMetacriticPage html genres =
+  scrapeStringLike (decodeUtf8 $ LBS.toStrict html) $
+    chroots ("div" @: [hasClass "browse-score-clamp"]) $ do
+      -- Title and URL from the title link
+      title <- text ("a" @: [hasClass "title"] // "h3")
+      url <- attr "href" ("a" @: [hasClass "title"])
+      -- Artist from clamp-details (prefixed with "by ")
+      artistRaw <- text ("div" @: [hasClass "artist"])
+      let artist = T.strip $ fromMaybe (T.strip artistRaw) (T.stripPrefix "by " (T.strip artistRaw))
+      -- Critic score from clamp-metascore
+      criticScoreText <- optional $ text ("div" @: [hasClass "clamp-metascore"] // "div" @: [hasClass "metascore_w"])
+      let criticScore = criticScoreText >>= readMaybe . T.unpack . T.strip
+      -- User score from clamp-userscore (may be "tbd")
+      userScoreText <- optional $ text ("div" @: [hasClass "clamp-userscore"] // "div" @: [hasClass "metascore_w"])
+      let userScore = userScoreText >>= parseUserScore
+      -- Release date from clamp-details span
+      dateText <- optional $ text ("div" @: [hasClass "clamp-details"] // "span")
+      let releaseDate = dateText >>= parseMetacriticDate . T.strip
+      pure MetacriticAlbum
+        { mcAlbumTitle = T.strip title
+        , mcArtistName = artist
+        , mcReleaseDate = releaseDate
+        , mcCriticScore = criticScore
+        , mcUserScore = userScore
+        , mcGenres = genres
+        , mcMetacriticUrl = "https://www.metacritic.com" <> url
+        }
+
+-- | Parse a Metacritic date string like "February 27, 2026".
+parseMetacriticDate :: Text -> Maybe Day
+parseMetacriticDate t =
+  parseTimeM True defaultTimeLocale "%B %e, %Y" (T.unpack t)
+
+-- | Parse a user score, handling "tbd" as Nothing.
+parseUserScore :: Text -> Maybe Double
+parseUserScore t =
+  let s = T.strip t
+  in if s == "tbd" then Nothing else readMaybe (T.unpack s)

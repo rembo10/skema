@@ -56,6 +56,7 @@ data TaskResource
   | ClustersResource
   | CatalogResource
   | DownloadsResource
+  | AcquisitionResource
   deriving (Show, Eq, Generic)
 
 instance ToJSON TaskResource where
@@ -63,12 +64,14 @@ instance ToJSON TaskResource where
   toJSON ClustersResource = "clusters"
   toJSON CatalogResource = "catalog"
   toJSON DownloadsResource = "downloads"
+  toJSON AcquisitionResource = "acquisition"
 
 instance FromJSON TaskResource where
   parseJSON "library" = pure LibraryResource
   parseJSON "clusters" = pure ClustersResource
   parseJSON "catalog" = pure CatalogResource
   parseJSON "downloads" = pure DownloadsResource
+  parseJSON "acquisition" = pure AcquisitionResource
   parseJSON _ = fail "Invalid task resource"
 
 -- | Task response (for both creation and status queries).

@@ -1,11 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Acquisition API handlers.
 module Skema.API.Handlers.Acquisition
   ( acquisitionServer
   ) where
 
-import Skema.API.Types.Acquisition (AcquisitionAPI, AcquisitionRuleResponse(..), AcquisitionSummaryResponse(..), SourceStatsResponse(..), CreateRuleRequest(..), UpdateRuleRequest(..))
+import Skema.API.Types.Acquisition (AcquisitionAPI, AcquisitionRuleResponse(..), AcquisitionSummaryResponse(..), SourceStatsResponse(..), CreateRuleRequest(..), UpdateRuleRequest(..), AcquisitionTaskRequest(..))
+import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
 import Skema.API.Handlers.Utils (throw400, withAuthDB)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
@@ -14,18 +16,28 @@ import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
 import qualified Skema.Database.Utils as DBUtils
 import qualified Skema.Config.Types as Cfg
+import Skema.Events.Bus (EventBus)
+import Skema.MusicBrainz.Client (MBClientEnv)
+import Skema.Services.SourceEvaluator (evaluateSource)
+import Skema.Services.TaskManager (TaskManager)
+import qualified Skema.Services.TaskManager as TM
+import Data.Aeson (toJSON, object, (.=))
+import Control.Concurrent.Async (async)
+import Control.Exception (try)
 import Servant
+import Katip (LogEnv)
 import Data.Time (UTCTime, getCurrentTime)
 
 -- | Acquisition API handlers.
-acquisitionServer :: Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> TVar Cfg.Config -> Server AcquisitionAPI
-acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
+acquisitionServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> TVar Cfg.Config -> MBClientEnv -> TaskManager -> Server AcquisitionAPI
+acquisitionServer le bus _serverCfg jwtSecret connPool configVar mbClient tm = \maybeAuthHeader ->
   getRulesHandler maybeAuthHeader
   :<|> createRuleHandler maybeAuthHeader
   :<|> updateRuleHandler maybeAuthHeader
   :<|> deleteRuleHandler maybeAuthHeader
   :<|> enableRuleHandler maybeAuthHeader
   :<|> disableRuleHandler maybeAuthHeader
+  :<|> taskHandler maybeAuthHeader
   :<|> getSummaryHandler maybeAuthHeader
   where
     getRulesHandler :: Maybe Text -> Handler [AcquisitionRuleResponse]
@@ -132,6 +144,39 @@ acquisitionServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader ->
           "UPDATE acquisition_rules SET enabled = ?, updated_at = ? WHERE id = ?"
           (False, now, sourceId)
       pure NoContent
+
+    taskHandler :: Maybe Text -> AcquisitionTaskRequest -> Handler TaskResponse
+    taskHandler authHeader req = do
+      _ <- requireAuth configVar jwtSecret authHeader
+
+      case acquisitionTaskType req of
+        "evaluate" -> liftIO $ do
+          let sid = acquisitionTaskSourceId req
+          taskResp <- TM.createTask tm AcquisitionResource (Just sid) "evaluate"
+          let tid = taskResponseId taskResp
+
+          _ <- async $ do
+            TM.updateTaskProgress tm tid 0.1 (Just "Looking up source...")
+            source <- withConnection connPool $ \conn ->
+              DB.getAcquisitionRuleById conn sid
+            case source of
+              Nothing ->
+                TM.failTask tm tid $ "Source not found: " <> show sid
+              Just s -> do
+                TM.updateTaskProgress tm tid 0.2 (Just $ "Evaluating source: " <> DBTypes.sourceName s)
+                result <- try $ evaluateSource connPool bus le mbClient s
+                case result of
+                  Left (e :: SomeException) ->
+                    TM.failTask tm tid $ "Evaluation failed: " <> show e
+                  Right albumCount ->
+                    TM.completeTask tm tid (Just $ toJSON $ object
+                      [ "albums_added" .= albumCount
+                      , "source_name" .= DBTypes.sourceName s
+                      ])
+
+          pure taskResp
+
+        _ -> throwError err400 { errBody = "Unknown task type" }
 
     getSummaryHandler :: Maybe Text -> Handler AcquisitionSummaryResponse
     getSummaryHandler authHeader =

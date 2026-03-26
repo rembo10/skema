@@ -23,6 +23,7 @@ module Skema.Domain.Acquisition
   , PitchforkGenre(..)
   , pitchforkGenreToUrl
   , pitchforkGenreToDisplay
+  , textToPitchforkGenre
   , MetacriticFilters(..)
   , MetacriticGenre(..)
   , metacriticGenreToUrl
@@ -184,6 +185,23 @@ pitchforkGenreToDisplay PFRap = "Rap"
 pitchforkGenreToDisplay PFJazz = "Jazz"
 pitchforkGenreToDisplay PFMetal = "Metal"
 pitchforkGenreToDisplay PFFolkCountry = "Folk/Country"
+
+-- | Convert display text from Pitchfork HTML to a PitchforkGenre.
+textToPitchforkGenre :: Text -> Maybe PitchforkGenre
+textToPitchforkGenre t = case T.toLower (T.strip t) of
+  "pop"          -> Just PFPop
+  "pop/r&b"      -> Just PFPop
+  "rock"         -> Just PFRock
+  "experimental" -> Just PFExperimental
+  "electronic"   -> Just PFElectronic
+  "rap"          -> Just PFRap
+  "rap/hip-hop"  -> Just PFRap
+  "jazz"         -> Just PFJazz
+  "metal"        -> Just PFMetal
+  "folk/country" -> Just PFFolkCountry
+  "folk"         -> Just PFFolkCountry
+  "country"      -> Just PFFolkCountry
+  _              -> Nothing
 
 -- | Metacritic genres from https://www.metacritic.com/browse/albums/genre/date/
 -- These are the main genre categories available for browsing

@@ -6,11 +6,13 @@ module Skema.Database.Repository.Acquisition
   ( -- * Acquisition rule operations
     createAcquisitionRule
   , getAllAcquisitionRules
+  , getAcquisitionRuleById
   , getEnabledAcquisitionRules
   , updateAcquisitionRule
   , deleteAcquisitionRule
   , getDefaultLibraryArtistsRule
   , getAcquisitionSummary
+  , updateSourceLastSeenUrl
   ) where
 
 import Skema.Database.Connection
@@ -31,18 +33,27 @@ createAcquisitionRule conn name description sType enabled filters qpId =
     \VALUES (?, ?, ?, ?, ?, ?) RETURNING id"
     (name, description, Utils.sourceTypeToText sType, enabled, filters, qpId)
 
+-- | Get a single acquisition source by ID.
+getAcquisitionRuleById :: SQLite.Connection -> Int64 -> IO (Maybe AcquisitionSourceRecord)
+getAcquisitionRuleById conn sid = do
+  results <- queryRows conn
+    "SELECT id, name, description, rule_type, artist_mbid, enabled, priority, filters, created_at, updated_at, quality_profile_id, last_seen_url \
+    \FROM acquisition_rules WHERE id = ?"
+    (Only sid)
+  pure $ viaNonEmpty head results
+
 -- | Get all acquisition sources.
 getAllAcquisitionRules :: SQLite.Connection -> IO [AcquisitionSourceRecord]
 getAllAcquisitionRules conn =
   queryRows_ conn
-    "SELECT id, name, description, rule_type, artist_mbid, enabled, priority, filters, created_at, updated_at, quality_profile_id \
+    "SELECT id, name, description, rule_type, artist_mbid, enabled, priority, filters, created_at, updated_at, quality_profile_id, last_seen_url \
     \FROM acquisition_rules ORDER BY created_at ASC"
 
 -- | Get only enabled acquisition sources.
 getEnabledAcquisitionRules :: SQLite.Connection -> IO [AcquisitionSourceRecord]
 getEnabledAcquisitionRules conn =
   queryRows conn
-    "SELECT id, name, description, rule_type, artist_mbid, enabled, priority, filters, created_at, updated_at, quality_profile_id \
+    "SELECT id, name, description, rule_type, artist_mbid, enabled, priority, filters, created_at, updated_at, quality_profile_id, last_seen_url \
     \FROM acquisition_rules WHERE enabled = ? ORDER BY created_at ASC"
     (Only True)
 
@@ -63,10 +74,17 @@ deleteAcquisitionRule conn sid =
 getDefaultLibraryArtistsRule :: SQLite.Connection -> IO (Maybe AcquisitionSourceRecord)
 getDefaultLibraryArtistsRule conn = do
   results <- queryRows conn
-    "SELECT id, name, description, rule_type, artist_mbid, enabled, priority, filters, created_at, updated_at, quality_profile_id \
+    "SELECT id, name, description, rule_type, artist_mbid, enabled, priority, filters, created_at, updated_at, quality_profile_id, last_seen_url \
     \FROM acquisition_rules WHERE rule_type = ? ORDER BY created_at ASC LIMIT 1"
     (Only (Utils.sourceTypeToText LibraryArtists))
   pure $ viaNonEmpty head results
+
+-- | Update the last-seen URL for an acquisition source.
+updateSourceLastSeenUrl :: SQLite.Connection -> Int64 -> Text -> IO ()
+updateSourceLastSeenUrl conn sid url =
+  executeQuery conn
+    "UPDATE acquisition_rules SET last_seen_url = ? WHERE id = ?"
+    (url, sid)
 
 -- | Get acquisition summary: per-source artist/album counts and totals.
 -- Returns (per-source stats, total followed artists, total wanted albums).

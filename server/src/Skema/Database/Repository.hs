@@ -59,11 +59,13 @@ module Skema.Database.Repository
     -- * Acquisition rule operations
   , createAcquisitionRule
   , getAllAcquisitionRules
+  , getAcquisitionRuleById
   , getEnabledAcquisitionRules
   , updateAcquisitionRule
   , deleteAcquisitionRule
   , getDefaultLibraryArtistsRule
   , getAcquisitionSummary
+  , updateSourceLastSeenUrl
     -- * Catalog operations
   , upsertCatalogArtist
   , getCatalogArtists
@@ -159,11 +161,13 @@ import Skema.Database.Repository.Diffs
 import Skema.Database.Repository.Acquisition
   ( createAcquisitionRule
   , getAllAcquisitionRules
+  , getAcquisitionRuleById
   , getEnabledAcquisitionRules
   , updateAcquisitionRule
   , deleteAcquisitionRule
   , getDefaultLibraryArtistsRule
   , getAcquisitionSummary
+  , updateSourceLastSeenUrl
   )
 
 -- Re-export download operations

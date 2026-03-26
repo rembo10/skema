@@ -13,26 +13,26 @@
 -- 5. Add matching albums to the wanted list
 module Skema.Services.SourceEvaluator
   ( startSourceEvaluatorService
+  , evaluateSource
   ) where
 
 import Skema.Services.Dependencies (SourceEvaluatorDeps(..))
 import Skema.Events.Bus (EventBus, publishAndLog)
 import Skema.Events.Types (Event(..))
 import Skema.Database.Connection
-import Skema.Database.Repository (getEnabledAcquisitionRules, upsertCatalogArtist, upsertCatalogAlbum, resolveQualityProfileId, updateCatalogAlbum)
+import Skema.Database.Repository (getEnabledAcquisitionRules, upsertCatalogArtist, upsertCatalogAlbum, resolveQualityProfileId, updateCatalogAlbum, updateSourceLastSeenUrl)
 import Skema.Database.Types (AcquisitionSourceRecord(..), SourceType(..))
 import Skema.Domain.Acquisition
   ( SourceFilters(..)
   , MetacriticFilters(..)
   , PitchforkFilters(..)
   , MetacriticGenre(..)
-  , PitchforkGenre(..)
   , parseSourceFilters
   , metacriticGenreToUrl
-  , pitchforkGenreToUrl
   )
 import Skema.Scraper.Metacritic (MetacriticAlbum(..), scrapeGenreUrl)
-import Skema.Scraper.Pitchfork (PitchforkAlbum(..), scrapeUrl)
+import Skema.Scraper.Pitchfork (PitchforkAlbum(..), scrapeUrl, fetchReviewScore)
+import qualified Skema.Scraper.Pitchfork as PF
 import Skema.MusicBrainz.Client (searchReleaseGroups, MBClientEnv)
 import Skema.MusicBrainz.Types (MBReleaseGroupSearch(..), MBReleaseGroupSearchResult(..), MBID(..))
 import Control.Concurrent.Async (Async, async)
@@ -106,6 +106,12 @@ runEvaluation SourceEvaluatorDeps{..} = do
 
     $(logTM) InfoS $ logStr ("Source evaluation cycle complete" :: Text)
 
+-- | Log a message in the source evaluator context.
+logEval :: LogEnv -> Text -> IO ()
+logEval le msg =
+  runKatipContextT le () "services.source_evaluator" $
+    $(logTM) InfoS $ logStr msg
+
 -- | Evaluate a single acquisition source.
 -- Returns the number of albums added to the wanted list.
 evaluateSource :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> AcquisitionSourceRecord -> IO Int
@@ -133,60 +139,150 @@ evaluateMetacriticSource pool bus le mbClient source = do
 
       let mcFilters = MetacriticFilters genresFilter minCriticScore minUserScore
 
+      logEval le $ "Scraping " <> show (length genresToScrape) <> " Metacritic genre(s)"
+        <> " (min_critic: " <> maybe "none" show minCriticScore
+        <> ", min_user: " <> maybe "none" show minUserScore <> ")"
+
       -- Scrape each genre and collect results
       allAlbums <- fmap concat $ forM genresToScrape $ \genre -> do
-        result <- scrapeGenreUrl
-          ("https://www.metacritic.com/browse/albums/genre/date/" <> metacriticGenreToUrl genre)
-          [genre]
+        let url = "https://www.metacritic.com/browse/albums/genre/date/" <> metacriticGenreToUrl genre
+        result <- scrapeGenreUrl url [genre]
         case result of
-          Left _err -> pure []
-          Right albums -> pure albums
+          Left err -> do
+            logEval le $ "Failed to scrape genre " <> show genre <> ": " <> show err
+            pure []
+          Right albums -> do
+            logEval le $ "Scraped " <> show (length albums) <> " album(s) from " <> metacriticGenreToUrl genre
+            pure albums
+
+      logEval le $ "Total scraped: " <> show (length allAlbums) <> " album(s)"
 
       -- Filter albums by score thresholds
       let filteredAlbums = filter (matchesMetacriticFilters mcFilters) allAlbums
+      let failedFilter = length allAlbums - length filteredAlbums
+      logEval le $ "Score filter: " <> show (length filteredAlbums) <> " passed"
+        <> (if failedFilter > 0
+            then " (" <> show failedFilter <> " below threshold or missing score)"
+            else "")
 
       -- Match and add each album
-      addedCount <- fmap length $ forM filteredAlbums $ \album -> do
-        matchAndAddAlbum pool bus le mbClient source (mcArtistName album) (mcAlbumTitle album)
+      logEval le $ "Looking up " <> show (length filteredAlbums) <> " album(s) on MusicBrainz..."
+      results <- forM (zip [1::Int ..] filteredAlbums) $ \(i, album) -> do
+        logEval le $ "[" <> show i <> "/" <> show (length filteredAlbums) <> "] "
+          <> mcArtistName album <> " - " <> mcAlbumTitle album
+        matched <- matchAndAddAlbum pool bus le mbClient source (mcArtistName album) (mcAlbumTitle album)
+        unless matched $
+          logEval le $ "  -> No MusicBrainz match"
+        pure matched
 
+      let addedCount = length (filter id results)
+      let mbFailures = length (filter not results)
+      logEval le $ "Done: " <> show addedCount <> " album(s) added"
+        <> (if mbFailures > 0 then ", " <> show mbFailures <> " MusicBrainz lookup(s) failed" else "")
       pure addedCount
 
-    _ -> pure 0  -- Wrong filter type
+    _ -> do
+      logEval le "Could not parse Metacritic filters"
+      pure 0
 
 -- | Evaluate a Pitchfork source.
+-- Scrapes the main listing page (genre-filtered URLs return 404).
+-- Genre filtering is done client-side by the parser.
+-- Only processes entries newer than the last-seen URL to avoid redundant scraping.
+-- Individual review pages are fetched for scores only when a min score filter is set.
 evaluatePitchforkSource :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> AcquisitionSourceRecord -> IO Int
 evaluatePitchforkSource pool bus le mbClient source = do
-  -- Parse filters
   let filters = parseSourceFilters (sourceType source) (sourceFilters source)
 
   case filters of
-    Just (PitchforkSourceFilters (PitchforkFilters genresFilter minScore)) -> do
-      -- Get genres to scrape (or all if none specified)
-      let genresToScrape = case genresFilter of
-            Just gs -> gs
-            Nothing -> [PFPop, PFRock, PFExperimental, PFElectronic, PFRap, PFJazz, PFMetal, PFFolkCountry]
+    Just (PitchforkSourceFilters pf@(PitchforkFilters genresFilter minScore)) -> do
+      let genresToFilter = fromMaybe [] genresFilter
 
-      let pfFilters = PitchforkFilters genresFilter minScore
+      logEval le $ "Scraping Pitchfork reviews listing (genres: "
+        <> (if null genresToFilter then "all" else show genresToFilter)
+        <> ", min_score: " <> maybe "none" show minScore <> ")"
 
-      -- Scrape each genre and collect results
-      allAlbums <- fmap concat $ forM genresToScrape $ \genre -> do
-        result <- scrapeUrl
-          ("https://pitchfork.com/reviews/albums/?genre=" <> pitchforkGenreToUrl genre)
-          [genre]
-        case result of
-          Left _err -> pure []
-          Right albums -> pure albums
+      -- Scrape main listing page (no genre filter - we filter in the evaluator for clearer logging)
+      result <- scrapeUrl "https://pitchfork.com/reviews/albums/" []
+      case result of
+        Left err -> do
+          logEval le $ "Failed to scrape Pitchfork: " <> show err
+          pure 0
+        Right allAlbums -> do
+          logEval le $ "Scraped " <> show (length allAlbums) <> " album(s) from Pitchfork"
 
-      -- Filter albums by score threshold
-      let filteredAlbums = filter (matchesPitchforkFilters pfFilters) allAlbums
+          -- Apply genre filter
+          let albums = if null genresToFilter
+                then allAlbums
+                else filter (\a -> any (`elem` genresToFilter) (PF.pfGenres a)) allAlbums
+          unless (null genresToFilter) $
+            logEval le $ "Genre filter: " <> show (length albums) <> " of "
+              <> show (length allAlbums) <> " match genres " <> show genresToFilter
 
-      -- Match and add each album
-      addedCount <- fmap length $ forM filteredAlbums $ \album -> do
-        matchAndAddAlbum pool bus le mbClient source (pfArtistName album) (pfAlbumTitle album)
+          -- Only process entries newer than the last-seen URL
+          let lastSeen = sourceLastSeenUrl source
+          let newAlbums = takeNewEntries lastSeen pfReviewUrl albums
+          logEval le $ "Last seen URL: " <> fromMaybe "(none - first run)" lastSeen
+          logEval le $ "New entries since last check: " <> show (length newAlbums)
+            <> " of " <> show (length albums)
 
-      pure addedCount
+          -- Update last_seen_url to the first entry (newest) from the full list
+          case (sourceId source, listToMaybe albums) of
+            (Just sid, Just newest) -> do
+              logEval le $ "Updating last_seen_url to: " <> pfReviewUrl newest
+              withConnection pool $ \conn ->
+                updateSourceLastSeenUrl conn sid (pfReviewUrl newest)
+            _ -> pure ()
 
-    _ -> pure 0  -- Wrong filter type
+          -- Fetch scores for new entries if a min score filter is set
+          scoredAlbums <- if isJust minScore
+            then do
+              logEval le $ "Fetching scores for " <> show (length newAlbums) <> " review(s)..."
+              forM (zip [1::Int ..] newAlbums) $ \(i, album) -> do
+                threadDelay 1000000  -- 1 second delay between requests
+                score <- fetchReviewScore (pfReviewUrl album)
+                logEval le $ "[" <> show i <> "/" <> show (length newAlbums) <> "] "
+                  <> pfArtistName album <> " - " <> pfAlbumTitle album
+                  <> " => " <> maybe "no score" (\s -> show s <> "/10") score
+                pure album { pfScore = score }
+            else do
+              logEval le "No min_score filter set, skipping score fetching"
+              pure newAlbums
+
+          -- Filter by score threshold
+          let filteredAlbums = filter (matchesPitchforkFilters pf) scoredAlbums
+          let failedScore = length scoredAlbums - length filteredAlbums
+          logEval le $ "Score filter: " <> show (length filteredAlbums) <> " passed"
+            <> (if failedScore > 0
+                then " (" <> show failedScore <> " below threshold or missing score)"
+                else "")
+
+          -- Match and add each album
+          logEval le $ "Looking up " <> show (length filteredAlbums) <> " album(s) on MusicBrainz..."
+          results <- forM (zip [1::Int ..] filteredAlbums) $ \(i, album) -> do
+            logEval le $ "[" <> show i <> "/" <> show (length filteredAlbums) <> "] "
+              <> pfArtistName album <> " - " <> pfAlbumTitle album
+            matched <- matchAndAddAlbum pool bus le mbClient source (pfArtistName album) (pfAlbumTitle album)
+            unless matched $
+              logEval le $ "  -> No MusicBrainz match"
+            pure matched
+
+          let addedCount = length (filter id results)
+          let mbFailures = length (filter not results)
+          logEval le $ "Done: " <> show addedCount <> " album(s) added"
+            <> (if mbFailures > 0 then ", " <> show mbFailures <> " MusicBrainz lookup(s) failed" else "")
+          pure addedCount
+
+    _ -> do
+      logEval le "Could not parse Pitchfork filters"
+      pure 0
+
+-- | Take entries from the front of a list until reaching the last-seen entry.
+-- If lastSeenUrl is Nothing (first run), returns all entries.
+takeNewEntries :: Maybe Text -> (a -> Text) -> [a] -> [a]
+takeNewEntries Nothing _ entries = entries
+takeNewEntries (Just lastUrl) getUrl entries =
+  takeWhile (\e -> getUrl e /= lastUrl) entries
 
 -- | Check if a Metacritic album matches the filter criteria.
 matchesMetacriticFilters :: MetacriticFilters -> MetacriticAlbum -> Bool
@@ -213,12 +309,15 @@ matchesPitchforkFilters PitchforkFilters{..} album =
 -- Returns True if successfully added, False otherwise.
 matchAndAddAlbum :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> AcquisitionSourceRecord -> Text -> Text -> IO Bool
 matchAndAddAlbum pool bus le mbClient source artistName albumTitle = do
+  logEval le $ "Looking up: " <> artistName <> " - " <> albumTitle
   -- Search MusicBrainz for the release group
   let query = "artist:\"" <> artistName <> "\" AND releasegroup:\"" <> albumTitle <> "\""
   searchResult <- searchReleaseGroups mbClient query (Just 5) Nothing
 
   case searchResult of
-    Left _err -> pure False
+    Left err -> do
+      logEval le $ "MusicBrainz search failed for " <> artistName <> " - " <> albumTitle <> ": " <> show err
+      pure False
 
     Right MBReleaseGroupSearch{..} -> do
       -- Take the first result (best match)
@@ -262,4 +361,5 @@ matchAndAddAlbum pool bus le mbClient source artistName albumTitle = do
               , wantedAlbumTitle = mbrgsTitle rg
               , wantedArtistName = mbrgsArtistName rg
               }
+            logEval le $ "Added: " <> mbrgsArtistName rg <> " - " <> mbrgsTitle rg
             pure True

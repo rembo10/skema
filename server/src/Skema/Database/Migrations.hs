@@ -557,6 +557,19 @@ runIncrementalMigrations le conn = do
         recordMigration conn "009_add_catalog_artist_etag"
       $(logTM) InfoS "Completed migration: 009_add_catalog_artist_etag"
 
+    -- Migration 010: Add last_seen_url to acquisition_rules for skipping already-processed entries
+    applied010 <- liftIO $ migrationApplied conn "010_add_source_last_seen_url"
+    unless applied010 $ do
+      $(logTM) InfoS "Running migration: 010_add_source_last_seen_url"
+      liftIO $ do
+        lastSeenExists <- columnExists conn "acquisition_rules" "last_seen_url"
+        unless lastSeenExists $
+          executeQuery_ conn
+            "ALTER TABLE acquisition_rules ADD COLUMN last_seen_url TEXT"
+
+        recordMigration conn "010_add_source_last_seen_url"
+      $(logTM) InfoS "Completed migration: 010_add_source_last_seen_url"
+
 -- | Normalize text for search by:
 -- 1. Decomposing accented characters (NFD normalization)
 -- 2. Removing diacritical marks

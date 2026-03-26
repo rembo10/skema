@@ -211,6 +211,7 @@ data AcquisitionSourceRecord = AcquisitionSourceRecord
   , sourceEnabled :: Bool
   , sourceFilters :: Maybe Text  -- Provider-specific JSON
   , sourceQualityProfileId :: Maybe Int64
+  , sourceLastSeenUrl :: Maybe Text
   , sourceCreatedAt :: Maybe UTCTime
   , sourceUpdatedAt :: Maybe UTCTime
   } deriving (Show, Eq, Generic)
@@ -523,8 +524,9 @@ instance SQLite.FromRow AcquisitionSourceRecord where
     createdAt <- SQLite.field
     updatedAt <- SQLite.field
     qProfileId <- SQLite.field
+    lastSeenUrl <- SQLite.field
     let sType = fromMaybe LibraryArtists (textToSourceType sTypeText)
-    pure $ AcquisitionSourceRecord sId name desc sType enabled filters qProfileId createdAt updatedAt
+    pure $ AcquisitionSourceRecord sId name desc sType enabled filters qProfileId lastSeenUrl createdAt updatedAt
     where
       toBool :: Int -> Bool
       toBool 0 = False

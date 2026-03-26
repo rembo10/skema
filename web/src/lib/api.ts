@@ -468,6 +468,13 @@ export const api = {
     });
   },
 
+  async evaluateAcquisitionSource(sourceId: number): Promise<Task> {
+    return fetchApi<Task>('/acquisition/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ type: 'evaluate', source_id: sourceId }),
+    });
+  },
+
   async getAcquisitionSummary(): Promise<AcquisitionSummary> {
     return fetchApi<AcquisitionSummary>('/acquisition/summary');
   },

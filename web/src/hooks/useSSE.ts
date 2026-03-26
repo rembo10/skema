@@ -495,6 +495,17 @@ export function useSSE(enabled: boolean = true) {
         }
       });
 
+      // Task events - dispatch as window custom events for page-level handling
+      eventSource.addEventListener('TaskCompleted', (e: MessageEvent) => {
+        const data = JSON.parse(e.data);
+        window.dispatchEvent(new CustomEvent('task_completed', { detail: data }));
+      });
+
+      eventSource.addEventListener('TaskFailed', (e: MessageEvent) => {
+        const data = JSON.parse(e.data);
+        window.dispatchEvent(new CustomEvent('task_failed', { detail: data }));
+      });
+
       // Additional events that don't have specific UI handling
       eventSource.addEventListener('FileSystemDiffGenerated', () => {});
       eventSource.addEventListener('LibraryArtistFound', () => {});

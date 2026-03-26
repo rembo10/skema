@@ -6,6 +6,7 @@
 -- | Acquisition API types.
 module Skema.API.Types.Acquisition
   ( AcquisitionAPI
+  , AcquisitionTaskRequest(..)
   , CreateRuleRequest(..)
   , UpdateRuleRequest(..)
   , TrackedArtistResponse(..)
@@ -16,6 +17,7 @@ module Skema.API.Types.Acquisition
   ) where
 
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
+import Skema.API.Types.Tasks (TaskResponse)
 import GHC.Generics ()
 import Servant
 
@@ -27,8 +29,23 @@ type AcquisitionAPI = "acquisition" :> Header "Authorization" Text :>
   :<|> "sources" :> Capture "sourceId" Int64 :> DeleteNoContent
   :<|> "sources" :> Capture "sourceId" Int64 :> "enable" :> Put '[JSON] NoContent
   :<|> "sources" :> Capture "sourceId" Int64 :> "disable" :> Put '[JSON] NoContent
+  :<|> "tasks" :> ReqBody '[JSON] AcquisitionTaskRequest :> PostCreated '[JSON] TaskResponse
   :<|> "summary" :> Get '[JSON] AcquisitionSummaryResponse
   )
+
+-- | Request to create an acquisition task.
+data AcquisitionTaskRequest = AcquisitionTaskRequest
+  { acquisitionTaskType :: Text
+    -- ^ Task type: "evaluate"
+  , acquisitionTaskSourceId :: Int64
+    -- ^ Source ID to evaluate
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON AcquisitionTaskRequest where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
+
+instance FromJSON AcquisitionTaskRequest where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
 
 -- | Create acquisition rule request.
 data CreateRuleRequest = CreateRuleRequest

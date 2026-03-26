@@ -177,7 +177,7 @@ export interface CandidateRelease {
 
 export interface Task {
   id: string;
-  resource: 'LibraryResource' | 'ClustersResource' | 'CatalogResource' | 'DownloadsResource';
+  resource: 'LibraryResource' | 'ClustersResource' | 'CatalogResource' | 'DownloadsResource' | 'AcquisitionResource';
   resource_id: number | null;
   type: string;  // "scan", "identify", "refresh", "refresh_all", "reidentify"
   status: 'TaskQueued' | 'TaskRunning' | 'TaskCompleted' | 'TaskFailed' | 'TaskCancelled';

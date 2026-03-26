@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { api } from '../lib/api';
 import type { AcquisitionSource, AcquisitionSummary } from '../types/api';
-import { Settings, CheckCircle, XCircle, Users, Music, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Settings, CheckCircle, XCircle, Users, Music, Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SourceModal, type SourceFormData } from '../components/SourceModal';
 import { SourceCardSkeleton } from '../components/LoadingSkeleton';
@@ -13,10 +13,55 @@ export default function AcquisitionSources() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingSource, setEditingSource] = useState<AcquisitionSource | undefined>(undefined);
+  const [evaluatingSourceIds, setEvaluatingSourceIds] = useState<Set<number>>(new Set());
+  // Map task ID → source ID for SSE event handling
+  const pendingTasksRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     loadData();
   }, []);
+
+  const clearEvaluating = useCallback((sourceId: number) => {
+    setEvaluatingSourceIds(prev => {
+      const next = new Set(prev);
+      next.delete(sourceId);
+      return next;
+    });
+  }, []);
+
+  // Listen for task completion/failure via window custom events (dispatched by useSSE)
+  useEffect(() => {
+    const handleComplete = (e: Event) => {
+      const data = (e as CustomEvent).detail as { task_id: string; result?: { albums_added?: number } };
+      const sourceId = pendingTasksRef.current.get(data.task_id);
+      if (sourceId === undefined) return;
+
+      pendingTasksRef.current.delete(data.task_id);
+      clearEvaluating(sourceId);
+
+      const albumCount = data.result?.albums_added ?? 0;
+      toast.success(`Check complete: ${albumCount} album${albumCount !== 1 ? 's' : ''} added`);
+    };
+
+    const handleFailed = (e: Event) => {
+      const data = (e as CustomEvent).detail as { task_id: string; error?: string };
+      const sourceId = pendingTasksRef.current.get(data.task_id);
+      if (sourceId === undefined) return;
+
+      pendingTasksRef.current.delete(data.task_id);
+      clearEvaluating(sourceId);
+
+      toast.error(`Evaluation failed: ${data.error ?? 'Unknown error'}`);
+    };
+
+    window.addEventListener('task_completed', handleComplete);
+    window.addEventListener('task_failed', handleFailed);
+
+    return () => {
+      window.removeEventListener('task_completed', handleComplete);
+      window.removeEventListener('task_failed', handleFailed);
+    };
+  }, [clearEvaluating]);
 
   const loadData = async () => {
     try {
@@ -118,6 +163,22 @@ export default function AcquisitionSources() {
     } catch (error) {
       console.error('Failed to delete source:', error);
       toast.error('Failed to delete source');
+    }
+  };
+
+  const handleForceCheck = async (sourceId: number) => {
+    setEvaluatingSourceIds(prev => new Set(prev).add(sourceId));
+    try {
+      const task = await api.evaluateAcquisitionSource(sourceId);
+      pendingTasksRef.current.set(task.id, sourceId);
+    } catch (error) {
+      console.error('Failed to start evaluation:', error);
+      toast.error('Failed to start evaluation');
+      setEvaluatingSourceIds(prev => {
+        const next = new Set(prev);
+        next.delete(sourceId);
+        return next;
+      });
     }
   };
 
@@ -255,6 +316,16 @@ export default function AcquisitionSources() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2">
+                    {source.source_type !== 'library_artists' && (
+                      <button
+                        onClick={() => handleForceCheck(source.id)}
+                        disabled={evaluatingSourceIds.has(source.id)}
+                        className="p-2 text-dark-text-tertiary hover:text-dark-accent hover:bg-dark-bg-hover rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Force check"
+                      >
+                        <RefreshCw className={`h-4 w-4 ${evaluatingSourceIds.has(source.id) ? 'animate-spin' : ''}`} />
+                      </button>
+                    )}
                     <button
                       onClick={() => handleEditSource(source)}
                       className="p-2 text-dark-text-tertiary hover:text-dark-accent hover:bg-dark-bg-hover rounded-lg transition-all duration-200"
