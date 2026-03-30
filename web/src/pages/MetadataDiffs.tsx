@@ -1,9 +1,12 @@
 import { useEffect, useState, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { api } from '../lib/api';
+import { handleApiError } from '../lib/errors';
 import type { GroupedDiff, MetadataDiff, MetadataChange } from '../types/api';
 import { LibraryNav } from '../components/LibraryNav';
 import { PaginationControls } from '../components/PaginationControls';
+import { LoadingState } from '../components/LoadingState';
+import { DiffsSkeleton, Skeleton } from '../components/LoadingSkeleton';
 import { usePagination } from '../hooks/usePagination';
 
 type Tab = 'diffs' | 'history';
@@ -34,13 +37,8 @@ export default function MetadataDiffs() {
       const response = await api.getGroupedDiffs(pagination.offset, ITEMS_PER_PAGE);
       setGroupedDiffs(response.diffs);
       pagination.setTotalCount(response.pagination?.total ?? 0);
-    } catch (error: any) {
-      // Don't log or toast 401 errors - they're expected when auth is required
-      if (!error.isAuthError) {
-        console.error('[MetadataDiffs] Failed to load diffs:', error);
-        toast.error('Failed to load metadata diffs');
-      }
-      // 401 will trigger redirect via global unauthorized event handler
+    } catch (error) {
+      handleApiError(error, 'Failed to load metadata diffs');
     } finally {
       setLoadingDiffs(false);
     }
@@ -58,13 +56,8 @@ export default function MetadataDiffs() {
     try {
       const response = await api.getMetadataChanges();
       setChanges(response.changes);
-    } catch (error: any) {
-      // Don't log or toast 401 errors - they're expected when auth is required
-      if (!error.isAuthError) {
-        console.error('Failed to load changes history:', error);
-        toast.error('Failed to load changes history');
-      }
-      // 401 will trigger redirect via global unauthorized event handler
+    } catch (error) {
+      handleApiError(error, 'Failed to load changes history');
     } finally {
       setLoadingChanges(false);
     }
@@ -84,8 +77,7 @@ export default function MetadataDiffs() {
       // Progress will be shown via SSE events in the status line
       // Completion/failure toasts will be shown by the SSE handlers
     } catch (error) {
-      console.error('Failed to apply metadata changes:', error);
-      toast.error('Failed to apply metadata changes');
+      handleApiError(error, 'Failed to apply metadata changes');
     } finally {
       setApplying(false);
     }
@@ -101,8 +93,7 @@ export default function MetadataDiffs() {
       // Progress will be shown via SSE events in the status line
       // Completion/failure toasts will be shown by the SSE handlers
     } catch (error) {
-      console.error('Failed to apply metadata changes:', error);
-      toast.error('Failed to apply metadata changes');
+      handleApiError(error, 'Failed to apply metadata changes');
     } finally {
       setApplyingGroup(null);
     }
@@ -114,8 +105,7 @@ export default function MetadataDiffs() {
       await loadChangesHistory();
       toast.success('Change reverted successfully');
     } catch (error) {
-      console.error('Failed to revert change:', error);
-      toast.error('Failed to revert change');
+      handleApiError(error, 'Failed to revert change');
     }
   }
 
@@ -159,9 +149,6 @@ export default function MetadataDiffs() {
     if (!groupedDiffs) return [];
     return groupedDiffs.flatMap(group => group.diffs.map(diff => diff.id));
   }
-
-  // Show loading state while diffs are being fetched
-  const showDiffsLoading = loadingDiffs;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -208,17 +195,19 @@ export default function MetadataDiffs() {
 
       {/* Content */}
       {activeTab === 'diffs' ? (
-        showDiffsLoading ? (
-          <div className="card p-12 text-center">
-            <div className="space-y-3">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="animate-pulse">
-                  <div className="h-16 bg-dark-bg-subtle rounded" />
-                </div>
-              ))}
+        <LoadingState
+          loading={loadingDiffs}
+          empty={groupedDiffs.length === 0}
+          skeleton={<DiffsSkeleton />}
+          emptyState={
+            <div className="card p-12 text-center">
+              <p className="text-dark-text">No metadata differences found.</p>
+              <p className="mt-2 text-sm text-dark-text-secondary">
+                Run a library scan to identify differences between your files and MusicBrainz.
+              </p>
             </div>
-          </div>
-        ) : (
+          }
+        >
           <>
             <DiffsView
               groupedDiffs={groupedDiffs || []}
@@ -240,7 +229,7 @@ export default function MetadataDiffs() {
               itemName="diff groups"
             />
           </>
-        )
+        </LoadingState>
       ) : (
         <HistoryView changes={changes} loading={loadingChanges} onRevert={revertChange} />
       )}
@@ -269,17 +258,6 @@ function DiffsView({
   onApplySelected: () => void;
   onApplyGroup: (group: GroupedDiff) => void;
 }) {
-  if (groupedDiffs.length === 0) {
-    return (
-      <div className="card p-12 text-center">
-        <p className="text-dark-text">No metadata differences found.</p>
-        <p className="mt-2 text-sm text-dark-text-secondary">
-          Run a library scan to identify differences between your files and MusicBrainz.
-        </p>
-      </div>
-    );
-  }
-
   const allDiffIds = groupedDiffs.flatMap(group => group.diffs.map(diff => diff.id));
   const allSelected = allDiffIds.length > 0 && selectedDiffIds.size === allDiffIds.length;
   const someSelected = selectedDiffIds.size > 0 && selectedDiffIds.size < allDiffIds.length;
@@ -500,26 +478,20 @@ function HistoryView({
   loading: boolean;
   onRevert: (changeId: number) => void;
 }) {
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-dark-text-secondary">Loading...</div>
-      </div>
-    );
-  }
-
-  if (changes.length === 0) {
-    return (
-      <div className="card p-12 text-center">
-        <p className="text-dark-text">No change history found.</p>
-        <p className="mt-2 text-sm text-dark-text-secondary">
-          Apply some metadata changes to see them appear here.
-        </p>
-      </div>
-    );
-  }
-
   return (
+    <LoadingState
+      loading={loading}
+      empty={changes.length === 0}
+      skeleton={<DiffsSkeleton />}
+      emptyState={
+        <div className="card p-12 text-center">
+          <p className="text-dark-text">No change history found.</p>
+          <p className="mt-2 text-sm text-dark-text-secondary">
+            Apply some metadata changes to see them appear here.
+          </p>
+        </div>
+      }
+    >
     <div className="card overflow-hidden">
       <ul className="divide-y divide-dark-border">
         {changes.map((change) => {
@@ -576,5 +548,6 @@ function HistoryView({
         })}
       </ul>
     </div>
+    </LoadingState>
   );
 }

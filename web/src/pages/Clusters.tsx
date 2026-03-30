@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Cluster } from '../types/api';
 import { api } from '../lib/api';
-import toast from 'react-hot-toast';
+import { handleApiError } from '../lib/errors';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { IdentificationNav } from '../components/IdentificationNav';
 import { RematchModal } from '../components/identification/RematchModal';
 import { PaginationControls } from '../components/PaginationControls';
@@ -29,21 +30,12 @@ export default function Clusters() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebouncedValue(searchQuery);
   const [sortField, setSortField] = useState<SortField>('album');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [rematchingCluster, setRematchingCluster] = useState<Cluster | null>(null);
   const pagination = usePagination(ITEMS_PER_PAGE);
-
-  // Debounce search query
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      setDebouncedSearchQuery(searchQuery);
-    }, 300); // 300ms debounce
-
-    return () => clearTimeout(timeoutId);
-  }, [searchQuery]);
 
   // Reset offset when filters change
   useEffect(() => {
@@ -68,8 +60,7 @@ export default function Clusters() {
       setClusters(response.clusters);
       pagination.setTotalCount(response.pagination.total);
     } catch (error) {
-      console.error('Failed to load clusters:', error);
-      toast.error('Failed to load clusters');
+      handleApiError(error, 'Failed to load clusters');
     } finally {
       setLoading(false);
       setInitialLoading(false);

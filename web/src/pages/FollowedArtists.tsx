@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatDate } from '../lib/formatters';
-import type { CatalogArtist } from '../types/api';
+import type { CatalogArtist, CatalogAlbum } from '../types/api';
 import { Music, ExternalLink, Disc, UserMinus, RefreshCw, ArrowUp, ArrowDown } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useAppStore } from '../store';
+import { handleApiError } from '../lib/errors';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { useSSEEvent } from '../hooks/useSSEEvent';
 import { ArtistCardSkeleton } from '../components/LoadingSkeleton';
 import { LoadingState } from '../components/LoadingState';
 import { usePagination } from '../hooks/usePagination';
@@ -16,26 +18,15 @@ const ITEMS_PER_PAGE = 50;
 export default function FollowedArtists() {
   // Local state for artists loaded from API
   const [artists, setArtists] = useState<CatalogArtist[]>([]);
+  const [albums, setAlbums] = useState<CatalogAlbum[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebouncedValue(searchQuery);
   const [sortField, setSortField] = useState<'name' | 'date_added' | 'completion'>('date_added');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [refreshing, setRefreshing] = useState(false);
   const { offset, totalCount, setTotalCount, nextPage, prevPage, resetOffset } = usePagination(ITEMS_PER_PAGE);
-
-  // Use global store only for catalogAlbums and mutations
-  const catalogAlbums = useAppStore((state) => state.catalogAlbums);
-  const setCatalogAlbums = useAppStore((state) => state.setCatalogAlbums);
-
-  // Debounce search query
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      setDebouncedSearchQuery(searchQuery);
-    }, 300);
-    return () => clearTimeout(timeoutId);
-  }, [searchQuery]);
 
   // Reset offset when search or sort changes
   useEffect(() => {
@@ -46,6 +37,24 @@ export default function FollowedArtists() {
   useEffect(() => {
     loadData();
   }, [offset, debouncedSearchQuery, sortField, sortOrder]);
+
+  // SSE: album cover fetched — update local albums
+  useSSEEvent<{ release_group_mbid: string; cover_url: string; thumbnail_url: string | null }>('AlbumCoverFetched', (data) => {
+    setAlbums(prev => prev.map(a =>
+      a.release_group_mbid === data.release_group_mbid
+        ? { ...a, cover_url: data.cover_url, cover_thumbnail_url: data.thumbnail_url }
+        : a
+    ));
+  });
+
+  // SSE: album updated
+  useSSEEvent<{ album_id: number; album_title: string; artist_name: string; album_type: string | null; first_release_date: string | null; quality_profile_id: number | null }>('CatalogAlbumUpdated', (data) => {
+    setAlbums(prev => prev.map(a =>
+      a.id === data.album_id
+        ? { ...a, title: data.album_title, artist_name: data.artist_name, type: data.album_type, first_release_date: data.first_release_date, quality_profile_id: data.quality_profile_id, wanted: data.quality_profile_id != null }
+        : a
+    ));
+  });
 
   const loadData = async () => {
     try {
@@ -62,7 +71,7 @@ export default function FollowedArtists() {
       setArtists(artistsResponse.artists);
       setTotalCount(artistsResponse.pagination.total);
 
-      // Collect all albums from current page into the global store
+      // Collect all albums from current page into local state
       const currentAlbums = artistsResponse.artists.flatMap(artist =>
         (artist.albums || []).map(album => ({
           id: album.id,
@@ -82,10 +91,9 @@ export default function FollowedArtists() {
           updated_at: album.updated_at,
         }))
       );
-      setCatalogAlbums(currentAlbums);
+      setAlbums(currentAlbums);
     } catch (error) {
-      toast.error('Failed to load followed artists');
-      console.error('Error loading artists:', error);
+      handleApiError(error, 'Failed to load followed artists');
     } finally {
       setLoading(false);
       setInitialLoading(false);
@@ -96,7 +104,7 @@ export default function FollowedArtists() {
   const displayedArtists = artists;
 
   const getAlbumsForArtist = (artistMBID: string) => {
-    return catalogAlbums.filter(album => album.artist_mbid === artistMBID);
+    return albums.filter(album => album.artist_mbid === artistMBID);
   };
 
   const handleUnfollowArtist = async (artist: CatalogArtist) => {
@@ -109,8 +117,7 @@ export default function FollowedArtists() {
       setTotalCount(totalCount - 1);
       toast.success(`Unfollowed ${artist.name}`);
     } catch (error) {
-      toast.error('Failed to unfollow artist');
-      console.error('Error unfollowing artist:', error);
+      handleApiError(error, 'Failed to unfollow artist');
     }
   };
 
@@ -120,8 +127,7 @@ export default function FollowedArtists() {
       const result = await api.refreshAllCatalogArtists();
       toast.success(result.message);
     } catch (error) {
-      toast.error('Failed to refresh catalog');
-      console.error('Error refreshing catalog:', error);
+      handleApiError(error, 'Failed to refresh catalog');
     } finally {
       setRefreshing(false);
     }

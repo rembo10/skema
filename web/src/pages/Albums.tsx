@@ -3,6 +3,9 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatDate } from '../lib/formatters';
 import toast from 'react-hot-toast';
+import { handleApiError } from '../lib/errors';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { useSSEEvent } from '../hooks/useSSEEvent';
 import { PaginationControls } from '../components/PaginationControls';
 import { usePagination } from '../hooks/usePagination';
 import { useAlbumsFilterState, QuickFilter } from '../hooks/useAlbumsFilterState';
@@ -58,8 +61,8 @@ export default function Albums() {
   const initialLoadComplete = useRef(false);
   const urlParamsInitialized = useRef(false);
   const pendingUrlParams = useRef(false);
-  const [searching, setSearching] = useState(false);
   const [searchInput, setSearchInput] = useState('');
+  const debouncedSearchInput = useDebouncedValue(searchInput);
 
   // Consolidated filter state using reducer
   const {
@@ -100,19 +103,11 @@ export default function Albums() {
     urlParamsInitialized.current = true;
   }, [searchParams, applyUrlParams]); // React to URL param changes
 
-  // Debounce search input
+  // Sync debounced search to filter state
   useEffect(() => {
-    setSearching(true);
-    const timer = setTimeout(() => {
-      setSearchFilter(searchInput);
-      pagination.resetOffset();
-      setSearching(false);
-    }, 500);
-    return () => {
-      clearTimeout(timer);
-      setSearching(false);
-    };
-  }, [searchInput, setSearchFilter]);
+    setSearchFilter(debouncedSearchInput);
+    pagination.resetOffset();
+  }, [debouncedSearchInput, setSearchFilter]);
 
   useEffect(() => {
     if (!urlParamsInitialized.current) return;
@@ -133,42 +128,26 @@ export default function Albums() {
   }, []);
 
   // Listen for SSE updates to individual albums
-  useEffect(() => {
-    const handleAlbumUpdate = (event: Event) => {
-      const customEvent = event as CustomEvent;
-      const data = customEvent.detail;
+  useSSEEvent<{ album_id: number; state: string; current_quality: string | null; quality_profile_id: number | null; quality_profile_name: string | null; cover_url: string | null; cover_thumbnail_url: string | null }>('CatalogAlbumUpdated', (data) => {
+    setAlbums(prevAlbums => {
+      const albumIndex = prevAlbums.findIndex(a => a.id === data.album_id);
+      if (albumIndex === -1) return prevAlbums;
 
-      // Update the album in the local state
-      setAlbums(prevAlbums => {
-        const albumIndex = prevAlbums.findIndex(a => a.id === data.album_id);
-        if (albumIndex === -1) {
-          // Album not in current view, ignore
-          return prevAlbums;
-        }
+      const updatedAlbum: CatalogAlbumOverview = {
+        ...prevAlbums[albumIndex],
+        state: data.state as CatalogAlbumOverview['state'],
+        current_quality: data.current_quality,
+        quality_profile_id: data.quality_profile_id,
+        quality_profile_name: data.quality_profile_name,
+        cover_url: data.cover_url,
+        cover_thumbnail_url: data.cover_thumbnail_url,
+      };
 
-        // Create updated album object
-        const updatedAlbum: CatalogAlbumOverview = {
-          ...prevAlbums[albumIndex],
-          state: data.state,
-          current_quality: data.current_quality,
-          quality_profile_id: data.quality_profile_id,
-          quality_profile_name: data.quality_profile_name,
-          cover_url: data.cover_url,
-          cover_thumbnail_url: data.cover_thumbnail_url,
-        };
-
-        // Replace the album in the array
-        const newAlbums = [...prevAlbums];
-        newAlbums[albumIndex] = updatedAlbum;
-        return newAlbums;
-      });
-    };
-
-    window.addEventListener('catalog_album_updated', handleAlbumUpdate);
-    return () => {
-      window.removeEventListener('catalog_album_updated', handleAlbumUpdate);
-    };
-  }, []);
+      const newAlbums = [...prevAlbums];
+      newAlbums[albumIndex] = updatedAlbum;
+      return newAlbums;
+    });
+  });
 
   const loadQualityProfiles = async () => {
     try {
@@ -179,7 +158,7 @@ export default function Albums() {
       setQualityProfiles(profiles);
       setDefaultProfile(defaultProf);
     } catch (error) {
-      console.error('Failed to load quality profiles:', error);
+      handleApiError(error, 'Failed to load quality profiles');
     }
   };
 
@@ -218,8 +197,7 @@ export default function Albums() {
       pagination.setTotalCount(response.pagination.total);
       initialLoadComplete.current = true;
     } catch (error) {
-      console.error('Failed to load albums:', error);
-      toast.error('Failed to load albums');
+      handleApiError(error, 'Failed to load albums');
     } finally {
       setLoading(false);
       setTableLoading(false);
@@ -233,8 +211,7 @@ export default function Albums() {
       toast.success('Album removed from wanted list');
       // SSE will update the album state automatically
     } catch (error) {
-      console.error('Failed to unwant album:', error);
-      toast.error('Failed to remove album from wanted list');
+      handleApiError(error, 'Failed to remove album from wanted list');
     }
   };
 
@@ -246,8 +223,7 @@ export default function Albums() {
       });
       toast.success('Search triggered for album');
     } catch (error) {
-      console.error('Failed to trigger search:', error);
-      toast.error('Failed to trigger search');
+      handleApiError(error, 'Failed to trigger search');
     }
   };
 
@@ -279,8 +255,7 @@ export default function Albums() {
       }
       // SSE will update the album state automatically
     } catch (error) {
-      console.error('Failed to update quality profile:', error);
-      toast.error('Failed to update quality profile');
+      handleApiError(error, 'Failed to update quality profile');
     }
   };
 
@@ -319,8 +294,7 @@ export default function Albums() {
       setSelectedAlbumIds(new Set());
       // SSE will update the album states automatically
     } catch (error) {
-      console.error('Failed to unwant albums:', error);
-      toast.error('Failed to remove albums from wanted list');
+      handleApiError(error, 'Failed to remove albums from wanted list');
     }
   };
 
@@ -334,8 +308,7 @@ export default function Albums() {
       });
       toast.success(`Search triggered for ${selectedAlbumIds.size} album(s)`);
     } catch (error) {
-      console.error('Failed to trigger bulk search:', error);
-      toast.error('Failed to trigger search');
+      handleApiError(error, 'Failed to trigger search');
     }
   };
 
@@ -356,8 +329,7 @@ export default function Albums() {
       setSelectedAlbumIds(new Set());
       // SSE will update the album states automatically
     } catch (error) {
-      console.error('Failed to update quality profiles:', error);
-      toast.error('Failed to update quality profiles');
+      handleApiError(error, 'Failed to update quality profiles');
     }
   };
 
@@ -516,11 +488,6 @@ export default function Albums() {
               onChange={(e) => setSearchInput(e.target.value)}
               className="input w-full pr-10"
             />
-            {searching && (
-              <div className="absolute top-1/2 right-3 -translate-y-1/2 pointer-events-none">
-                <Loader2 className="h-4 w-4 animate-spin text-dark-text-secondary" />
-              </div>
-            )}
           </div>
 
           {/* Quality Filter */}

@@ -1,5 +1,5 @@
 import { Save } from 'lucide-react';
-
+import { ConfigSkeleton } from '../../components/LoadingSkeleton';
 import { useConfigState } from './useConfigState';
 import { ConfigTabs } from './ConfigTabs';
 import { LibraryTab } from './tabs/LibraryTab';
@@ -18,11 +18,7 @@ export default function Config() {
   const [state, actions] = useConfigState();
 
   if (state.loading || !state.formData) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-dark-text-secondary">Loading...</div>
-      </div>
-    );
+    return <ConfigSkeleton />;
   }
 
   return (

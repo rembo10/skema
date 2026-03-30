@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { getJWT, setAuthRequired, getApiBase } from '../lib/api';
 import { useAppStore } from '../store';
-import type { Cluster, CatalogArtist } from '../types/api';
+import { emitSSEEvent } from './useSSEEvent';
 
 /**
  * Hook to connect to SSE endpoint and keep state updated.
@@ -16,20 +16,7 @@ export function useSSE(enabled: boolean = true) {
   const {
     setCurrentStatus,
     setConnectionStatus,
-    removeDiffById,
-    setStats,
-    setGroupedDiffsStale,
-    updateFollowedArtistImageById,
-    updateFollowedArtist,
-    addFollowedArtist,
-    addCatalogAlbum,
-    updateCatalogAlbum,
-    updateAlbumCover,
-    addDownload,
-    updateDownload,
     setAuthEnabled,
-    addCluster,
-    updateCluster
   } = useAppStore();
 
   useEffect(() => {
@@ -95,8 +82,7 @@ export function useSSE(enabled: boolean = true) {
         // Only reconnect if we haven't been told to stop
         if (mounted && shouldReconnectRef.current) {
           reconnectTimeoutRef.current = setTimeout(() => {
-            // Mark all data as stale so components reload on next mount/visit
-            setGroupedDiffsStale(true);
+            emitSSEEvent('SSEReconnected', {});
             connect();
           }, 5000);
         }
@@ -184,49 +170,29 @@ export function useSSE(enabled: boolean = true) {
         }, 5000);
       });
 
-      eventSource.addEventListener('ClusterIdentified', async (e: MessageEvent) => {
-        // Fetch and update the cluster in the store
-        try {
-          const data = JSON.parse(e.data);
-          const { api } = await import('../lib/api');
-          const updatedCluster = await api.getClusters().then((clusters: Cluster[]) =>
-            clusters.find((c: Cluster) => c.id === data.cluster_id)
-          );
-          if (updatedCluster) {
-            const clusters = useAppStore.getState().clusters;
-            if (clusters.some((c: Cluster) => c.id === updatedCluster.id)) {
-              updateCluster(updatedCluster.id, updatedCluster);
-            } else {
-              addCluster(updatedCluster);
-            }
-          }
-        } catch (error) {
-          console.error('Error handling ClusterIdentified:', error);
-        }
+      eventSource.addEventListener('ClusterIdentified', (e: MessageEvent) => {
+        const data = JSON.parse(e.data);
+        emitSSEEvent('ClusterIdentified', data);
       });
 
       // Persistence events
       eventSource.addEventListener('ResultsPersisted', () => {
-        // Mark diffs as stale so they reload
-        setGroupedDiffsStale(true);
+        emitSSEEvent('ResultsPersisted', {});
       });
 
       // Diff events
       eventSource.addEventListener('TrackDiffsGenerated', () => {
-        // Mark diffs as stale
-        setGroupedDiffsStale(true);
+        emitSSEEvent('TrackDiffsGenerated', {});
       });
 
       eventSource.addEventListener('MetadataDiffApplied', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        if (data.diff_id) {
-          removeDiffById(data.diff_id);
-        }
+        emitSSEEvent('MetadataDiffApplied', data);
       });
 
       eventSource.addEventListener('GroupedDiffsApplied', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        setGroupedDiffsStale(true);
+        emitSSEEvent('GroupedDiffsApplied', data);
         setStatusWithTimeout({
           type: 'success',
           message: `Applied ${data.diffs_applied} metadata changes to ${data.files_updated} files`,
@@ -253,7 +219,7 @@ export function useSSE(enabled: boolean = true) {
       });
 
       eventSource.addEventListener('MetadataWriteCompleted', () => {
-        setGroupedDiffsStale(true);
+        emitSSEEvent('MetadataWriteCompleted', {});
         setStatusWithTimeout({
           type: 'success',
           message: 'Metadata successfully updated',
@@ -273,42 +239,14 @@ export function useSSE(enabled: boolean = true) {
       // Stats updates
       eventSource.addEventListener('StatsUpdated', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        // Merge new stats with existing stats to preserve fields like library_path
-        // that may not be included in partial updates
-        const currentStats = useAppStore.getState().stats;
-        setStats({
-          ...currentStats,
-          ...data,
-          // Explicitly preserve library_path if not provided in the update
-          library_path: data.library_path ?? currentStats?.library_path ?? null,
-        });
+        emitSSEEvent('StatsUpdated', data);
       });
 
       // Acquisition events
       eventSource.addEventListener('TrackedArtistAdded', (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data);
-          // Add the new artist with complete data including ID
-          // Image will be null initially and updated via ArtistImageFetched event
-          const artistData: CatalogArtist = {
-            id: data.artist_id,
-            mbid: data.artist_mbid,
-            name: data.artist_name,
-            type: null,
-            image_url: null,
-            thumbnail_url: null,
-            bio: null,
-            followed: true,
-            quality_profile_id: null,
-            added_by_source_id: 0,
-            source_cluster_id: data.cluster_id,
-            last_checked_at: null,
-            score: null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            albums: null,
-          };
-          addFollowedArtist(artistData);
+          emitSSEEvent('TrackedArtistAdded', data);
         } catch (error) {
           console.error('Error handling TrackedArtistAdded:', error, e.data);
         }
@@ -317,7 +255,7 @@ export function useSSE(enabled: boolean = true) {
       eventSource.addEventListener('ArtistImageFetched', (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data);
-          updateFollowedArtistImageById(data.artist_id, data.image_url, data.thumbnail_url);
+          emitSSEEvent('ArtistImageFetched', data);
         } catch (error) {
           console.error('Error handling ArtistImageFetched:', error);
         }
@@ -326,8 +264,7 @@ export function useSSE(enabled: boolean = true) {
       eventSource.addEventListener('ArtistBioFetched', (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data);
-          updateFollowedArtist(data.artist_id, { bio: data.bio });
-          window.dispatchEvent(new CustomEvent('artist_bio_fetched', { detail: data }));
+          emitSSEEvent('ArtistBioFetched', data);
         } catch (error) {
           console.error('Error handling ArtistBioFetched:', error);
         }
@@ -337,25 +274,7 @@ export function useSSE(enabled: boolean = true) {
       eventSource.addEventListener('CatalogAlbumAdded', (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data);
-          // Add the album directly with all data from the event
-          // No GET request needed - everything is pushed via SSE!
-          addCatalogAlbum({
-            id: data.album_id,
-            release_group_mbid: data.release_group_mbid,
-            title: data.album_title,
-            artist_mbid: data.artist_mbid,
-            artist_name: data.artist_name,
-            type: data.album_type,
-            first_release_date: data.first_release_date,
-            cover_url: null, // Will be updated via AlbumCoverFetched event
-            cover_thumbnail_url: null,
-            wanted: data.wanted,
-            matched_cluster_id: null,
-            score: null,
-            quality_profile_id: null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          });
+          emitSSEEvent('CatalogAlbumAdded', data);
         } catch (error) {
           console.error('Error handling CatalogAlbumAdded:', error);
         }
@@ -363,23 +282,12 @@ export function useSSE(enabled: boolean = true) {
 
       eventSource.addEventListener('AlbumCoverFetched', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        // Update the album's cover in the store
-        updateAlbumCover(data.release_group_mbid, data.cover_url, data.thumbnail_url);
+        emitSSEEvent('AlbumCoverFetched', data);
       });
 
       eventSource.addEventListener('CatalogAlbumUpdated', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        // Update the album in the store with fresh metadata
-        updateCatalogAlbum(data.album_id, {
-          title: data.album_title,
-          artist_name: data.artist_name,
-          type: data.album_type,
-          first_release_date: data.first_release_date,
-          quality_profile_id: data.quality_profile_id,
-          wanted: data.quality_profile_id != null,
-        });
-        // Also dispatch a custom event that the Albums page can listen to
-        window.dispatchEvent(new CustomEvent('catalog_album_updated', { detail: data }));
+        emitSSEEvent('CatalogAlbumUpdated', data);
       });
 
       // Config events
@@ -392,47 +300,13 @@ export function useSSE(enabled: boolean = true) {
           setAuthRequired(data.server_auth_enabled);
         }
 
-        // Dispatch custom event for Config page to react to
-        window.dispatchEvent(new CustomEvent('config_updated', { detail: data }));
-
-        // Update stats.library_path whenever config changes
-        if (data.library_path !== undefined) {
-          const currentStats = useAppStore.getState().stats;
-          if (currentStats) {
-            setStats({
-              ...currentStats,
-              library_path: data.library_path,
-            });
-          }
-        }
+        emitSSEEvent('ConfigUpdated', data);
       });
 
       // Download events
       eventSource.addEventListener('DownloadStarted', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        // Add the download to the store if it doesn't exist
-        addDownload({
-          id: data.download_id,
-          catalog_album_id: 0,
-          indexer_name: '',
-          download_url: '',
-          download_client: null,
-          download_client_id: null,
-          title: data.download_title,
-          status: 'downloading',
-          progress: 0,
-          download_path: null,
-          size_bytes: null,
-          quality: null,
-          format: null,
-          seeders: null,
-          error_message: null,
-          queued_at: null,
-          started_at: new Date().toISOString(),
-          completed_at: null,
-          imported_at: null,
-          library_path: null,
-        });
+        emitSSEEvent('DownloadStarted', data);
         // Show in status line
         setCurrentStatus({
           type: 'in_progress',
@@ -443,13 +317,7 @@ export function useSSE(enabled: boolean = true) {
 
       eventSource.addEventListener('DownloadProgress', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        // Update progress in the store (upserts if not exists)
-        updateDownload(data.download_id, {
-          title: data.download_title,
-          progress: data.download_progress * 100, // Convert 0-1 to 0-100
-          size_bytes: data.download_size_bytes,
-          status: 'downloading',
-        });
+        emitSSEEvent('DownloadProgress', data);
         // Update status line with current progress
         setCurrentStatus({
           type: 'in_progress',
@@ -460,14 +328,7 @@ export function useSSE(enabled: boolean = true) {
 
       eventSource.addEventListener('DownloadCompleted', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        // Update status to completed (upserts if not exists)
-        updateDownload(data.download_id, {
-          title: data.download_title,
-          status: 'completed',
-          progress: 100,
-          download_path: data.download_path,
-          completed_at: new Date().toISOString(),
-        });
+        emitSSEEvent('DownloadCompleted', data);
         // Show completion in status line (will auto-clear after timeout)
         setStatusWithTimeout({
           type: 'success',
@@ -477,25 +338,15 @@ export function useSSE(enabled: boolean = true) {
 
       eventSource.addEventListener('DownloadFailed', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        // Update status to failed (upserts if not exists)
-        updateDownload(data.download_id, {
-          title: data.download_title,
-          status: 'failed',
-          error_message: data.download_error,
-        });
+        emitSSEEvent('DownloadFailed', data);
       });
 
       eventSource.addEventListener('DownloadImported', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        // Update status to imported (upserts if not exists)
-        updateDownload(data.download_id, {
-          title: data.download_title,
-          status: 'imported',
-          imported_at: new Date().toISOString(),
-        });
+        emitSSEEvent('DownloadImported', data);
       });
 
-      eventSource.addEventListener('ArtistDiscographyFetched', async (e: MessageEvent) => {
+      eventSource.addEventListener('ArtistDiscographyFetched', (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data);
 
@@ -505,26 +356,21 @@ export function useSSE(enabled: boolean = true) {
             message: `Fetched ${data.release_group_count} albums for ${data.artist_name}`,
           }, 3000);
 
-          // Update artist's last_checked_at if provided in the event
-          if (data.artist_id && data.last_checked_at) {
-            updateFollowedArtist(data.artist_id, {
-              last_checked_at: data.last_checked_at,
-            });
-          }
+          emitSSEEvent('ArtistDiscographyFetched', data);
         } catch (error) {
           console.error('Error handling ArtistDiscographyFetched:', error);
         }
       });
 
-      // Task events - dispatch as window custom events for page-level handling
+      // Task events
       eventSource.addEventListener('TaskCompleted', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        window.dispatchEvent(new CustomEvent('task_completed', { detail: data }));
+        emitSSEEvent('TaskCompleted', data);
       });
 
       eventSource.addEventListener('TaskFailed', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        window.dispatchEvent(new CustomEvent('task_failed', { detail: data }));
+        emitSSEEvent('TaskFailed', data);
       });
 
       // Additional events that don't have specific UI handling

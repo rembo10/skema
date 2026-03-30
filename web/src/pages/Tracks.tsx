@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { TrackWithCluster, Cluster, TracksStats } from '../types/api';
 import { api } from '../lib/api';
 import toast from 'react-hot-toast';
+import { handleApiError } from '../lib/errors';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { RematchModal } from '../components/identification/RematchModal';
 import { TrackEditModal } from '../components/match-viz/TrackEditModal';
 import { PaginationControls } from '../components/PaginationControls';
@@ -42,17 +44,12 @@ export default function Tracks() {
   } | null>(null);
   const [viewingTrack, setViewingTrack] = useState<TrackWithCluster | null>(null);
   const [recordingSearchQuery, setRecordingSearchQuery] = useState('');
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebouncedValue(searchQuery);
 
-  // Debounce search query
+  // Reset offset when search changes
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearchQuery(searchQuery);
-      pagination.resetOffset();
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
+    pagination.resetOffset();
+  }, [debouncedSearchQuery]);
 
   // Load stats once on mount
   useEffect(() => {
@@ -69,8 +66,7 @@ export default function Tracks() {
       const statsResponse = await api.getTracksStats();
       setStats(statsResponse);
     } catch (error) {
-      console.error('Failed to load stats:', error);
-      toast.error('Failed to load stats');
+      handleApiError(error, 'Failed to load stats');
     }
   };
 
@@ -88,8 +84,7 @@ export default function Tracks() {
       setTracks(tracksResponse.tracks);
       pagination.setTotalCount(tracksResponse.pagination.total);
     } catch (error) {
-      console.error('Failed to load tracks:', error);
-      toast.error('Failed to load tracks');
+      handleApiError(error, 'Failed to load tracks');
     } finally {
       setLoading(false);
     }
@@ -135,8 +130,7 @@ export default function Tracks() {
       toast.success(currentLocked ? 'Match unlocked' : 'Match locked');
       loadData();
     } catch (error) {
-      console.error('Failed to toggle lock:', error);
-      toast.error('Failed to toggle lock');
+      handleApiError(error, 'Failed to toggle lock');
     }
   };
 
@@ -147,8 +141,7 @@ export default function Tracks() {
       const clusterData = await api.getCluster(track.cluster_id);
       setSelectedCluster(clusterData.cluster);
     } catch (error) {
-      console.error('Failed to load cluster:', error);
-      toast.error('Failed to load cluster');
+      handleApiError(error, 'Failed to load cluster');
     }
   };
 

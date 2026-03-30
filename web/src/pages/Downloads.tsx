@@ -4,7 +4,9 @@ import { formatBytes, formatDateTime } from '../lib/formatters';
 import type { Download } from '../types/api';
 import { Download as DownloadIcon, Trash2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { handleApiError } from '../lib/errors';
 import { useAppStore } from '../store';
+import { useSSEEvent } from '../hooks/useSSEEvent';
 import { DownloadCardSkeleton } from '../components/LoadingSkeleton';
 import { LoadingState } from '../components/LoadingState';
 import { usePagination } from '../hooks/usePagination';
@@ -14,16 +16,12 @@ import { getDownloadStatusIcon, getDownloadStatusText, getDownloadStatusColor } 
 const ITEMS_PER_PAGE = 50;
 
 export default function Downloads() {
-  // Local state - no longer using store for paginated data
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTab, setSelectedTab] = useState<'active' | 'history'>('active');
   const { offset, totalCount, setTotalCount, nextPage, prevPage } = usePagination(ITEMS_PER_PAGE);
   const connectionStatus = useAppStore((state) => state.connectionStatus);
   const prevConnectionStatus = useRef(connectionStatus);
-
-  // Subscribe to store downloads for live updates
-  const storeDownloads = useAppStore((state) => state.downloads);
 
   // Load downloads on mount and when offset changes
   useEffect(() => {
@@ -33,11 +31,76 @@ export default function Downloads() {
   // Reload downloads when SSE reconnects after disconnection
   useEffect(() => {
     if (prevConnectionStatus.current !== 'connected' && connectionStatus === 'connected') {
-      console.log('[Downloads] SSE reconnected, reloading downloads');
       loadDownloads();
     }
     prevConnectionStatus.current = connectionStatus;
   }, [connectionStatus]);
+
+  // SSE: download started
+  useSSEEvent<{ download_id: number; download_title: string }>('DownloadStarted', (data) => {
+    setDownloads(prev => {
+      if (prev.some(d => d.id === data.download_id)) return prev;
+      const newDownload: Download = {
+        id: data.download_id,
+        catalog_album_id: 0,
+        indexer_name: '',
+        download_url: '',
+        download_client: null,
+        download_client_id: null,
+        title: data.download_title,
+        status: 'downloading',
+        progress: 0,
+        download_path: null,
+        size_bytes: null,
+        quality: null,
+        format: null,
+        seeders: null,
+        error_message: null,
+        queued_at: null,
+        started_at: new Date().toISOString(),
+        completed_at: null,
+        imported_at: null,
+        library_path: null,
+      };
+      return [newDownload, ...prev];
+    });
+  });
+
+  // SSE: download progress
+  useSSEEvent<{ download_id: number; download_title: string; download_progress: number; download_size_bytes: number | null }>('DownloadProgress', (data) => {
+    setDownloads(prev => prev.map(d =>
+      d.id === data.download_id
+        ? { ...d, title: data.download_title, progress: data.download_progress * 100, size_bytes: data.download_size_bytes, status: 'downloading' as const }
+        : d
+    ));
+  });
+
+  // SSE: download completed
+  useSSEEvent<{ download_id: number; download_title: string; download_path: string }>('DownloadCompleted', (data) => {
+    setDownloads(prev => prev.map(d =>
+      d.id === data.download_id
+        ? { ...d, title: data.download_title, status: 'completed' as const, progress: 100, download_path: data.download_path, completed_at: new Date().toISOString() }
+        : d
+    ));
+  });
+
+  // SSE: download failed
+  useSSEEvent<{ download_id: number; download_title: string; download_error: string }>('DownloadFailed', (data) => {
+    setDownloads(prev => prev.map(d =>
+      d.id === data.download_id
+        ? { ...d, title: data.download_title, status: 'failed' as const, error_message: data.download_error }
+        : d
+    ));
+  });
+
+  // SSE: download imported
+  useSSEEvent<{ download_id: number; download_title: string }>('DownloadImported', (data) => {
+    setDownloads(prev => prev.map(d =>
+      d.id === data.download_id
+        ? { ...d, title: data.download_title, status: 'imported' as const, imported_at: new Date().toISOString() }
+        : d
+    ));
+  });
 
   const loadDownloads = async () => {
     try {
@@ -46,28 +109,11 @@ export default function Downloads() {
       setDownloads(response.downloads);
       setTotalCount(response.pagination.total);
     } catch (error) {
-      toast.error('Failed to load downloads');
-      console.error('Error loading downloads:', error);
+      handleApiError(error, 'Failed to load downloads');
     } finally {
       setLoading(false);
     }
   };
-
-  // Merge loaded downloads with store downloads for live updates
-  // API data is the base, store provides real-time updates (progress, status)
-  const mergedDownloads = downloads.map(download => {
-    const storeDownload = storeDownloads.find(d => d.id === download.id);
-    if (storeDownload) {
-      // Merge: use API data as base, override with store's live fields
-      return {
-        ...download,
-        progress: storeDownload.progress,
-        status: storeDownload.status,
-        error_message: storeDownload.error_message || download.error_message,
-      };
-    }
-    return download;
-  });
 
   const handleDelete = async (download: Download) => {
     if (!confirm(`Delete ${download.title} from history?`)) return;
@@ -77,8 +123,7 @@ export default function Downloads() {
       toast.success('Download deleted');
       await loadDownloads();
     } catch (error) {
-      toast.error('Failed to delete download');
-      console.error('Error deleting download:', error);
+      handleApiError(error, 'Failed to delete download');
     }
   };
 
@@ -88,8 +133,7 @@ export default function Downloads() {
       toast.success(`Re-identifying ${download.title}...`);
       await loadDownloads();
     } catch (error) {
-      toast.error('Failed to re-identify download');
-      console.error('Error re-identifying download:', error);
+      handleApiError(error, 'Failed to re-identify download');
     }
   };
 
@@ -99,14 +143,13 @@ export default function Downloads() {
       toast.success(`Retrying ${download.title}...`);
       await loadDownloads();
     } catch (error) {
-      toast.error('Failed to retry download');
-      console.error('Error retrying download:', error);
+      handleApiError(error, 'Failed to retry download');
     }
   };
 
   // Group downloads by status
-  const activeDownloads = mergedDownloads.filter(d => d.status === 'queued' || d.status === 'downloading');
-  const historyDownloads = mergedDownloads.filter(d => d.status !== 'queued' && d.status !== 'downloading');
+  const activeDownloads = downloads.filter(d => d.status === 'queued' || d.status === 'downloading');
+  const historyDownloads = downloads.filter(d => d.status !== 'queued' && d.status !== 'downloading');
 
   const currentDownloads = selectedTab === 'active' ? activeDownloads : historyDownloads;
 

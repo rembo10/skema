@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, GripVertical, X, Check, Star } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../lib/api';
+import { handleApiError } from '../lib/errors';
 import type { QualityProfile, QualityPreference, Quality } from '../types/api';
 import { ProfileCardSkeleton } from '../components/LoadingSkeleton';
 import { LoadingState } from '../components/LoadingState';
@@ -230,8 +231,7 @@ function ProfileModal({ profile, onClose, onSave }: ProfileModalProps) {
       onSave();
       onClose();
     } catch (error) {
-      console.error('Error saving quality profile:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to save quality profile');
+      handleApiError(error, 'Failed to save quality profile');
     } finally {
       setSaving(false);
     }
@@ -372,8 +372,7 @@ function DeleteConfirmModal({ profile, onClose, onConfirm }: DeleteConfirmModalP
       onConfirm();
       onClose();
     } catch (error) {
-      console.error('Error deleting quality profile:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to delete quality profile');
+      handleApiError(error, 'Failed to delete quality profile');
     } finally {
       setDeleting(false);
     }
@@ -425,8 +424,7 @@ export default function QualityProfiles() {
       setProfiles(data);
       setDefaultProfile(defaultProf);
     } catch (error) {
-      console.error('Error loading quality profiles:', error);
-      toast.error('Failed to load quality profiles');
+      handleApiError(error, 'Failed to load quality profiles');
     } finally {
       setLoading(false);
     }
@@ -460,8 +458,7 @@ export default function QualityProfiles() {
       setDefaultProfile(profile);
       toast.success(`${profile.name} set as default quality profile`);
     } catch (error) {
-      console.error('Error setting default profile:', error);
-      toast.error('Failed to set default quality profile');
+      handleApiError(error, 'Failed to set default quality profile');
     }
   };
 

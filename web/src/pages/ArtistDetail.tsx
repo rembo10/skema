@@ -1,43 +1,26 @@
-import { useEffect, useState, useMemo } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatDate, formatTimeAgo } from '../lib/formatters';
 import type { CatalogArtist, CatalogAlbum, QualityProfile } from '../types/api';
 import { Music, ExternalLink, Calendar, ArrowLeft, Disc, UserMinus, AlertCircle, RefreshCw, X, Award } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useAppStore } from '../store';
+import { handleApiError } from '../lib/errors';
+import { useSSEEvent } from '../hooks/useSSEEvent';
+import { ArtistDetailSkeleton } from '../components/LoadingSkeleton';
 
 export default function ArtistDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const catalogAlbums = useAppStore((state) => state.catalogAlbums);
-  const followedArtists = useAppStore((state) => state.followedArtists);
-  const setCatalogAlbums = useAppStore((state) => state.setCatalogAlbums);
-  const updateCatalogAlbum = useAppStore((state) => state.updateCatalogAlbum);
-  const updateFollowedArtist = useAppStore((state) => state.updateFollowedArtist);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
   const [defaultProfile, setDefaultProfile] = useState<QualityProfile | null>(null);
   const [localArtist, setLocalArtist] = useState<CatalogArtist | null>(null);
+  const [albums, setAlbums] = useState<CatalogAlbum[]>([]);
 
-  // Get artist from store or local state
-  const artist = useMemo(() => {
-    if (!id) return null;
-    const artistId = parseInt(id, 10);
-    if (isNaN(artistId)) return null;
-
-    // Prefer the followed artist from the store (always up-to-date)
-    const storeArtist = followedArtists.find(a => a.id === artistId);
-    return storeArtist || localArtist;
-  }, [id, followedArtists, localArtist]);
-
-  // Filter albums for the current artist
-  const albums = useMemo(() => {
-    if (!artist) return [];
-    return catalogAlbums.filter(album => album.artist_mbid === artist.mbid);
-  }, [catalogAlbums, artist]);
+  const artist = localArtist;
 
   useEffect(() => {
     loadArtistData();
@@ -47,17 +30,69 @@ export default function ArtistDetail() {
     loadQualityProfiles();
   }, []);
 
-  // Listen for SSE bio updates to patch local artist state
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail.artist_id === parseInt(id || '', 10)) {
-        setLocalArtist(prev => prev ? { ...prev, bio: detail.bio } : prev);
-      }
-    };
-    window.addEventListener('artist_bio_fetched', handler);
-    return () => window.removeEventListener('artist_bio_fetched', handler);
-  }, [id]);
+  // SSE: bio update for this artist
+  useSSEEvent<{ artist_id: number; bio: string }>('ArtistBioFetched', (data) => {
+    if (data.artist_id === parseInt(id || '', 10)) {
+      setLocalArtist(prev => prev ? { ...prev, bio: data.bio } : prev);
+    }
+  });
+
+  // SSE: new album added — add if matching artist
+  useSSEEvent<{ album_id: number; release_group_mbid: string; album_title: string; artist_mbid: string; artist_name: string; album_type: string | null; first_release_date: string | null; wanted: boolean }>('CatalogAlbumAdded', (data) => {
+    if (!artist || data.artist_mbid !== artist.mbid) return;
+    setAlbums(prev => {
+      if (prev.some(a => a.release_group_mbid === data.release_group_mbid)) return prev;
+      return [...prev, {
+        id: data.album_id,
+        release_group_mbid: data.release_group_mbid,
+        title: data.album_title,
+        artist_mbid: data.artist_mbid,
+        artist_name: data.artist_name,
+        type: data.album_type,
+        first_release_date: data.first_release_date,
+        cover_url: null,
+        cover_thumbnail_url: null,
+        wanted: data.wanted,
+        matched_cluster_id: null,
+        score: null,
+        quality_profile_id: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }];
+    });
+  });
+
+  // SSE: album cover fetched
+  useSSEEvent<{ release_group_mbid: string; cover_url: string; thumbnail_url: string | null }>('AlbumCoverFetched', (data) => {
+    setAlbums(prev => prev.map(a =>
+      a.release_group_mbid === data.release_group_mbid
+        ? { ...a, cover_url: data.cover_url, cover_thumbnail_url: data.thumbnail_url }
+        : a
+    ));
+  });
+
+  // SSE: album updated
+  useSSEEvent<{ album_id: number; album_title: string; artist_name: string; album_type: string | null; first_release_date: string | null; quality_profile_id: number | null }>('CatalogAlbumUpdated', (data) => {
+    setAlbums(prev => prev.map(a =>
+      a.id === data.album_id
+        ? { ...a, title: data.album_title, artist_name: data.artist_name, type: data.album_type, first_release_date: data.first_release_date, quality_profile_id: data.quality_profile_id, wanted: data.quality_profile_id != null }
+        : a
+    ));
+  });
+
+  // SSE: artist discography fetched
+  useSSEEvent<{ artist_id: number; last_checked_at: string }>('ArtistDiscographyFetched', (data) => {
+    if (data.artist_id === parseInt(id || '', 10) && data.last_checked_at) {
+      setLocalArtist(prev => prev ? { ...prev, last_checked_at: data.last_checked_at } : prev);
+    }
+  });
+
+  // SSE: artist image fetched
+  useSSEEvent<{ artist_id: number; image_url: string; thumbnail_url: string | null }>('ArtistImageFetched', (data) => {
+    if (data.artist_id === parseInt(id || '', 10)) {
+      setLocalArtist(prev => prev ? { ...prev, image_url: data.image_url, thumbnail_url: data.thumbnail_url } : prev);
+    }
+  });
 
   // Update document title when artist is loaded
   useEffect(() => {
@@ -75,7 +110,7 @@ export default function ArtistDetail() {
       setQualityProfiles(profiles);
       setDefaultProfile(defaultProf);
     } catch (err) {
-      console.error('Error loading quality profiles:', err);
+      handleApiError(err, 'Failed to load quality profiles');
     }
   };
 
@@ -107,26 +142,14 @@ export default function ArtistDetail() {
       }
 
       // Load albums for this artist using internal ID
-      const albumsData = await api.getCatalogAlbums(undefined, foundArtist.id);
+      const albumsData = await api.getCatalogAlbums(undefined, foundArtist.id ?? undefined);
 
       setLocalArtist(foundArtist);
-
-      // Update the store if this artist is already there (keeps SSE updates flowing)
-      if (foundArtist.followed && foundArtist.id) {
-        useAppStore.getState().updateFollowedArtist(foundArtist.id, foundArtist);
-      }
-
-      // Merge albums into the global store (don't replace all albums, just add new ones)
-      const newAlbums = albumsData.filter(album =>
-        !catalogAlbums.some(a => a.release_group_mbid === album.release_group_mbid)
-      );
-      if (newAlbums.length > 0) {
-        setCatalogAlbums([...catalogAlbums, ...newAlbums]);
-      }
+      setAlbums(albumsData);
     } catch (err) {
-      console.error('Error loading artist data:', err);
-      setError('Failed to load artist data');
-      toast.error('Failed to load artist data');
+      if (!handleApiError(err, 'Failed to load artist data')) {
+        setError('Failed to load artist data');
+      }
     } finally {
       setLoading(false);
     }
@@ -140,8 +163,7 @@ export default function ArtistDetail() {
       toast.success(`Unfollowed ${artist.name}`);
       navigate('/artists');
     } catch (error) {
-      toast.error('Failed to unfollow artist');
-      console.error('Error unfollowing artist:', error);
+      handleApiError(error, 'Failed to unfollow artist');
     }
   };
 
@@ -164,13 +186,14 @@ export default function ArtistDetail() {
 
       await api.updateCatalogAlbum(album.id, profileToUse);
 
-      // Update global store
-      updateCatalogAlbum(album.id, { wanted: newWantedStatus, quality_profile_id: profileToUse });
+      // Update local state
+      setAlbums(prev => prev.map(a =>
+        a.id === album.id ? { ...a, wanted: newWantedStatus, quality_profile_id: profileToUse } : a
+      ));
 
       toast.success(newWantedStatus ? `Added ${album.title} to wanted list` : `Removed ${album.title} from wanted list`);
     } catch (error) {
-      toast.error('Failed to update album status');
-      console.error('Error updating album:', error);
+      handleApiError(error, 'Failed to update album status');
     }
   };
 
@@ -181,13 +204,14 @@ export default function ArtistDetail() {
       const newProfileId = profileId === '' ? null : parseInt(profileId, 10);
       const updatedAlbum = await api.updateCatalogAlbum(album.id, newProfileId);
 
-      // Update global store
-      updateCatalogAlbum(album.id, { quality_profile_id: updatedAlbum.quality_profile_id });
+      // Update local state
+      setAlbums(prev => prev.map(a =>
+        a.id === album.id ? { ...a, quality_profile_id: updatedAlbum.quality_profile_id } : a
+      ));
 
       toast.success(newProfileId === null ? 'Using artist/default quality profile' : 'Album quality profile updated');
     } catch (error) {
-      toast.error('Failed to update quality profile');
-      console.error('Error updating album quality profile:', error);
+      handleApiError(error, 'Failed to update quality profile');
     }
   };
 
@@ -200,8 +224,7 @@ export default function ArtistDetail() {
       toast.success(result.message);
       // New albums, bio, images etc. are all pushed via SSE events
     } catch (error) {
-      toast.error('Failed to refresh catalog');
-      console.error('Error refreshing catalog:', error);
+      handleApiError(error, 'Failed to refresh catalog');
     } finally {
       setRefreshing(false);
     }
@@ -214,9 +237,8 @@ export default function ArtistDetail() {
       const newProfileId = profileId === '' ? null : parseInt(profileId, 10);
       const updatedArtist = await api.updateCatalogArtist(artist.id, artist.followed, newProfileId);
 
-      // Update both local state and the global store
+      // Update local state
       setLocalArtist(updatedArtist);
-      updateFollowedArtist(artist.id, { quality_profile_id: updatedArtist.quality_profile_id });
 
       toast.success(newProfileId === null ? 'Using default quality profile' : 'Quality profile updated');
 
@@ -239,7 +261,9 @@ export default function ArtistDetail() {
                           action: { tag: 'SetQualityProfile', contents: newProfileId },
                         });
                         // Update local album state
-                        albumIds.forEach(id => updateCatalogAlbum(id, { quality_profile_id: newProfileId }));
+                        setAlbums(prev => prev.map(a =>
+                          albumIds.includes(a.id!) ? { ...a, quality_profile_id: newProfileId } : a
+                        ));
                         toast.success(`Updated ${albumIds.length} album${albumIds.length !== 1 ? 's' : ''}`);
                       } catch {
                         toast.error('Failed to update album profiles');
@@ -262,8 +286,7 @@ export default function ArtistDetail() {
         }
       }
     } catch (error) {
-      toast.error('Failed to update quality profile');
-      console.error('Error updating quality profile:', error);
+      handleApiError(error, 'Failed to update quality profile');
     }
   };
 
@@ -295,11 +318,7 @@ export default function ArtistDetail() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-2 border-dark-border border-t-dark-accent"></div>
-      </div>
-    );
+    return <ArtistDetailSkeleton />;
   }
 
   if (error || !artist) {

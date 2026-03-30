@@ -1,15 +1,16 @@
 import { useMemo, memo } from 'react';
 import { Link } from 'react-router-dom';
 import { Music, ExternalLink, ArrowRight } from 'lucide-react';
-import { useAppStore } from '../store';
 import { formatTimeAgo } from '../lib/formatters';
 import { ImageWithFallback } from './ImageWithFallback';
+import type { CatalogArtist } from '../types/api';
 
-function RecentlyFollowedArtistsComponent() {
-  // Purely presentational - just display what's in the store
-  // Artists are loaded via SSE events and by other pages
-  const allArtists = useAppStore((state) => state.followedArtists);
-  const recentArtists = useMemo(() => allArtists.slice(0, 5), [allArtists]);
+interface RecentlyFollowedArtistsProps {
+  artists: CatalogArtist[];
+}
+
+function RecentlyFollowedArtistsComponent({ artists }: RecentlyFollowedArtistsProps) {
+  const recentArtists = useMemo(() => artists.slice(0, 5), [artists]);
 
   // Don't render if no artists
   if (recentArtists.length === 0) {
@@ -49,7 +50,7 @@ function RecentlyFollowedArtistsComponent() {
                   {artist.name}
                 </p>
                 <p className="text-xs text-dark-text-tertiary mt-1">
-                  {formatTimeAgo(artist.created_at)}
+                  {artist.created_at ? formatTimeAgo(artist.created_at) : ''}
                 </p>
               </div>
               <span

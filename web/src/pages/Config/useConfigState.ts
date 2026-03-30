@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { api } from '../../lib/api';
+import { handleApiError } from '../../lib/errors';
+import { useSSEEvent } from '../../hooks/useSSEEvent';
 import type { Config, DownloadClient, Indexer, NotificationProvider, SlskdConfig, DownloadClientType } from '../../types/api';
 
 export type TabId = 'library' | 'system' | 'server' | 'download' | 'indexers' | 'musicbrainz' | 'notifications';
@@ -115,8 +117,7 @@ export function useConfigState(): [ConfigState, ConfigActions] {
         setPasswordChanged(false);
       }
     } catch (error) {
-      console.error('Failed to save config:', error);
-      toast.error('Failed to save configuration');
+      handleApiError(error, 'Failed to save configuration');
     } finally {
       setSaving(false);
     }
@@ -134,32 +135,26 @@ export function useConfigState(): [ConfigState, ConfigActions] {
         setServerPassword('');
         setPasswordChanged(false);
         setLoading(false);
-      } catch (error: unknown) {
-        const err = error as { isAuthError?: boolean };
-        if (!err.isAuthError) {
-          console.error('[Config] Failed to load config:', error);
-          toast.error('Failed to load configuration');
-        }
+      } catch (error) {
+        handleApiError(error, 'Failed to load configuration');
         setLoading(false);
       }
     }
     loadConfig();
 
-    const handleConfigUpdate = ((event: CustomEvent) => {
-      const data = event.detail;
-      console.log('[Config] Received config update:', data);
-      setConfig(data);
-      toast.success('Configuration saved');
-    }) as EventListener;
-
-    window.addEventListener('config_updated', handleConfigUpdate);
     return () => {
-      window.removeEventListener('config_updated', handleConfigUpdate);
       if (autosaveTimerRef.current) {
         clearTimeout(autosaveTimerRef.current);
       }
     };
   }, []);
+
+  // Listen for config updates via SSE event bus
+  useSSEEvent<Config>('ConfigUpdated', (data) => {
+    console.log('[Config] Received config update:', data);
+    setConfig(data);
+    toast.success('Configuration saved');
+  });
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();

@@ -2,16 +2,15 @@ import { useEffect, useState, useMemo } from 'react';
 import { api } from '../lib/api';
 import { formatDate } from '../lib/formatters';
 import type { CatalogAlbum, QualityProfile, CatalogArtist } from '../types/api';
-import { Disc, ExternalLink, Filter, X, Award } from 'lucide-react';
+import { Disc, ExternalLink, Filter, X } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useAppStore } from '../store';
+import { handleApiError } from '../lib/errors';
+import { useSSEEvent } from '../hooks/useSSEEvent';
 import { TableRowSkeleton } from '../components/LoadingSkeleton';
 import { LoadingState } from '../components/LoadingState';
 
 export default function WantedAlbums() {
-  const catalogAlbums = useAppStore((state) => state.catalogAlbums);
-  const setCatalogAlbums = useAppStore((state) => state.setCatalogAlbums);
-  const updateCatalogAlbum = useAppStore((state) => state.updateCatalogAlbum);
+  const [allAlbums, setAllAlbums] = useState<CatalogAlbum[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'title' | 'artist'>('date');
@@ -19,14 +18,56 @@ export default function WantedAlbums() {
   const [defaultProfile, setDefaultProfile] = useState<QualityProfile | null>(null);
   const [artists, setArtists] = useState<CatalogArtist[]>([]);
 
-  // Filter wanted albums from the catalog
+  // Filter wanted albums from the local list
   const albums = useMemo(() => {
-    return catalogAlbums.filter(album => album.wanted);
-  }, [catalogAlbums]);
+    return allAlbums.filter(album => album.wanted);
+  }, [allAlbums]);
 
   useEffect(() => {
     loadData();
   }, []);
+
+  // SSE: new album added
+  useSSEEvent<{ album_id: number; release_group_mbid: string; album_title: string; artist_mbid: string; artist_name: string; album_type: string | null; first_release_date: string | null; wanted: boolean }>('CatalogAlbumAdded', (data) => {
+    setAllAlbums(prev => {
+      if (prev.some(a => a.release_group_mbid === data.release_group_mbid)) return prev;
+      return [...prev, {
+        id: data.album_id,
+        release_group_mbid: data.release_group_mbid,
+        title: data.album_title,
+        artist_mbid: data.artist_mbid,
+        artist_name: data.artist_name,
+        type: data.album_type,
+        first_release_date: data.first_release_date,
+        cover_url: null,
+        cover_thumbnail_url: null,
+        wanted: data.wanted,
+        matched_cluster_id: null,
+        score: null,
+        quality_profile_id: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }];
+    });
+  });
+
+  // SSE: album cover fetched
+  useSSEEvent<{ release_group_mbid: string; cover_url: string; thumbnail_url: string | null }>('AlbumCoverFetched', (data) => {
+    setAllAlbums(prev => prev.map(a =>
+      a.release_group_mbid === data.release_group_mbid
+        ? { ...a, cover_url: data.cover_url, cover_thumbnail_url: data.thumbnail_url }
+        : a
+    ));
+  });
+
+  // SSE: album updated
+  useSSEEvent<{ album_id: number; album_title: string; artist_name: string; album_type: string | null; first_release_date: string | null; quality_profile_id: number | null }>('CatalogAlbumUpdated', (data) => {
+    setAllAlbums(prev => prev.map(a =>
+      a.id === data.album_id
+        ? { ...a, title: data.album_title, artist_name: data.artist_name, type: data.album_type, first_release_date: data.first_release_date, quality_profile_id: data.quality_profile_id, wanted: data.quality_profile_id != null }
+        : a
+    ));
+  });
 
   const loadData = async () => {
     try {
@@ -40,10 +81,9 @@ export default function WantedAlbums() {
       setQualityProfiles(profiles);
       setDefaultProfile(defaultProf);
       setArtists(artistsResponse.artists);
-      setCatalogAlbums(albumsData);
+      setAllAlbums(albumsData);
     } catch (error) {
-      toast.error('Failed to load data');
-      console.error('Error loading data:', error);
+      handleApiError(error, 'Failed to load data');
     } finally {
       setLoading(false);
     }
@@ -56,13 +96,14 @@ export default function WantedAlbums() {
       // Set quality_profile_id = null to unwant (remove from monitoring)
       await api.updateCatalogAlbum(album.id, null);
 
-      // Update global store
-      updateCatalogAlbum(album.id, { wanted: false });
+      // Update local state
+      setAllAlbums(prev => prev.map(a =>
+        a.id === album.id ? { ...a, wanted: false } : a
+      ));
 
       toast.success(`Removed ${album.title} from wanted list`);
     } catch (error) {
-      toast.error('Failed to remove album from wanted list');
-      console.error('Error unwanting album:', error);
+      handleApiError(error, 'Failed to remove album from wanted list');
     }
   };
 
@@ -73,13 +114,14 @@ export default function WantedAlbums() {
       const newProfileId = profileId === '' ? null : parseInt(profileId, 10);
       const updatedAlbum = await api.updateCatalogAlbum(album.id, newProfileId);
 
-      // Update global store
-      updateCatalogAlbum(album.id, { quality_profile_id: updatedAlbum.quality_profile_id });
+      // Update local state
+      setAllAlbums(prev => prev.map(a =>
+        a.id === album.id ? { ...a, quality_profile_id: updatedAlbum.quality_profile_id } : a
+      ));
 
       toast.success(newProfileId === null ? 'Using artist/default quality profile' : 'Album quality profile updated');
     } catch (error) {
-      toast.error('Failed to update quality profile');
-      console.error('Error updating album quality profile:', error);
+      handleApiError(error, 'Failed to update quality profile');
     }
   };
 
@@ -141,7 +183,7 @@ export default function WantedAlbums() {
           {/* Sort */}
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
+            onChange={(e) => setSortBy(e.target.value as 'date' | 'title' | 'artist')}
             className="input"
           >
             <option value="date">Sort by Release Date</option>

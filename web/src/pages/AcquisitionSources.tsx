@@ -3,6 +3,8 @@ import { api } from '../lib/api';
 import type { AcquisitionSource, AcquisitionSummary } from '../types/api';
 import { Settings, CheckCircle, XCircle, Users, Music, Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { handleApiError } from '../lib/errors';
+import { useSSEEvent } from '../hooks/useSSEEvent';
 import { SourceModal, type SourceFormData } from '../components/SourceModal';
 import { SourceCardSkeleton } from '../components/LoadingSkeleton';
 import { LoadingState } from '../components/LoadingState';
@@ -29,39 +31,27 @@ export default function AcquisitionSources() {
     });
   }, []);
 
-  // Listen for task completion/failure via window custom events (dispatched by useSSE)
-  useEffect(() => {
-    const handleComplete = (e: Event) => {
-      const data = (e as CustomEvent).detail as { task_id: string; result?: { albums_added?: number } };
-      const sourceId = pendingTasksRef.current.get(data.task_id);
-      if (sourceId === undefined) return;
+  // Listen for task completion/failure via SSE event bus
+  useSSEEvent<{ task_id: string; result?: { albums_added?: number } }>('TaskCompleted', (data) => {
+    const sourceId = pendingTasksRef.current.get(data.task_id);
+    if (sourceId === undefined) return;
 
-      pendingTasksRef.current.delete(data.task_id);
-      clearEvaluating(sourceId);
+    pendingTasksRef.current.delete(data.task_id);
+    clearEvaluating(sourceId);
 
-      const albumCount = data.result?.albums_added ?? 0;
-      toast.success(`Check complete: ${albumCount} album${albumCount !== 1 ? 's' : ''} added`);
-    };
+    const albumCount = data.result?.albums_added ?? 0;
+    toast.success(`Check complete: ${albumCount} album${albumCount !== 1 ? 's' : ''} added`);
+  });
 
-    const handleFailed = (e: Event) => {
-      const data = (e as CustomEvent).detail as { task_id: string; error?: string };
-      const sourceId = pendingTasksRef.current.get(data.task_id);
-      if (sourceId === undefined) return;
+  useSSEEvent<{ task_id: string; error?: string }>('TaskFailed', (data) => {
+    const sourceId = pendingTasksRef.current.get(data.task_id);
+    if (sourceId === undefined) return;
 
-      pendingTasksRef.current.delete(data.task_id);
-      clearEvaluating(sourceId);
+    pendingTasksRef.current.delete(data.task_id);
+    clearEvaluating(sourceId);
 
-      toast.error(`Evaluation failed: ${data.error ?? 'Unknown error'}`);
-    };
-
-    window.addEventListener('task_completed', handleComplete);
-    window.addEventListener('task_failed', handleFailed);
-
-    return () => {
-      window.removeEventListener('task_completed', handleComplete);
-      window.removeEventListener('task_failed', handleFailed);
-    };
-  }, [clearEvaluating]);
+    toast.error(`Evaluation failed: ${data.error ?? 'Unknown error'}`);
+  });
 
   const loadData = async () => {
     try {
@@ -73,8 +63,7 @@ export default function AcquisitionSources() {
       setSources(sourcesData);
       setSummary(summaryData);
     } catch (error) {
-      toast.error('Failed to load acquisition sources');
-      console.error('Error loading sources:', error);
+      handleApiError(error, 'Failed to load acquisition sources');
     } finally {
       setLoading(false);
     }
@@ -103,8 +92,7 @@ export default function AcquisitionSources() {
         )
       );
     } catch (error) {
-      console.error('Failed to toggle source:', error);
-      toast.error('Failed to update source');
+      handleApiError(error, 'Failed to update source');
     }
   };
 
@@ -144,8 +132,7 @@ export default function AcquisitionSources() {
       // Reload data to reflect changes
       await loadData();
     } catch (error) {
-      console.error('Failed to save source:', error);
-      toast.error('Failed to save source');
+      handleApiError(error, 'Failed to save source');
       throw error; // Re-throw so modal can handle it
     }
   };
@@ -161,8 +148,7 @@ export default function AcquisitionSources() {
       // Reload data to reflect changes
       await loadData();
     } catch (error) {
-      console.error('Failed to delete source:', error);
-      toast.error('Failed to delete source');
+      handleApiError(error, 'Failed to delete source');
     }
   };
 
@@ -172,8 +158,7 @@ export default function AcquisitionSources() {
       const task = await api.evaluateAcquisitionSource(sourceId);
       pendingTasksRef.current.set(task.id, sourceId);
     } catch (error) {
-      console.error('Failed to start evaluation:', error);
-      toast.error('Failed to start evaluation');
+      handleApiError(error, 'Failed to start evaluation');
       setEvaluatingSourceIds(prev => {
         const next = new Set(prev);
         next.delete(sourceId);

@@ -4,18 +4,18 @@ import { Link } from 'react-router-dom';
 import { FileAudio, HardDrive, Clock, Disc, Mic, AlertTriangle, RefreshCw, RotateCcw } from 'lucide-react';
 import { api } from '../lib/api';
 import { formatBytes, formatDuration } from '../lib/formatters';
-import { useAppStore } from '../store';
+import { handleApiError } from '../lib/errors';
+import { useSSEEvent } from '../hooks/useSSEEvent';
 import { RecentlyFollowedArtists } from '../components/RecentlyFollowedArtists';
 import { RecentlyReleasedAlbums } from '../components/RecentlyReleasedAlbums';
 import { DashboardSkeleton } from '../components/LoadingSkeleton';
 import { UpcomingAlbums } from '../components/UpcomingAlbums';
 import { WantedAlbumsSummary } from '../components/WantedAlbumsSummary';
+import type { LibraryStats, CatalogArtist } from '../types/api';
 
 export default function Dashboard() {
-  // Read state from Zustand
-  const stats = useAppStore((state) => state.stats);
-  const followedArtists = useAppStore((state) => state.followedArtists);
-
+  const [stats, setStats] = useState<LibraryStats | null>(null);
+  const [followedArtists, setFollowedArtists] = useState<CatalogArtist[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [forceScanning, setForceScanning] = useState(false);
@@ -24,31 +24,72 @@ export default function Dashboard() {
   useEffect(() => {
     async function loadData() {
       try {
-        // Load stats and artists in parallel
         const [statsData, artistsResponse] = await Promise.all([
           api.getStats(),
-          followedArtists.length === 0 ? api.getCatalogArtists(0, 1000, true) : Promise.resolve({ artists: [], pagination: { total: 0, offset: 0, limit: 0 } })
+          api.getCatalogArtists(0, 1000, true),
         ]);
 
-        useAppStore.getState().setStats(statsData);
-
-        // Only set artists if we loaded them (not already in store)
-        if (artistsResponse.artists.length > 0) {
-          useAppStore.getState().setFollowedArtists(artistsResponse.artists);
-        }
-
+        setStats(statsData);
+        setFollowedArtists(artistsResponse.artists);
         setLoading(false);
-      } catch (error: any) {
-        // Don't log 401 errors - they're expected when auth is required
-        if (!error.isAuthError) {
-          console.error('Failed to load data:', error);
-        }
+      } catch (error) {
+        handleApiError(error, 'Failed to load data');
         setLoading(false);
-        // 401 will trigger redirect via global unauthorized event handler
       }
     }
     loadData();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
+
+  // SSE: new artist followed
+  useSSEEvent<{ artist_id: number; artist_mbid: string; artist_name: string; cluster_id: number }>('TrackedArtistAdded', (data) => {
+    const artistData: CatalogArtist = {
+      id: data.artist_id,
+      mbid: data.artist_mbid,
+      name: data.artist_name,
+      type: null,
+      image_url: null,
+      thumbnail_url: null,
+      bio: null,
+      followed: true,
+      quality_profile_id: null,
+      added_by_source_id: 0,
+      source_cluster_id: data.cluster_id,
+      last_checked_at: null,
+      score: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      albums: null,
+    };
+    setFollowedArtists(prev => {
+      if (prev.some(a => a.mbid === artistData.mbid)) return prev;
+      return [artistData, ...prev];
+    });
+  });
+
+  // SSE: artist image fetched
+  useSSEEvent<{ artist_id: number; image_url: string; thumbnail_url: string | null }>('ArtistImageFetched', (data) => {
+    setFollowedArtists(prev => prev.map(a =>
+      a.id === data.artist_id
+        ? { ...a, image_url: data.image_url, thumbnail_url: data.thumbnail_url }
+        : a
+    ));
+  });
+
+  // SSE: stats updated — merge to preserve library_path
+  useSSEEvent<Partial<LibraryStats>>('StatsUpdated', (data) => {
+    setStats(prev => ({
+      ...prev!,
+      ...data,
+      library_path: data.library_path ?? prev?.library_path ?? null,
+    }));
+  });
+
+  // SSE: config updated — update library_path in stats
+  useSSEEvent<{ library_path?: string }>('ConfigUpdated', (data) => {
+    if (data.library_path !== undefined) {
+      setStats(prev => prev ? { ...prev, library_path: data.library_path! } : prev);
+    }
+  });
 
   const startScan = useCallback(async () => {
     setScanning(true);
@@ -60,9 +101,7 @@ export default function Dashboard() {
         toast.error(result.message || 'Failed to start library scan');
       }
     } catch (error) {
-      console.error('Failed to start scan:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to start library scan';
-      toast.error(errorMessage);
+      handleApiError(error, 'Failed to start library scan');
     } finally {
       setScanning(false);
     }
@@ -78,9 +117,7 @@ export default function Dashboard() {
         toast.error(result.message || 'Failed to start force re-scan');
       }
     } catch (error) {
-      console.error('Failed to start force scan:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to start force re-scan';
-      toast.error(errorMessage);
+      handleApiError(error, 'Failed to start force re-scan');
     } finally {
       setForceScanning(false);
     }
@@ -278,7 +315,7 @@ export default function Dashboard() {
       </div>
 
       {/* Recently followed artists */}
-      <RecentlyFollowedArtists />
+      <RecentlyFollowedArtists artists={followedArtists} />
 
       {/* Wanted Albums and Upcoming Albums */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
