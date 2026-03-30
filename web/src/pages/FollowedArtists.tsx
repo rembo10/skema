@@ -48,10 +48,10 @@ export default function FollowedArtists() {
   });
 
   // SSE: album updated
-  useSSEEvent<{ album_id: number; album_title: string; artist_name: string; album_type: string | null; first_release_date: string | null; quality_profile_id: number | null }>('CatalogAlbumUpdated', (data) => {
+  useSSEEvent<{ album_id: number; album_title: string; artist_name: string; album_type: string | null; first_release_date: string | null; quality_profile_id: number | null; current_quality: string | null }>('CatalogAlbumUpdated', (data) => {
     setAlbums(prev => prev.map(a =>
       a.id === data.album_id
-        ? { ...a, title: data.album_title, artist_name: data.artist_name, type: data.album_type, first_release_date: data.first_release_date, quality_profile_id: data.quality_profile_id, wanted: data.quality_profile_id != null }
+        ? { ...a, title: data.album_title, artist_name: data.artist_name, type: data.album_type, first_release_date: data.first_release_date, quality_profile_id: data.quality_profile_id, current_quality: data.current_quality, wanted: data.quality_profile_id != null }
         : a
     ));
   });
@@ -86,6 +86,7 @@ export default function FollowedArtists() {
           wanted: album.wanted,
           quality_profile_id: album.quality_profile_id,
           matched_cluster_id: album.matched_cluster_id,
+          current_quality: album.current_quality,
           score: null,
           created_at: album.created_at,
           updated_at: album.updated_at,
@@ -217,7 +218,7 @@ export default function FollowedArtists() {
             {displayedArtists.map((artist) => {
             const artistAlbums = getAlbumsForArtist(artist.mbid);
             const wantedCount = artistAlbums.filter(a => a.wanted).length;
-            const inLibraryCount = artistAlbums.filter(a => a.matched_cluster_id !== null).length;
+            const inLibraryCount = artistAlbums.filter(a => a.current_quality !== null).length;
 
             return (
               <div
@@ -311,7 +312,7 @@ export default function FollowedArtists() {
                             <span className="truncate text-dark-text flex-1" title={album.title}>
                               {album.title}
                             </span>
-                            {album.matched_cluster_id && (
+                            {album.current_quality && (
                               <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap bg-dark-success-muted text-dark-success border border-dark-success/30">
                                 in library
                               </span>

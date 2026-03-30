@@ -54,6 +54,7 @@ export default function ArtistDetail() {
         cover_thumbnail_url: null,
         wanted: data.wanted,
         matched_cluster_id: null,
+        current_quality: null,
         score: null,
         quality_profile_id: null,
         created_at: new Date().toISOString(),
@@ -72,10 +73,10 @@ export default function ArtistDetail() {
   });
 
   // SSE: album updated
-  useSSEEvent<{ album_id: number; album_title: string; artist_name: string; album_type: string | null; first_release_date: string | null; quality_profile_id: number | null }>('CatalogAlbumUpdated', (data) => {
+  useSSEEvent<{ album_id: number; album_title: string; artist_name: string; album_type: string | null; first_release_date: string | null; quality_profile_id: number | null; current_quality: string | null }>('CatalogAlbumUpdated', (data) => {
     setAlbums(prev => prev.map(a =>
       a.id === data.album_id
-        ? { ...a, title: data.album_title, artist_name: data.artist_name, type: data.album_type, first_release_date: data.first_release_date, quality_profile_id: data.quality_profile_id, wanted: data.quality_profile_id != null }
+        ? { ...a, title: data.album_title, artist_name: data.artist_name, type: data.album_type, first_release_date: data.first_release_date, quality_profile_id: data.quality_profile_id, current_quality: data.current_quality, wanted: data.quality_profile_id != null }
         : a
     ));
   });
@@ -344,7 +345,7 @@ export default function ArtistDetail() {
 
   const albumStats = {
     total: albums.length,
-    inLibrary: albums.filter(a => a.matched_cluster_id !== null).length,
+    inLibrary: albums.filter(a => a.current_quality !== null).length,
     wanted: albums.filter(a => a.wanted).length,
   };
 
@@ -560,7 +561,7 @@ export default function ArtistDetail() {
                       </div>
 
                       {/* Status Badge */}
-                      {album.matched_cluster_id && (
+                      {album.current_quality && (
                         <div className="absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-medium bg-dark-success text-dark-bg">
                           In Library
                         </div>
@@ -588,7 +589,7 @@ export default function ArtistDetail() {
                       {/* Actions */}
                       <div className="mt-3 space-y-2">
                         <div className="flex gap-2">
-                          {!album.matched_cluster_id && (
+                          {!album.current_quality && (
                             <button
                               onClick={() => handleToggleWanted(album)}
                               className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center justify-center gap-1.5 ${

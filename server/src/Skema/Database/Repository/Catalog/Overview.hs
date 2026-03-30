@@ -129,7 +129,6 @@ getCatalogAlbumsOverview conn query = do
         \  ca.album_cover_thumbnail_url, \
         \  CASE \
         \    WHEN ca.quality_profile_id IS NULL THEN 0 \
-        \    WHEN c.id IS NULL THEN 1 \
         \    WHEN ca.current_quality IS NULL THEN 1 \
         \    WHEN qp.cutoff_quality IS NULL THEN 0 \
         \    ELSE CASE \
@@ -205,7 +204,6 @@ getCatalogAlbumsOverview conn query = do
                          \  ca.album_cover_thumbnail_url, \
                          \  CASE \
                          \    WHEN ca.quality_profile_id IS NULL THEN 0 \
-                         \    WHEN c.id IS NULL THEN 1 \
                          \    WHEN ca.current_quality IS NULL THEN 1 \
                          \    WHEN qp.cutoff_quality IS NULL THEN 0 \
                          \    ELSE CASE \
@@ -234,15 +232,15 @@ getCatalogAlbumsOverview conn query = do
                          \  CURRENT_TIMESTAMP AS updated_at, \
                          \  NULL AS imported_at, \
                          \  CASE \
-                         \    WHEN ca.quality_profile_id IS NULL AND c.id IS NULL THEN 'NotWanted' \
-                         \    WHEN ca.quality_profile_id IS NULL AND c.id IS NOT NULL THEN 'InLibrary' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NULL THEN 'Wanted' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failure' THEN 'IdentificationFailed' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
+                         \    WHEN ca.quality_profile_id IS NULL AND ca.current_quality IS NULL THEN 'NotWanted' \
+                         \    WHEN ca.quality_profile_id IS NULL AND ca.current_quality IS NOT NULL THEN 'InLibrary' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NULL THEN 'Wanted' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failure' THEN 'IdentificationFailed' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
                          \    ELSE 'Wanted' \
                          \  END AS computed_state \
                          \FROM catalog_albums ca \
@@ -293,22 +291,21 @@ getCatalogAlbumsOverviewCount conn query = do
           let subquery = "SELECT COUNT(*) FROM (\
                          \SELECT ca.id, \
                          \  CASE \
-                         \    WHEN ca.quality_profile_id IS NULL AND c.id IS NULL THEN 'NotWanted' \
-                         \    WHEN ca.quality_profile_id IS NULL AND c.id IS NOT NULL THEN 'InLibrary' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NULL THEN 'Wanted' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failure' THEN 'IdentificationFailed' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
+                         \    WHEN ca.quality_profile_id IS NULL AND ca.current_quality IS NULL THEN 'NotWanted' \
+                         \    WHEN ca.quality_profile_id IS NULL AND ca.current_quality IS NOT NULL THEN 'InLibrary' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NULL THEN 'Wanted' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failure' THEN 'IdentificationFailed' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
+                         \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
                          \    ELSE 'Wanted' \
                          \  END AS computed_state \
                          \FROM catalog_albums ca \
                          \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
                          \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
                          \  AND d_active.id = (SELECT MAX(d2.id) FROM downloads d2 WHERE d2.catalog_album_id = ca.id AND d2.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure')) \
-                         \LEFT JOIN clusters c ON c.mb_release_group_id = ca.release_group_mbid \
                          \WHERE 1=1 " <> whereClause <> ") sub WHERE computed_state IN (" <> T.intercalate "," (replicate (length states) "?") <> ")"
               stateParams = map toField states
           in (subquery, params <> stateParams)
@@ -350,7 +347,6 @@ getCatalogAlbumsByArtistOverview conn artistId = do
         \  ca.album_cover_thumbnail_url, \
         \  CASE \
         \    WHEN ca.quality_profile_id IS NULL THEN 0 \
-        \    WHEN c.id IS NULL THEN 1 \
         \    WHEN ca.current_quality IS NULL THEN 1 \
         \    WHEN qp.cutoff_quality IS NULL THEN 0 \
         \    ELSE CASE \
@@ -414,27 +410,21 @@ getCatalogAlbumsStatsByState conn maybeArtistId maybeSearch maybeReleaseDateAfte
         "SELECT computed_state, COUNT(*) as cnt FROM ( \
         \SELECT \
         \  CASE \
-        \    WHEN ca.quality_profile_id IS NULL AND c.id IS NULL THEN 'NotWanted' \
-        \    WHEN ca.quality_profile_id IS NULL AND c.id IS NOT NULL THEN 'InLibrary' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NULL THEN 'Wanted' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failure' THEN 'IdentificationFailed' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
+        \    WHEN ca.quality_profile_id IS NULL AND ca.current_quality IS NULL THEN 'NotWanted' \
+        \    WHEN ca.quality_profile_id IS NULL AND ca.current_quality IS NOT NULL THEN 'InLibrary' \
+        \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NULL THEN 'Wanted' \
+        \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
+        \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
+        \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
+        \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failure' THEN 'IdentificationFailed' \
+        \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
+        \    WHEN ca.quality_profile_id IS NOT NULL AND ca.current_quality IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
         \    ELSE 'Wanted' \
         \  END AS computed_state \
         \FROM catalog_albums ca \
         \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
         \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
         \  AND d_active.id = (SELECT MAX(d2.id) FROM downloads d2 WHERE d2.catalog_album_id = ca.id AND d2.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure')) \
-        \LEFT JOIN ( \
-        \  SELECT mb_release_group_id, MIN(id) as id \
-        \  FROM clusters \
-        \  WHERE mb_release_group_id IS NOT NULL \
-        \  GROUP BY mb_release_group_id \
-        \) c ON c.mb_release_group_id = ca.release_group_mbid \
         \WHERE 1=1 " <> whereClause <> "\
         \) sub \
         \GROUP BY computed_state"

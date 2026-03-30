@@ -30,6 +30,8 @@ import Skema.Database.Repository
 import Skema.Database.Types (DownloadRecord(..), CatalogAlbumRecord(..))
 import qualified Skema.Database.Types as DB
 import Skema.Database.Utils (downloadStatusToText)
+import Skema.Domain.Quality (textToQuality, QualityProfile(..))
+import qualified Skema.Domain.Catalog as Core
 import Skema.FileSystem.PathFormatter (PathContext(..), formatPath, truncateFileName)
 import Skema.FileSystem.Utils (moveFile, osPathToString, stringToOsPath)
 import Skema.FileSystem.Trash (moveToTrash)
@@ -524,19 +526,18 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
                 maybeCluster <- liftIO $ withConnection pool $ \conn ->
                   getClusterById conn clusterId
 
-                let maybeQualityText = maybeCluster >>= DB.clusterQuality
+                -- Default to "unknown" so current_quality IS NOT NULL signals "in library"
+                let qualityText = fromMaybe "unknown" (maybeCluster >>= DB.clusterQuality)
 
                 -- Update catalog_albums.current_quality from cluster
+                -- Use catalog album ID directly (not cluster MBID) because MusicBrainz
+                -- may identify the content as a different release group than expected
+                let catalogAlbumId = fromMaybe 0 (DB.catalogAlbumId catalogAlbum)
                 liftIO $ withConnection pool $ \conn ->
                   executeQuery conn
                     "UPDATE catalog_albums SET current_quality = ?, updated_at = CURRENT_TIMESTAMP \
-                    \WHERE release_group_mbid = (SELECT mb_release_group_id FROM clusters WHERE id = ?)"
-                    (maybeQualityText, clusterId)
-
-                -- The current_quality is already updated above (step 14)
-                -- The wanted status will be automatically derived from:
-                -- quality_profile_id + current_quality + matched_cluster_id
-                -- The acquisition system will check if upgrades are still needed
+                    \WHERE id = ?"
+                    (qualityText, catalogAlbumId)
 
                 -- 15. Mark download as imported
                 now <- liftIO getCurrentTime
@@ -550,6 +551,35 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
                   { downloadId = fromMaybe 0 (DB.downloadId downloadRec)
                   , downloadTitle = DB.downloadTitle downloadRec
                   }
+
+                -- 17. Emit CatalogAlbumUpdated so the UI updates in real time
+                -- Re-read the album to get the updated current_quality
+                updatedAlbum <- liftIO $ withConnection pool $ \conn ->
+                  getCatalogAlbumById conn catalogAlbumId
+                forM_ updatedAlbum $ \album -> do
+                  -- Look up quality profile for state computation
+                  maybeProfile <- liftIO $ getEffectiveQualityProfile pool catalogAlbumId
+                  let albumState = Core.computeAlbumState Core.AlbumContext
+                        { Core.acQualityProfile = maybeProfile
+                        , Core.acCurrentQuality = DB.catalogAlbumCurrentQuality album >>= textToQuality
+                        , Core.acInLibrary = True  -- Just imported, definitely in library
+                        , Core.acActiveDownloadStatus = Nothing  -- Download is now imported
+                        }
+                  liftIO $ publishAndLog bus le "importer" $ CatalogAlbumUpdated
+                    { updatedAlbumId = catalogAlbumId
+                    , updatedAlbumReleaseGroupMBID = DB.catalogAlbumReleaseGroupMBID album
+                    , updatedAlbumTitle = DB.catalogAlbumTitle album
+                    , updatedAlbumArtistMBID = DB.catalogAlbumArtistMBID album
+                    , updatedAlbumArtistName = DB.catalogAlbumArtistName album
+                    , updatedAlbumType = DB.catalogAlbumType album
+                    , updatedAlbumFirstReleaseDate = DB.catalogAlbumFirstReleaseDate album
+                    , updatedAlbumState = Core.albumStateToText albumState
+                    , updatedAlbumCurrentQuality = DB.catalogAlbumCurrentQuality album
+                    , updatedAlbumQualityProfileId = DB.catalogAlbumQualityProfileId album
+                    , updatedAlbumQualityProfileName = fmap qfName maybeProfile
+                    , updatedAlbumCoverUrl = DB.catalogAlbumCoverUrl album
+                    , updatedAlbumCoverThumbnailUrl = DB.catalogAlbumCoverThumbnailUrl album
+                    }
 
                 $(logTM) InfoS $ logStr ("Import completed successfully" :: Text)
 

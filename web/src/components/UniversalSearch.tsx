@@ -315,7 +315,7 @@ export default function UniversalSearch() {
                               • {album.first_release_date.slice(0, 4)}
                             </span>
                           )}
-                          {album.matched_cluster_id && (
+                          {album.current_quality && (
                             <span className="ml-2 text-dark-success">
                               • In Library
                             </span>

@@ -468,7 +468,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
             , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
             , catalogAlbumResponseWanted = wanted
-            , catalogAlbumResponseMatchedClusterId = Nothing  -- No longer stored, derived from current_quality
+            , catalogAlbumResponseMatchedClusterId = Nothing
+            , catalogAlbumResponseCurrentQuality = DBTypes.catalogAlbumCurrentQuality album
             , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
             , catalogAlbumResponseScore = Nothing
             , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
@@ -623,7 +624,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
                 , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
                 , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
                 , catalogAlbumResponseWanted = wanted
-                , catalogAlbumResponseMatchedClusterId = Nothing  -- No longer stored, derived from current_quality
+                , catalogAlbumResponseMatchedClusterId = Nothing
+            , catalogAlbumResponseCurrentQuality = DBTypes.catalogAlbumCurrentQuality album
                 , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
                 , catalogAlbumResponseScore = Nothing
                 , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
@@ -718,7 +720,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           context = Core.AlbumContext
             { Core.acQualityProfile = maybeProfile
             , Core.acCurrentQuality = DB.caorCurrentQuality row >>= textToQuality
-            , Core.acInLibrary = isJust (DB.caorMatchedClusterId row)
+            , Core.acInLibrary = isJust (DB.caorCurrentQuality row)
             , Core.acActiveDownloadStatus = DB.caorActiveDownloadStatus row
             }
       in Core.computeAlbumState context
@@ -925,7 +927,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
                     , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
                     , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
                     , catalogAlbumResponseWanted = wanted
-                    , catalogAlbumResponseMatchedClusterId = Nothing  -- No longer stored, derived from current_quality
+                    , catalogAlbumResponseMatchedClusterId = Nothing
+            , catalogAlbumResponseCurrentQuality = DBTypes.catalogAlbumCurrentQuality album
                     , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
                     , catalogAlbumResponseScore = Nothing
                     , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)

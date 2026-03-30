@@ -114,6 +114,7 @@ mbReleaseGroupSearchToCatalogResponse searchResult maybeCatalogRecord =
     , catalogAlbumResponseCoverThumbnailUrl = maybeCatalogRecord >>= DBTypes.catalogAlbumCoverThumbnailUrl
     , catalogAlbumResponseWanted = maybe False (isJust . DBTypes.catalogAlbumQualityProfileId) maybeCatalogRecord
     , catalogAlbumResponseMatchedClusterId = Nothing  -- Set by handler via cluster lookup
+    , catalogAlbumResponseCurrentQuality = maybeCatalogRecord >>= DBTypes.catalogAlbumCurrentQuality
     , catalogAlbumResponseQualityProfileId = maybeCatalogRecord >>= DBTypes.catalogAlbumQualityProfileId
     , catalogAlbumResponseScore = Just (mbrgsScore searchResult)
     , catalogAlbumResponseCreatedAt = maybeCatalogRecord >>= DBTypes.catalogAlbumCreatedAt >>= (Just . show)

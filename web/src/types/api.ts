@@ -400,6 +400,7 @@ export interface CatalogAlbum {
   wanted: boolean;
   quality_profile_id: number | null; // Quality profile for this album (overrides artist/global default)
   matched_cluster_id: number | null;
+  current_quality: string | null; // Non-null means album is in library
   score: number | null; // MusicBrainz search score (0-100), present in search results
   created_at: string | null;
   updated_at: string | null;

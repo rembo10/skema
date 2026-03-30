@@ -186,6 +186,8 @@ data CatalogAlbumResponse = CatalogAlbumResponse
     -- ^ Whether user wants this album
   , catalogAlbumResponseMatchedClusterId :: Maybe Int64
     -- ^ ID of matched cluster in library (if any)
+  , catalogAlbumResponseCurrentQuality :: Maybe Text
+    -- ^ Current quality in library (non-null means album is in library)
   , catalogAlbumResponseQualityProfileId :: Maybe Int64
     -- ^ Quality profile ID for this album (Nothing = use artist/default)
   , catalogAlbumResponseScore :: Maybe Int
