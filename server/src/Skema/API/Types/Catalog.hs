@@ -121,6 +121,7 @@ data CatalogArtistResponse = CatalogArtistResponse
     -- ^ Artist type (e.g., "Person", "Group")
   , catalogArtistResponseImageUrl :: Maybe Text
   , catalogArtistResponseThumbnailUrl :: Maybe Text
+  , catalogArtistResponseBio :: Maybe Text
   , catalogArtistResponseFollowed :: Bool
     -- ^ Whether user follows this artist
   , catalogArtistResponseQualityProfileId :: Maybe Int64

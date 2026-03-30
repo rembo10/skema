@@ -570,6 +570,19 @@ runIncrementalMigrations le conn = do
         recordMigration conn "010_add_source_last_seen_url"
       $(logTM) InfoS "Completed migration: 010_add_source_last_seen_url"
 
+    -- Migration 011: Add bio column to catalog_artists for Last.fm artist biographies
+    applied011 <- liftIO $ migrationApplied conn "011_add_artist_bio"
+    unless applied011 $ do
+      $(logTM) InfoS "Running migration: 011_add_artist_bio"
+      liftIO $ do
+        bioExists <- columnExists conn "catalog_artists" "bio"
+        unless bioExists $
+          executeQuery_ conn
+            "ALTER TABLE catalog_artists ADD COLUMN bio TEXT"
+
+        recordMigration conn "011_add_artist_bio"
+      $(logTM) InfoS "Completed migration: 011_add_artist_bio"
+
 -- | Normalize text for search by:
 -- 1. Decomposing accented characters (NFD normalization)
 -- 2. Removing diacritical marks
@@ -757,6 +770,7 @@ createSchema conn = do
     \  source_cluster_id INTEGER REFERENCES clusters(id) ON DELETE SET NULL, \
     \  last_checked_at TIMESTAMP, \
     \  quality_profile_id INTEGER REFERENCES quality_profiles(id) ON DELETE SET NULL, \
+    \  bio TEXT, \
     \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
     \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
     \)"

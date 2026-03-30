@@ -207,6 +207,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             , catalogArtistResponseType = DBTypes.catalogArtistType artist
             , catalogArtistResponseImageUrl = DBTypes.catalogArtistImageUrl artist
             , catalogArtistResponseThumbnailUrl = DBTypes.catalogArtistThumbnailUrl artist
+            , catalogArtistResponseBio = DBTypes.catalogArtistBio artist
             , catalogArtistResponseFollowed = DBTypes.catalogArtistFollowed artist
             , catalogArtistResponseQualityProfileId = DBTypes.catalogArtistQualityProfileId artist
             , catalogArtistResponseScore = Nothing  -- No score in database records
@@ -255,6 +256,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             , catalogArtistResponseType = DBTypes.catalogArtistType artist
             , catalogArtistResponseImageUrl = DBTypes.catalogArtistImageUrl artist
             , catalogArtistResponseThumbnailUrl = DBTypes.catalogArtistThumbnailUrl artist
+            , catalogArtistResponseBio = DBTypes.catalogArtistBio artist
             , catalogArtistResponseFollowed = DBTypes.catalogArtistFollowed artist
             , catalogArtistResponseQualityProfileId = DBTypes.catalogArtistQualityProfileId artist
             , catalogArtistResponseScore = Nothing
@@ -319,6 +321,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           , catalogArtistResponseType = DBTypes.catalogArtistType artist
           , catalogArtistResponseImageUrl = DBTypes.catalogArtistImageUrl artist
           , catalogArtistResponseThumbnailUrl = DBTypes.catalogArtistThumbnailUrl artist
+          , catalogArtistResponseBio = DBTypes.catalogArtistBio artist
           , catalogArtistResponseFollowed = DBTypes.catalogArtistFollowed artist
           , catalogArtistResponseQualityProfileId = DBTypes.catalogArtistQualityProfileId artist
           , catalogArtistResponseScore = Nothing
@@ -350,6 +353,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           , catalogArtistResponseType = DBTypes.catalogArtistType artist
           , catalogArtistResponseImageUrl = DBTypes.catalogArtistImageUrl artist
           , catalogArtistResponseThumbnailUrl = DBTypes.catalogArtistThumbnailUrl artist
+          , catalogArtistResponseBio = DBTypes.catalogArtistBio artist
           , catalogArtistResponseFollowed = DBTypes.catalogArtistFollowed artist
           , catalogArtistResponseQualityProfileId = DBTypes.catalogArtistQualityProfileId artist
           , catalogArtistResponseScore = Nothing

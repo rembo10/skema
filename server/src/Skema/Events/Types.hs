@@ -135,6 +135,10 @@ data Event
       , artistImageThumbnailUrl :: Maybe Text
       , artistImageSource :: Text  -- e.g., "MusicBrainz", "Last.fm"
       }
+  | ArtistBioFetched
+      { artistBioId :: Int64
+      , artistBioText :: Text
+      }
   | ArtistDiscographyFetched
       { artistDiscographyArtistId :: Int64
       , artistMBID :: Text
@@ -486,6 +490,10 @@ eventToJSON = \case
     , "image_url" .= artistImageUrl
     , "thumbnail_url" .= artistImageThumbnailUrl
     , "source" .= artistImageSource
+    ]
+  ArtistBioFetched{..} -> object
+    [ "artist_id" .= artistBioId
+    , "bio" .= artistBioText
     ]
   ArtistDiscographyFetched{..} -> object
     [ "artist_id" .= artistDiscographyArtistId

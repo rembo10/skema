@@ -7,6 +7,7 @@
 module Skema.Media.Providers.LastFM
   ( fetchArtistImage
   , fetchAlbumCover
+  , fetchArtistBio
   , defaultApiKey
   ) where
 
@@ -64,6 +65,54 @@ fetchAlbumCover httpClient apiKey releaseMBID = do
           , mrHeight = Nothing
           }
   fetchAndDecode httpClient LastFM url extractor
+
+-- | Fetch artist bio summary from Last.fm.
+--
+-- Uses the same artist.getinfo endpoint but extracts the bio summary text.
+-- Strips HTML tags (Last.fm includes a "Read more on Last.fm" link).
+fetchArtistBio :: HttpClient -> Text -> MBID -> IO (Either MediaError Text)
+fetchArtistBio httpClient apiKey artistMBID = do
+  let mbid = unMBID artistMBID
+      url = "https://ws.audioscrobbler.com/2.0/?method=artist.getinfo&mbid="
+          <> mbid <> "&api_key=" <> apiKey <> "&format=json"
+      extractor json = extractArtistBioText json
+  fetchAndDecode httpClient LastFM url extractor
+
+-- | Extract artist bio summary from Last.fm JSON response.
+extractArtistBioText :: Value -> Maybe Text
+extractArtistBioText (Object obj) = do
+  artist <- KM.lookup "artist" obj
+  case artist of
+    Object artistObj -> do
+      bio <- KM.lookup "bio" artistObj
+      case bio of
+        Object bioObj -> do
+          summary <- KM.lookup "summary" bioObj
+          case summary of
+            String s ->
+              let cleaned = cleanBio s
+              in if T.null cleaned then Nothing else Just cleaned
+            _ -> Nothing
+        _ -> Nothing
+    _ -> Nothing
+extractArtistBioText _ = Nothing
+
+-- | Clean Last.fm bio text by removing the "Read more on Last.fm" link and stripping HTML.
+cleanBio :: Text -> Text
+cleanBio = T.strip . stripHtmlTags . removeReadMoreLink
+  where
+    removeReadMoreLink txt =
+      case T.breakOn "<a href=" txt of
+        (before, rest)
+          | T.null rest -> txt
+          | otherwise -> T.strip before
+    stripHtmlTags txt = case T.breakOn "<" txt of
+      (before, rest)
+        | T.null rest -> before
+        | otherwise -> case T.breakOn ">" rest of
+            (_, after)
+              | T.null after -> before
+              | otherwise -> before <> stripHtmlTags (T.drop 1 after)
 
 -- | Known Last.fm placeholder image hashes to filter out.
 -- These are returned when Last.fm doesn't have an actual artist image.

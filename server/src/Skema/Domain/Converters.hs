@@ -89,6 +89,7 @@ mbArtistSearchToCatalogResponse searchResult maybeCatalogRecord =
     , catalogArtistResponseType = mbasArtistType searchResult
     , catalogArtistResponseImageUrl = maybeCatalogRecord >>= DBTypes.catalogArtistImageUrl
     , catalogArtistResponseThumbnailUrl = maybeCatalogRecord >>= DBTypes.catalogArtistThumbnailUrl
+    , catalogArtistResponseBio = maybeCatalogRecord >>= DBTypes.catalogArtistBio
     , catalogArtistResponseFollowed = maybe False DBTypes.catalogArtistFollowed maybeCatalogRecord
     , catalogArtistResponseQualityProfileId = maybeCatalogRecord >>= DBTypes.catalogArtistQualityProfileId
     , catalogArtistResponseScore = Just (mbasScore searchResult)

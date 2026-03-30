@@ -23,6 +23,7 @@ export function useSSE(enabled: boolean = true) {
     updateFollowedArtist,
     addFollowedArtist,
     addCatalogAlbum,
+    updateCatalogAlbum,
     updateAlbumCover,
     addDownload,
     updateDownload,
@@ -296,6 +297,7 @@ export function useSSE(enabled: boolean = true) {
             type: null,
             image_url: null,
             thumbnail_url: null,
+            bio: null,
             followed: true,
             quality_profile_id: null,
             added_by_source_id: 0,
@@ -318,6 +320,16 @@ export function useSSE(enabled: boolean = true) {
           updateFollowedArtistImageById(data.artist_id, data.image_url, data.thumbnail_url);
         } catch (error) {
           console.error('Error handling ArtistImageFetched:', error);
+        }
+      });
+
+      eventSource.addEventListener('ArtistBioFetched', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          updateFollowedArtist(data.artist_id, { bio: data.bio });
+          window.dispatchEvent(new CustomEvent('artist_bio_fetched', { detail: data }));
+        } catch (error) {
+          console.error('Error handling ArtistBioFetched:', error);
         }
       });
 
@@ -357,7 +369,16 @@ export function useSSE(enabled: boolean = true) {
 
       eventSource.addEventListener('CatalogAlbumUpdated', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
-        // Dispatch a custom event that the Albums page can listen to
+        // Update the album in the store with fresh metadata
+        updateCatalogAlbum(data.album_id, {
+          title: data.album_title,
+          artist_name: data.artist_name,
+          type: data.album_type,
+          first_release_date: data.first_release_date,
+          quality_profile_id: data.quality_profile_id,
+          wanted: data.quality_profile_id != null,
+        });
+        // Also dispatch a custom event that the Albums page can listen to
         window.dispatchEvent(new CustomEvent('catalog_album_updated', { detail: data }));
       });
 

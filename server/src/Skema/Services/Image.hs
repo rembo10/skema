@@ -12,18 +12,20 @@ import Skema.Services.Dependencies (ImageDeps(..))
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getCatalogArtistByMBID)
-import Skema.Database.Types (catalogArtistId, catalogArtistImageUrl)
+import Skema.Database.Repository (getCatalogArtistByMBID, getCatalogArtistById, updateCatalogArtistBio)
+import Skema.Database.Types (catalogArtistId, catalogArtistImageUrl, catalogArtistBio)
 import Skema.Config.Types (media, mediaLastFmApiKey)
 import Skema.MusicBrainz.Types (MBID(..))
 import Skema.Media.Client (fetchArtistImage, fetchAlbumCover, defaultMediaConfig)
 import Skema.Media.Types (MediaResult(..), MediaSource(..), mcLastFmApiKey)
+import qualified Skema.Media.Providers.LastFM as LastFM
 import Skema.Media.Storage (downloadAndStoreImages)
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Exception (try)
 import Database.SQLite.Simple (Only(..))
+import qualified Data.Text as T
 import Katip
 
 -- | Convert MediaSource to Text for event emission.
@@ -64,6 +66,15 @@ startImageService deps = do
                       runKatipContextT le () "image.error" $ do
                         $(logTM) ErrorS $ logStr $ ("Exception fetching image for catalog artist " <> catalogArtistName <> ": " <> show e :: Text)
                     Right () -> pure ()
+                -- Also fetch bio
+                _ <- async $ do
+                  result <- try $ handleArtistBioFetch deps artistId catalogArtistMBID
+                  case result of
+                    Left (e :: SomeException) -> do
+                      let le = imgLogEnv deps
+                      runKatipContextT le () "bio.error" $ do
+                        $(logTM) ErrorS $ logStr $ ("Exception fetching bio for catalog artist " <> catalogArtistName <> ": " <> show e :: Text)
+                    Right () -> pure ()
                 pure ()
               _ -> pure ()  -- Artist already has image or no ID, skip
 
@@ -82,6 +93,20 @@ startImageService deps = do
       ArtistDiscographyRequested{..} -> do
         -- User is viewing this artist's page - prioritize fetching covers for their albums
         _ <- async $ handleArtistDiscographyImageRequest deps requestedArtistId requestedArtistMBID
+        -- Lazy backfill: fetch bio if artist doesn't have one yet
+        _ <- async $ do
+          maybeArtist <- withConnection (imgDbPool deps) $ \conn ->
+            getCatalogArtistById conn requestedArtistId
+          case maybeArtist of
+            Just artist | isNothing (catalogArtistBio artist) -> do
+              result <- try $ handleArtistBioFetch deps requestedArtistId requestedArtistMBID
+              case result of
+                Left (e :: SomeException) -> do
+                  let le = imgLogEnv deps
+                  runKatipContextT le () "bio.error" $ do
+                    $(logTM) ErrorS $ logStr $ ("Exception backfilling bio for artist " <> show requestedArtistId <> ": " <> show e :: Text)
+                Right () -> pure ()
+            _ -> pure ()
         pure ()
 
       _ -> pure ()  -- Ignore other events
@@ -246,3 +271,32 @@ handleArtistDiscographyImageRequest ImageDeps{..} artistId artistMBID = do
           pure ()
 
         $(logTM) InfoS $ logStr $ ("Started priority fetch for " <> show (length albums) <> " album covers" :: Text)
+
+-- | Handle artist bio fetching from Last.fm.
+handleArtistBioFetch :: ImageDeps -> Int64 -> Text -> IO ()
+handleArtistBioFetch ImageDeps{..} artistId artistMBID = do
+  let le = imgLogEnv
+  let pool = imgDbPool
+  let bus = imgEventBus
+
+  -- Read current config for Last.fm API key
+  config <- STM.atomically $ STM.readTVar imgConfigVar
+  let apiKey = fromMaybe LastFM.defaultApiKey (mediaLastFmApiKey (media config))
+
+  runKatipContextT le () "services.image.bio" $ do
+    katipAddContext (sl "artist_mbid" artistMBID) $ do
+      $(logTM) DebugS $ logStr $ ("Fetching bio for artist MBID: " <> artistMBID :: Text)
+
+      result <- liftIO $ LastFM.fetchArtistBio imgHttpClient apiKey (MBID artistMBID)
+      case result of
+        Left _err ->
+          $(logTM) DebugS $ logStr ("No bio found for artist" :: Text)
+        Right bio -> do
+          $(logTM) InfoS $ logStr $ ("Found bio for artist (" <> show (T.length bio) <> " chars)" :: Text)
+          liftIO $ do
+            withConnection pool $ \conn ->
+              updateCatalogArtistBio conn artistId (Just bio)
+            publishAndLog bus le "bio.artist" $ ArtistBioFetched
+              { artistBioId = artistId
+              , artistBioText = bio
+              }

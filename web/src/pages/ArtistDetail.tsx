@@ -47,6 +47,18 @@ export default function ArtistDetail() {
     loadQualityProfiles();
   }, []);
 
+  // Listen for SSE bio updates to patch local artist state
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail.artist_id === parseInt(id || '', 10)) {
+        setLocalArtist(prev => prev ? { ...prev, bio: detail.bio } : prev);
+      }
+    };
+    window.addEventListener('artist_bio_fetched', handler);
+    return () => window.removeEventListener('artist_bio_fetched', handler);
+  }, [id]);
+
   // Update document title when artist is loaded
   useEffect(() => {
     if (artist?.name) {
@@ -98,6 +110,11 @@ export default function ArtistDetail() {
       const albumsData = await api.getCatalogAlbums(undefined, foundArtist.id);
 
       setLocalArtist(foundArtist);
+
+      // Update the store if this artist is already there (keeps SSE updates flowing)
+      if (foundArtist.followed && foundArtist.id) {
+        useAppStore.getState().updateFollowedArtist(foundArtist.id, foundArtist);
+      }
 
       // Merge albums into the global store (don't replace all albums, just add new ones)
       const newAlbums = albumsData.filter(album =>
@@ -181,8 +198,7 @@ export default function ArtistDetail() {
       setRefreshing(true);
       const result = await api.refreshCatalogArtist(artist.id);
       toast.success(result.message);
-      // Reload artist data to get new albums
-      setTimeout(() => loadArtistData(), 2000);
+      // New albums, bio, images etc. are all pushed via SSE events
     } catch (error) {
       toast.error('Failed to refresh catalog');
       console.error('Error refreshing catalog:', error);
@@ -356,6 +372,20 @@ export default function ArtistDetail() {
                 <h1 className="text-3xl font-bold text-dark-text break-words">{artist.name}</h1>
                 {artist.type && (
                   <p className="mt-2 text-dark-text-secondary">{artist.type}</p>
+                )}
+                {artist.bio && (
+                  <p className="mt-3 text-sm text-dark-text-secondary leading-relaxed">
+                    {artist.bio}
+                    {' '}
+                    <a
+                      href={`https://www.last.fm/music/${encodeURIComponent(artist.name)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="link"
+                    >
+                      Read more on Last.fm
+                    </a>
+                  </p>
                 )}
               </div>
 

@@ -74,6 +74,7 @@ module Skema.Database.Repository
   , updateCatalogArtistFollowed
   , updateCatalogArtist
   , updateCatalogArtistEtag
+  , updateCatalogArtistBio
   , updateCatalogArtistName
   , deleteCatalogArtist
   , upsertCatalogAlbum
@@ -208,6 +209,7 @@ import Skema.Database.Repository.Catalog
   , updateCatalogArtistFollowed
   , updateCatalogArtist
   , updateCatalogArtistEtag
+  , updateCatalogArtistBio
   , updateCatalogArtistName
   , deleteCatalogArtist
   , upsertCatalogAlbum

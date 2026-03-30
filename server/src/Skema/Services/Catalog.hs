@@ -24,7 +24,8 @@ import Skema.Database.Repository
 import qualified Skema.Database.Types as DB
 import Skema.MusicBrainz.Client (getArtist, getArtistConditional, ConditionalResult(..))
 import Skema.MusicBrainz.Types (MBID(..), MBArtist(..), MBReleaseGroup(..))
-import Skema.Config.Types (Config(..), MusicBrainzConfig(..), mbAlbumTypes, mbExcludeSecondaryTypes)
+import Skema.Config.Types (Config(..), MusicBrainzConfig(..), mbAlbumTypes, mbExcludeSecondaryTypes, media, mediaLastFmApiKey)
+import qualified Skema.Media.Providers.LastFM as LastFM
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
@@ -237,6 +238,22 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                         "UPDATE catalog_artists SET last_checked_at = ? WHERE id = ?"
                         (now, artistId)
                     $(logTM) InfoS $ logStr $ ("Catalog unchanged for " <> artistName <> " (304 Not Modified)" :: Text)
+
+                    -- Backfill bio from Last.fm if missing
+                    when (isNothing (DB.catalogArtistBio artist)) $ do
+                      _ <- liftIO $ async $ do
+                        let apiKey = fromMaybe LastFM.defaultApiKey (mediaLastFmApiKey (media config))
+                        bioResult <- LastFM.fetchArtistBio catHttpClient apiKey (MBID artistMBID)
+                        case bioResult of
+                          Right bio -> do
+                            withConnection pool $ \conn ->
+                              updateCatalogArtistBio conn artistId (Just bio)
+                            publishAndLog bus le "catalog.bio" $ ArtistBioFetched
+                              { artistBioId = artistId
+                              , artistBioText = bio
+                              }
+                          Left _ -> pure ()
+                      pure ()
                   Nothing -> pure ()
 
               Right (Modified mbArtist newEtag) -> do
@@ -270,6 +287,20 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                       , releaseGroupCount = length releaseGroups
                       , artistLastCheckedAt = pack $ formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%QZ" now
                       }
+
+                    -- Refresh bio from Last.fm
+                    _ <- liftIO $ async $ do
+                      let apiKey = fromMaybe LastFM.defaultApiKey (mediaLastFmApiKey (media config))
+                      bioResult <- LastFM.fetchArtistBio catHttpClient apiKey (MBID artistMBID)
+                      case bioResult of
+                        Right bio -> do
+                          withConnection pool $ \conn ->
+                            updateCatalogArtistBio conn artistId (Just bio)
+                          publishAndLog bus le "catalog.bio" $ ArtistBioFetched
+                            { artistBioId = artistId
+                            , artistBioText = bio
+                            }
+                        Left _ -> pure ()
 
                     -- Process albums: add new ones, update existing ones
                     newAlbumsCount <- liftIO $ newIORef (0 :: Int)

@@ -375,6 +375,7 @@ export interface CatalogArtist {
   type: string | null; // 'Person' | 'Group'
   image_url: string | null;
   thumbnail_url: string | null;
+  bio: string | null;
   followed: boolean;
   quality_profile_id: number | null; // Quality profile for this artist (overrides global default)
   added_by_source_id: number | null; // Which acquisition source auto-followed this artist (null if manual)
