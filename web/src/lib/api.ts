@@ -738,6 +738,18 @@ export const api = {
     });
   },
 
+  async generateApiKey(): Promise<{ api_key: string }> {
+    return fetchApi<{ api_key: string }>('/config/api-key', {
+      method: 'POST',
+    });
+  },
+
+  async revokeApiKey(): Promise<void> {
+    return fetchApi<void>('/config/api-key', {
+      method: 'DELETE',
+    });
+  },
+
   // Downloads
   async getAllDownloads(offset: number = 0, limit: number = 50): Promise<DownloadsResponse> {
     const query = buildQueryString({ offset, limit });

@@ -22,9 +22,13 @@ import Servant
 --
 -- GET /config - Returns full config JSON with computed fields
 -- PUT /config - Accepts partial JSON for merge-based updates
-type ConfigAPI = "config" :> Header "Authorization" Text :>
-  ( Get '[JSON] Value
-  :<|> ReqBody '[JSON] Value :> Put '[JSON] Value
+type ConfigAPI = "config" :>
+  ( Header "Authorization" Text :>
+    ( Get '[JSON] Value
+    :<|> ReqBody '[JSON] Value :> Put '[JSON] Value
+    )
+  :<|> "api-key" :> PostCreated '[JSON] Value
+  :<|> "api-key" :> DeleteNoContent
   )
 
 -- | Config schema endpoint for UI generation.

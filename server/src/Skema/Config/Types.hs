@@ -213,6 +213,8 @@ data ServerConfig = ServerConfig
     -- ^ Username for API authentication (can be overridden by SKEMA_USERNAME env var)
   , serverPassword :: Maybe Text
     -- ^ Password for API authentication (can be overridden by SKEMA_PASSWORD env var)
+  , serverApiKey :: Maybe Text
+    -- ^ API key for external access (sent via X-API-Key header)
   , serverJwtSecret :: Maybe Text
     -- ^ JWT signing secret (auto-generated if not provided, persisted to config)
   , serverJwtExpirationHours :: Int
@@ -226,18 +228,19 @@ instance FromJSON ServerConfig where
     webRoot <- o .:? "web_root" .!= "/"
     username <- o .:? "username"
     password <- o .:? "password"
+    apiKey <- o .:? "api_key"
     jwtSecret <- o .:? "jwt_secret"
     jwtExpHours <- o .:? "jwt_expiration_hours" .!= 24
-    pure $ ServerConfig host port webRoot username password jwtSecret jwtExpHours
+    pure $ ServerConfig host port webRoot username password apiKey jwtSecret jwtExpHours
 
 instance ToJSON ServerConfig where
-  toJSON (ServerConfig host port webRoot username password jwtSecret jwtExpHours) = object
+  toJSON (ServerConfig host port webRoot username password apiKey jwtSecret jwtExpHours) = object
     [ "host" .= host
     , "port" .= port
     , "web_root" .= webRoot
     , "username" .= username
     , "password" .= password
-    -- Note: password is now included since it's bcrypt hashed
+    , "api_key" .= apiKey
     , "jwt_secret" .= jwtSecret
     , "jwt_expiration_hours" .= jwtExpHours
     ]
@@ -711,6 +714,7 @@ defaultServerConfig = ServerConfig
   , serverWebRoot = "/"
   , serverUsername = Nothing
   , serverPassword = Nothing
+  , serverApiKey = Nothing
   , serverJwtSecret = Nothing  -- Auto-generated on first run
   , serverJwtExpirationHours = 24  -- 24 hours default
   }

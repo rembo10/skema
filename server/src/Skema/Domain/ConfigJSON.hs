@@ -59,7 +59,8 @@ configToAPIJSON cfg = do
             Just (Object srvObj) -> Object $ srvObj
               & KM.insert "auth_enabled" (toJSON authEnabled)
               & KM.insert "username" (toJSON effectiveUsername)
-              -- Remove password from response (security)
+              & KM.insert "api_key_enabled" (toJSON (isJust (Cfg.serverApiKey (Cfg.server cfg))))
+              -- Remove secrets from response
               & KM.delete "password"
               & KM.delete "jwt_secret"
             Just other -> other

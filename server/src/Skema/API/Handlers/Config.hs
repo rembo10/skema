@@ -12,7 +12,7 @@ module Skema.API.Handlers.Config
 import Skema.API.Types.Config (ConfigAPI, ConfigSchemaAPI)
 import Skema.API.Handlers.Utils (throw400, throw500, readConfig)
 import Skema.Auth (requireAuth)
-import Skema.Auth.JWT (JWTSecret)
+import Skema.Auth.JWT (JWTSecret, generateApiKey)
 import Skema.Database.Connection
 import Skema.Config.Discovery (saveConfigToFile)
 import Skema.Config.Schema (schemaToJSON, allSchemas)
@@ -24,18 +24,20 @@ import qualified Skema.Events.Types as Events
 import qualified Skema.Adapters.Crypto as Crypto
 import Servant
 import Katip
-import Data.Aeson (Value(..))
+import Data.Aeson (Value(..), object, (.=))
 import qualified Data.Aeson.KeyMap as KM
 
 -- | Config API handlers.
---
--- GET /config - Returns full config JSON with computed fields (auth_enabled)
--- PUT /config - Accepts partial JSON, merges with current config
 configServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> TVar Cfg.Config -> FilePath -> Server ConfigAPI
-configServer le bus _serverCfg jwtSecret _connPool configVar configPath = \maybeAuthHeader ->
-  getConfigHandler maybeAuthHeader
-  :<|> updateConfigHandler maybeAuthHeader
+configServer le bus _serverCfg jwtSecret _connPool configVar configPath =
+  authProtectedHandlers
+  :<|> generateApiKeyHandler
+  :<|> revokeApiKeyHandler
   where
+    authProtectedHandlers maybeAuthHeader =
+      getConfigHandler maybeAuthHeader
+      :<|> updateConfigHandler maybeAuthHeader
+
     getConfigHandler authHeader = do
       _ <- requireAuth configVar jwtSecret authHeader
       cfg <- liftIO $ readConfig configVar
@@ -68,6 +70,33 @@ configServer le bus _serverCfg jwtSecret _connPool configVar configPath = \maybe
 
               -- Return updated config
               pure configJSON
+
+    generateApiKeyHandler = do
+      currentCfg <- liftIO $ readConfig configVar
+      apiKey <- liftIO generateApiKey
+      let serverCfg = Cfg.server currentCfg
+          updatedCfg = currentCfg { Cfg.server = serverCfg { Cfg.serverApiKey = Just apiKey } }
+      saveResult <- liftIO $ saveConfigToFile configPath updatedCfg
+      case saveResult of
+        Left err -> throw500 $ "Failed to save configuration: " <> err
+        Right () -> do
+          liftIO $ atomically $ writeTVar configVar updatedCfg
+          configJSON <- liftIO $ configToAPIJSON updatedCfg
+          liftIO $ EventBus.publishAndLog bus le "api" $ Events.ConfigUpdated configJSON
+          pure $ object ["api_key" .= apiKey]
+
+    revokeApiKeyHandler = do
+      currentCfg <- liftIO $ readConfig configVar
+      let serverCfg = Cfg.server currentCfg
+          updatedCfg = currentCfg { Cfg.server = serverCfg { Cfg.serverApiKey = Nothing } }
+      saveResult <- liftIO $ saveConfigToFile configPath updatedCfg
+      case saveResult of
+        Left err -> throw500 $ "Failed to save configuration: " <> err
+        Right () -> do
+          liftIO $ atomically $ writeTVar configVar updatedCfg
+          configJSON <- liftIO $ configToAPIJSON updatedCfg
+          liftIO $ EventBus.publishAndLog bus le "api" $ Events.ConfigUpdated configJSON
+          pure NoContent
 
 -- | Extract password from update JSON if present.
 extractPassword :: Value -> Maybe Text

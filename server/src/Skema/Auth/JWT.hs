@@ -17,6 +17,8 @@ module Skema.Auth.JWT
   , JWTSecret
   , getJWTSecret
   , generateJWTSecretString
+    -- * API Key Generation
+  , generateApiKey
   ) where
 
 import Crypto.JOSE (JWK, runJOSE, makeJWSHeader, fromOctets)
@@ -87,6 +89,12 @@ generateJWT (JWTSecret jwk) username expirationHours = do
     pure $ decodeUtf8 $ BSL.toStrict $ encodeCompact signedJWT
 
   pure $ fmap (\token -> (token, expiresAt)) result
+
+-- | Generate a new random API key as a hex string (32 bytes = 64 hex chars).
+generateApiKey :: IO Text
+generateApiKey = do
+  randomBytes <- Random.getRandomBytes 32 :: IO BS.ByteString
+  pure $ decodeUtf8 $ Base16.encode randomBytes
 
 -- | Validate a JWT and extract the claims.
 validateJWT :: JWTSecret -> Text -> IO (Either JWTError JWTClaims)

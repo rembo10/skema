@@ -311,6 +311,8 @@ export interface ServerConfig {
   jwt_secret: string | null;
   jwt_expiration_hours: number;
   auth_enabled?: boolean; // computed field from backend
+  api_key_enabled?: boolean; // computed field from backend
+  api_key?: string | null; // present when an API key is set
 }
 
 // slskd (Soulseek) client configuration
