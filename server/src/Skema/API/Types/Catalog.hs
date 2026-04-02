@@ -72,6 +72,7 @@ type CatalogAPI = "catalog" :> Header "Authorization" Text :>
     :> QueryParam "quality" Text
     :> QueryParam "release_date_after" Text
     :> QueryParam "release_date_before" Text
+    :> QueryParam "mbid" Text
     :> Get '[JSON] AlbumOverviewResponse
   :<|> "albums" :> ReqBody '[JSON] CreateCatalogAlbumRequest :> PostCreated '[JSON] CatalogAlbumResponse
   :<|> "albums" :> Capture "albumId" Int64 :> ReqBody '[JSON] UpdateCatalogAlbumRequest :> Patch '[JSON] CatalogAlbumResponse
@@ -216,14 +217,22 @@ instance FromJSON UpdateCatalogArtistRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
 
 -- | Request to create/upsert a catalog album.
+--
+-- Supports three modes:
+-- 1. Full metadata (all fields provided) — used by the frontend
+-- 2. Release group MBID only — backend resolves metadata from MusicBrainz
+-- 3. Release MBID only — backend resolves release group and metadata from MusicBrainz
+--
+-- At least one of release_group_mbid or release_mbid must be provided.
 data CreateCatalogAlbumRequest = CreateCatalogAlbumRequest
-  { createCatalogAlbumReleaseGroupMBID :: Text
-  , createCatalogAlbumTitle :: Text
-  , createCatalogAlbumArtistMBID :: Text
-  , createCatalogAlbumArtistName :: Text
+  { createCatalogAlbumReleaseGroupMBID :: Maybe Text
+  , createCatalogAlbumReleaseMBID :: Maybe Text
+  , createCatalogAlbumTitle :: Maybe Text
+  , createCatalogAlbumArtistMBID :: Maybe Text
+  , createCatalogAlbumArtistName :: Maybe Text
   , createCatalogAlbumType :: Maybe Text
   , createCatalogAlbumFirstReleaseDate :: Maybe Text
-  , createCatalogAlbumWanted :: Bool
+  , createCatalogAlbumWanted :: Maybe Bool
   , createCatalogAlbumQualityProfileId :: Maybe Int64
   } deriving (Show, Eq, Generic)
 

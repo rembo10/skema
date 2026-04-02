@@ -21,6 +21,7 @@ data AlbumQuery = AlbumQuery
   , aqOrder :: Maybe Text
   , aqReleaseDateAfter :: Maybe Text
   , aqReleaseDateBefore :: Maybe Text
+  , aqReleaseGroupMBID :: Maybe Text
   } deriving (Show, Generic)
 
 -- | Default album query with sensible defaults.
@@ -37,4 +38,5 @@ defaultAlbumQuery = AlbumQuery
   , aqOrder = Nothing
   , aqReleaseDateAfter = Nothing
   , aqReleaseDateBefore = Nothing
+  , aqReleaseGroupMBID = Nothing
   }

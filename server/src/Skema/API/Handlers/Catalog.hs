@@ -23,8 +23,8 @@ import qualified Skema.Database.Types as DBTypes
 import Database.SQLite.Simple (Only(..))
 import qualified Skema.Config.Types as Cfg
 import Skema.Services.Registry (ServiceRegistry(..))
-import Skema.MusicBrainz.Client (searchArtists, searchReleaseGroups, prettyClientError)
-import Skema.MusicBrainz.Types (mbasArtists, mbasArtistId, mbrgsReleaseGroups, mbrgsReleaseGroupId, unMBID)
+import Skema.MusicBrainz.Client (searchArtists, searchReleaseGroups, getRelease, getReleaseGroup, prettyClientError)
+import Skema.MusicBrainz.Types (MBRelease(..), MBReleaseGroup(..), mbasArtists, mbasArtistId, mbrgsReleaseGroups, mbrgsReleaseGroupId, MBID(..), unMBID)
 import Skema.Domain.Converters (mbArtistSearchToCatalogResponse, mbReleaseGroupSearchToCatalogResponse)
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
@@ -374,24 +374,57 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
     createAlbumHandler :: Maybe Text -> CreateCatalogAlbumRequest -> Handler CatalogAlbumResponse
     createAlbumHandler authHeader req = do
       _ <- requireAuth configVar jwtSecret authHeader
+      let mbEnv = srMBClientEnv registry
 
-      -- First, ensure the artist exists in catalog_artists (or create it)
-      -- Skip Various Artists - albums can still be created without artist entry
-      when (DBTypes.isVariousArtists (createCatalogAlbumArtistMBID req)) $
+      -- Resolve metadata: either from request fields or by looking up MusicBrainz
+      (rgMbid, title, artistMbid, artistName, albumType, firstReleaseDate) <- do
+        case (createCatalogAlbumReleaseGroupMBID req, createCatalogAlbumReleaseMBID req) of
+          (Nothing, Nothing) ->
+            throw400 "Either release_group_mbid or release_mbid must be provided"
+          (Just rgId, _)
+            | Just t <- createCatalogAlbumTitle req
+            , Just aMbid <- createCatalogAlbumArtistMBID req
+            , Just aName <- createCatalogAlbumArtistName req ->
+            -- All metadata provided (frontend flow) — use directly
+            pure (rgId, t, aMbid, aName, createCatalogAlbumType req, createCatalogAlbumFirstReleaseDate req)
+          (Just rgId, _) -> do
+            -- Only release group MBID — resolve metadata from MusicBrainz
+            rgResult <- liftIO $ getReleaseGroup mbEnv (MBID rgId)
+            case rgResult of
+              Left err -> throw500 $ "Failed to look up release group: " <> prettyClientError err
+              Right rg -> case (mbrgArtistName rg, mbrgArtistId rg) of
+                (Just aName, Just aId) ->
+                  pure (rgId, mbrgTitle rg, unMBID aId, aName, mbrgType rg, mbrgFirstReleaseDate rg)
+                _ -> throw500 "MusicBrainz release group has no artist information"
+          (Nothing, Just relId) -> do
+            -- Release MBID (ListenBrainz) — resolve release group from release
+            relResult <- liftIO $ getRelease mbEnv (MBID relId)
+            case relResult of
+              Left err -> throw500 $ "Failed to look up release: " <> prettyClientError err
+              Right rel -> case mbReleaseGroupId rel of
+                Nothing -> throw500 "Release has no associated release group"
+                Just (MBID rgId) -> case (mbReleaseArtistId rel, mbReleaseArtist rel) of
+                  (Just aId, aName) | not (Text.null aName) ->
+                    pure (rgId, mbReleaseTitle rel, unMBID aId, aName, Nothing, mbReleaseDate rel)
+                  _ -> throw500 "Release has no artist information"
+
+      let wantedFlag = fromMaybe True (createCatalogAlbumWanted req)
+
+      -- Skip Various Artists
+      when (DBTypes.isVariousArtists artistMbid) $
         throw400 "Cannot create catalog album for Various Artists - use a compilation source instead"
 
       artistId <- liftIO $ withConnection connPool $ \conn -> do
-        maybeArtist <- DB.getCatalogArtistByMBID conn (createCatalogAlbumArtistMBID req)
+        maybeArtist <- DB.getCatalogArtistByMBID conn artistMbid
         case maybeArtist of
           Just artist -> case DBTypes.catalogArtistId artist of
             Just aid -> pure aid
-            Nothing -> fail "Artist record has no ID"  -- Shouldn't happen, but fail safely
+            Nothing -> fail "Artist record has no ID"
           Nothing -> do
-            -- Artist doesn't exist, create it with followed=false
             DB.upsertCatalogArtist
               conn
-              (createCatalogAlbumArtistMBID req)
-              (createCatalogAlbumArtistName req)
+              artistMbid
+              artistName
               Nothing  -- artist_type
               Nothing  -- image_url
               Nothing  -- thumbnail_url
@@ -403,13 +436,13 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       albumId' <- liftIO $ withConnection connPool $ \conn ->
         DB.upsertCatalogAlbum
           conn
-          (createCatalogAlbumReleaseGroupMBID req)
-          (createCatalogAlbumTitle req)
+          rgMbid
+          title
           artistId
-          (createCatalogAlbumArtistMBID req)
-          (createCatalogAlbumArtistName req)
-          (createCatalogAlbumType req)
-          (createCatalogAlbumFirstReleaseDate req)
+          artistMbid
+          artistName
+          albumType
+          firstReleaseDate
 
       -- Resolve quality profile: explicit from request > artist > default
       resolvedProfileId <- liftIO $ withConnection connPool $ \conn ->
@@ -419,19 +452,18 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           Nothing  -- No source for manual search
 
       -- Set the resolved profile on the album
-      when (isJust resolvedProfileId && createCatalogAlbumWanted req) $
+      when (isJust resolvedProfileId && wantedFlag) $
         liftIO $ withConnection connPool $ \conn ->
           DB.updateCatalogAlbum conn albumId' (Just resolvedProfileId)
 
       -- Fetch the created/updated album
       maybeAlbum <- liftIO $ withConnection connPool $ \conn ->
-        DB.getCatalogAlbumByReleaseGroupMBID conn (createCatalogAlbumReleaseGroupMBID req)
+        DB.getCatalogAlbumByReleaseGroupMBID conn rgMbid
 
       case maybeAlbum of
         Nothing -> throw500 "Failed to retrieve created album"
         Just album -> do
           -- Compute wanted status using Core.Catalog logic
-          -- Use effective profile (album's own, or inherited from artist)
           maybeProfile <- liftIO $ case DBTypes.catalogAlbumId album of
             Nothing -> pure Nothing
             Just albumId -> DB.getEffectiveQualityProfile connPool albumId
@@ -640,8 +672,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       pure NoContent
 
     -- Get catalog albums with enhanced state information (replaces simple GET /albums)
-    albumOverviewHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler AlbumOverviewResponse
-    albumOverviewHandler authHeader maybeOffset maybeLimit _maybeWanted maybeArtistId maybeSearch maybeSort maybeOrder maybeStateFilter maybeQualityFilter maybeReleaseDateAfter maybeReleaseDateBefore = do
+    albumOverviewHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler AlbumOverviewResponse
+    albumOverviewHandler authHeader maybeOffset maybeLimit _maybeWanted maybeArtistId maybeSearch maybeSort maybeOrder maybeStateFilter maybeQualityFilter maybeReleaseDateAfter maybeReleaseDateBefore maybeMBID = do
       _ <- requireAuth configVar jwtSecret authHeader
 
       let (offset, limit) = parsePagination maybeOffset maybeLimit
@@ -664,6 +696,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             , DB.aqOrder = maybeOrder
             , DB.aqReleaseDateAfter = maybeReleaseDateAfter
             , DB.aqReleaseDateBefore = maybeReleaseDateBefore
+            , DB.aqReleaseGroupMBID = maybeMBID
             }
       (overviewRows, totalCount, statsData) <- liftIO $ withConnection connPool $ \conn -> do
         rows <- DB.getCatalogAlbumsOverview conn albumQuery

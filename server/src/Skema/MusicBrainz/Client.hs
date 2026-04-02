@@ -12,6 +12,7 @@ module Skema.MusicBrainz.Client
     searchReleases
   , searchRecordings
   , getRelease
+  , getReleaseGroup
   , getArtist
   , getArtistConditional
   , searchArtists
@@ -130,6 +131,22 @@ getRelease env@MBClientEnv{..} (MBID mbid) = do
   pure $ case result of
     Left err -> Left $ MBHttpError err
     Right release -> Right release
+
+-- | Get a specific release group by MusicBrainz ID with artist credits.
+--
+-- Includes artist information for resolving album metadata from just an MBID.
+--
+-- Automatically retries with exponential backoff via centralized HTTP client.
+getReleaseGroup :: MBClientEnv -> ReleaseGroupMBID -> IO (Either MBClientError MBReleaseGroup)
+getReleaseGroup env@MBClientEnv{..} (MBID mbid) = do
+  let includes = "artists"
+      params = [("inc", includes), ("fmt", "json")]
+      url = buildMBUrl mbBaseUrl ("release-group/" <> mbid) params
+
+  result <- mbGetJSON env url
+  pure $ case result of
+    Left err -> Left $ MBHttpError err
+    Right releaseGroup -> Right releaseGroup
 
 -- | Get an artist with their release groups.
 --

@@ -293,6 +293,8 @@ data MBReleaseGroup = MBReleaseGroup
   , mbrgType :: Maybe Text  -- Primary type: e.g., "Album", "EP", "Single"
   , mbrgSecondaryTypes :: [Text]  -- Secondary types: e.g., "Live", "Compilation"
   , mbrgFirstReleaseDate :: Maybe Text
+  , mbrgArtistName :: Maybe Text  -- Present when fetched directly with ?inc=artists
+  , mbrgArtistId :: Maybe ArtistMBID  -- Primary artist ID from artist-credit
   } deriving (Show, Eq, Generic)
 
 instance FromJSON MBReleaseGroup where
@@ -302,6 +304,24 @@ instance FromJSON MBReleaseGroup where
     mbrgType <- o .:? "primary-type"
     mbrgSecondaryTypes <- o .:? "secondary-types" .!= []
     mbrgFirstReleaseDate <- o .:? "first-release-date"
+    -- Parse artist-credit if present (available when fetched with ?inc=artists)
+    (mbrgArtistName, mbrgArtistId) <- o .:? "artist-credit" >>= \case
+      Just (Array v) -> do
+        let parseArtistCredit (Object ac) = do
+              name <- ac .: "name"
+              joinphrase <- ac .:? "joinphrase" .!= ""
+              artistId <- ac .:? "artist" >>= \case
+                Just (Object artist) -> artist .:? "id"
+                _ -> pure Nothing
+              pure (name :: Text, joinphrase :: Text, artistId :: Maybe ArtistMBID)
+            parseArtistCredit _ = pure ("", "", Nothing)
+        credits <- mapM parseArtistCredit (toList v)
+        let artistName = T.concat [name <> joinphrase | (name, joinphrase, _) <- credits]
+        let primaryArtistId = case viaNonEmpty head credits of
+              Just (_, _, aid) -> aid
+              Nothing -> Nothing
+        pure (if T.null artistName then Nothing else Just artistName, primaryArtistId)
+      _ -> pure (Nothing, Nothing)
     pure MBReleaseGroup{..}
 
 -- | MusicBrainz Artist with release groups.
