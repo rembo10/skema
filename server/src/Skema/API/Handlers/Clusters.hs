@@ -7,8 +7,8 @@ module Skema.API.Handlers.Clusters
   ( clustersServer
   ) where
 
-import Skema.API.Types.Clusters (ClustersAPI, ClusterResponse(..), ClustersResponse(..), ClustersPagination(..), ClusterWithTracksResponse(..), ClusterTrackInfo(..), MBTrackInfo(..), CandidateRelease(..), AssignReleaseRequest(..), UpdateTrackRecordingRequest(..), CreateClusterRequest(..), ClusterTaskRequest(..))
-import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
+import Skema.API.Types.Clusters (ClustersAPI, ClusterResponse(..), ClustersResponse(..), ClustersPagination(..), ClusterWithTracksResponse(..), ClusterTrackInfo(..), MBTrackInfo(..), CandidateRelease(..), AssignReleaseRequest(..), UpdateTrackRecordingRequest(..), CreateClusterRequest(..))
+import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..))
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import Skema.API.Handlers.Utils (throw404, throw500, readConfig, parsePagination)
@@ -68,15 +68,15 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
   :<|> createClusterHandler maybeAuthHeader
   :<|> deleteClusterHandler maybeAuthHeader
   where
-    taskHandler :: Maybe Text -> ClusterTaskRequest -> Handler TaskResponse
+    taskHandler :: Maybe Text -> TaskRequest -> Handler TaskResponse
     taskHandler authHeader req = do
       _ <- requireAuth configVar jwtSecret authHeader
       config <- liftIO $ readConfig configVar
 
-      let clusterId = clusterTaskClusterId req
+      let clusterId = fromMaybe 0 (taskRequestResourceId req)
 
       -- Create task based on request type
-      case clusterTaskType req of
+      case taskRequestType req of
         "identify" -> liftIO $ do
           -- Create the task
           taskResp <- TM.createTask tm ClustersResource (Just clusterId) "identify"

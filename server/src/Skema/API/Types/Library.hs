@@ -14,10 +14,9 @@ module Skema.API.Types.Library
   , TracksResponse(..)
   , TracksPagination(..)
   , TracksStats(..)
-  , LibraryTaskRequest(..)
   ) where
 
-import Skema.API.Types.Tasks (TaskResponse)
+import Skema.API.Types.Tasks (TaskRequest, TaskResponse)
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
 import GHC.Generics ()
 import Servant
@@ -25,7 +24,7 @@ import Database.SQLite.Simple.FromRow (FromRow(..), field)
 
 -- | Library management endpoints.
 type LibraryAPI = "library" :> Header "Authorization" Text :>
-  ( "tasks" :> ReqBody '[JSON] LibraryTaskRequest :> PostCreated '[JSON] TaskResponse
+  ( "tasks" :> ReqBody '[JSON] TaskRequest :> PostCreated '[JSON] TaskResponse
   :<|> "files" :> Get '[JSON] [FileInfo]
   :<|> "tracks"
     :> QueryParam "offset" Int
@@ -143,18 +142,6 @@ instance FromRow TrackWithCluster where
     <*> field -- mb_confidence
     <*> field -- match_source
     <*> field -- match_locked
-
--- | Request to create a library task.
-data LibraryTaskRequest = LibraryTaskRequest
-  { libraryTaskType :: Text
-    -- ^ Task type: "scan"
-  } deriving (Show, Eq, Generic)
-
-instance ToJSON LibraryTaskRequest where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
-
-instance FromJSON LibraryTaskRequest where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
 
 -- | Pagination info for tracks.
 data TracksPagination = TracksPagination

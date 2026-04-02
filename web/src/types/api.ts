@@ -408,11 +408,6 @@ export interface CatalogAlbum {
   updated_at: string | null;
 }
 
-export interface CatalogQueryRequest {
-  query: string;
-  limit?: number;
-}
-
 export interface CatalogQueryResponse {
   artists: CatalogArtist[];
   albums: CatalogAlbum[];

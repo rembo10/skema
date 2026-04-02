@@ -6,11 +6,11 @@ module Skema.API.Handlers.Catalog
   ( catalogServer
   ) where
 
-import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryRequest(..), CatalogQueryResponse(..), CatalogArtistResponse(..), ArtistsPagination(..), ArtistsResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), CatalogTaskRequest(..), CatalogAlbumOverviewResponse(..), AlbumOverviewPagination(..), AlbumOverviewStats(..), AlbumOverviewResponse(..), BulkAlbumActionRequest(..), BulkAlbumAction(..), AlbumState(..), ActiveDownloadInfo(..), AlbumReleasesResponse(..), ReleaseResponse(..), SlskdFileResponse(..), ReleaseStreamEvent(..))
+import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryResponse(..), CatalogArtistResponse(..), ArtistsPagination(..), ArtistsResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), CatalogAlbumOverviewResponse(..), AlbumOverviewPagination(..), AlbumOverviewStats(..), AlbumOverviewResponse(..), BulkAlbumActionRequest(..), BulkAlbumAction(..), AlbumState(..), ActiveDownloadInfo(..), AlbumReleasesResponse(..), ReleaseResponse(..), SlskdFileResponse(..), ReleaseStreamEvent(..))
 import Skema.API.Types.Common (SourceIO)
 import Skema.Auth (checkAuthEnabled)
 import Skema.Auth.JWT (validateJWT)
-import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
+import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..))
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import qualified Skema.Domain.Catalog as Core
@@ -66,13 +66,13 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
   :<|> streamAlbumReleasesHandler
   :<|> bulkActionHandler maybeAuthHeader
   where
-    taskHandler :: Maybe Text -> CatalogTaskRequest -> Handler TaskResponse
+    taskHandler :: Maybe Text -> TaskRequest -> Handler TaskResponse
     taskHandler authHeader req = do
       _ <- requireAuth configVar jwtSecret authHeader
 
       -- Create task based on request type
-      case catalogTaskType req of
-        "refresh" -> case catalogTaskArtistId req of
+      case taskRequestType req of
+        "refresh" -> case taskRequestResourceId req of
           Nothing -> throwError err400 { errBody = "Artist ID required for refresh task" }
           Just artistId -> liftIO $ do
             -- Create the task
@@ -130,12 +130,11 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
         _ -> throwError err400 { errBody = "Unknown task type" }
     -- Universal search handler - searches both artists and albums
-    queryHandler :: Maybe Text -> CatalogQueryRequest -> Handler CatalogQueryResponse
-    queryHandler authHeader req = do
+    queryHandler :: Maybe Text -> Text -> Maybe Int -> Handler CatalogQueryResponse
+    queryHandler authHeader query maybeLimit = do
       _ <- requireAuth configVar jwtSecret authHeader
       let mbEnv = srMBClientEnv registry
-      let query = catalogQueryQuery req
-      let limit = fromMaybe 10 (catalogQueryLimit req)
+      let limit = fromMaybe 10 maybeLimit
 
       -- Search artists and albums in parallel
       (artistResults, albumResults) <- liftIO $ do

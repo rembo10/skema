@@ -76,19 +76,24 @@ export default function AcquisitionSources() {
 
   const toggleSource = async (sourceId: number, currentlyEnabled: boolean) => {
     try {
-      if (currentlyEnabled) {
-        await api.disableAcquisitionSource(sourceId);
-        toast.success('Source disabled');
-      } else {
-        await api.enableAcquisitionSource(sourceId);
-        toast.success('Source enabled');
-      }
+      const source = sources.find(s => s.id === sourceId);
+      if (!source) return;
+      await api.updateAcquisitionSource(sourceId, {
+        name: source.name,
+        description: source.description,
+        source_type: source.source_type,
+        enabled: !currentlyEnabled,
+        priority: 0,
+        filters: source.filters,
+        quality_profile_id: source.quality_profile_id,
+      });
+      toast.success(currentlyEnabled ? 'Source disabled' : 'Source enabled');
       // Optimistically update just the toggled source
       setSources(prevSources =>
-        prevSources.map(source =>
-          source.id === sourceId
-            ? { ...source, enabled: !currentlyEnabled }
-            : source
+        prevSources.map(s =>
+          s.id === sourceId
+            ? { ...s, enabled: !currentlyEnabled }
+            : s
         )
       );
     } catch (error) {

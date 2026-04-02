@@ -5,8 +5,8 @@ module Skema.API.Handlers.Library
   ( libraryServer
   ) where
 
-import Skema.API.Types.Library (LibraryAPI, UpdateTrackRequest(..), TracksResponse(..), TracksPagination(..), TracksStats(..), LibraryTaskRequest(..))
-import Skema.API.Types.Tasks (TaskResource(..))
+import Skema.API.Types.Library (LibraryAPI, UpdateTrackRequest(..), TracksResponse(..), TracksPagination(..), TracksStats(..))
+import Skema.API.Types.Tasks (TaskRequest(..), TaskResource(..))
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import Skema.API.Handlers.Utils (readConfig, parsePagination)
@@ -41,7 +41,7 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
       config <- liftIO $ readConfig configVar
 
       -- Create task based on request type
-      case libraryTaskType req of
+      case taskRequestType req of
         "scan" -> liftIO $ do
           -- Create the task
           taskResp <- TM.createTask tm LibraryResource Nothing "scan"

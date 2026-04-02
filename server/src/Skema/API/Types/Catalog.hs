@@ -8,7 +8,6 @@
 -- | Catalog API types.
 module Skema.API.Types.Catalog
   ( CatalogAPI
-  , CatalogQueryRequest(..)
   , CatalogQueryResponse(..)
   , CatalogArtistResponse(..)
   , ArtistsPagination(..)
@@ -27,14 +26,13 @@ module Skema.API.Types.Catalog
   , UpdateCatalogArtistRequest(..)
   , CreateCatalogAlbumRequest(..)
   , UpdateCatalogAlbumRequest(..)
-  , CatalogTaskRequest(..)
   , AlbumReleasesResponse(..)
   , ReleaseResponse(..)
   , SlskdFileResponse(..)
   , ReleaseStreamEvent(..)
   ) where
 
-import Skema.API.Types.Tasks (TaskResponse)
+import Skema.API.Types.Tasks (TaskRequest, TaskResponse)
 import Skema.API.Types.Common (SourceIO)
 import Skema.Domain.Catalog (AlbumState(..))
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2, withObject, (.:), object, (.=), encode)
@@ -48,8 +46,8 @@ import qualified Servant.API.EventStream as SSE
 
 -- | Catalog API endpoints.
 type CatalogAPI = "catalog" :> Header "Authorization" Text :>
-  ( "tasks" :> ReqBody '[JSON] CatalogTaskRequest :> PostCreated '[JSON] TaskResponse
-  :<|> "query" :> ReqBody '[JSON] CatalogQueryRequest :> Post '[JSON] CatalogQueryResponse
+  ( "tasks" :> ReqBody '[JSON] TaskRequest :> PostCreated '[JSON] TaskResponse
+  :<|> "search" :> QueryParam' '[Required, Strict] "q" Text :> QueryParam "limit" Int :> Get '[JSON] CatalogQueryResponse
   :<|> "artists"
     :> QueryParam "offset" Int
     :> QueryParam "limit" Int
@@ -80,22 +78,8 @@ type CatalogAPI = "catalog" :> Header "Authorization" Text :>
   :<|> "albums" :> Capture "albumId" Int64 :> DeleteNoContent
   :<|> "albums" :> Capture "albumId" Int64 :> "releases" :> Get '[JSON] AlbumReleasesResponse
   :<|> "albums" :> Capture "albumId" Int64 :> "releases" :> "stream" :> QueryParam "token" Text :> ServerSentEvents (SourceIO ReleaseStreamEvent)
-  :<|> "albums" :> "bulk-action" :> ReqBody '[JSON] BulkAlbumActionRequest :> Post '[JSON] NoContent
+  :<|> "albums" :> "batch" :> ReqBody '[JSON] BulkAlbumActionRequest :> Patch '[JSON] NoContent
   )
-
--- | Request for universal catalog search (searches both artists and albums).
-data CatalogQueryRequest = CatalogQueryRequest
-  { catalogQueryQuery :: Text
-    -- ^ Search query string
-  , catalogQueryLimit :: Maybe Int
-    -- ^ Optional limit per type (default 10)
-  } deriving (Show, Eq, Generic)
-
-instance ToJSON CatalogQueryRequest where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 12 }
-
-instance FromJSON CatalogQueryRequest where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 12 }
 
 -- | Response from universal catalog search.
 data CatalogQueryResponse = CatalogQueryResponse
@@ -270,20 +254,6 @@ instance FromJSON UpdateCatalogAlbumRequest where
       then Just <$> o .: profileIdField
       else pure Nothing
     pure $ UpdateCatalogAlbumRequest maybeProfileId
-
--- | Request to create a catalog task.
-data CatalogTaskRequest = CatalogTaskRequest
-  { catalogTaskType :: Text
-    -- ^ Task type: "refresh" or "refresh_all"
-  , catalogTaskArtistId :: Maybe Int64
-    -- ^ Artist ID to refresh (Nothing for refresh_all)
-  } deriving (Show, Eq, Generic)
-
-instance ToJSON CatalogTaskRequest where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
-
-instance FromJSON CatalogTaskRequest where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
 
 -- ============================================================================
 -- ENHANCED CATALOG OVERVIEW

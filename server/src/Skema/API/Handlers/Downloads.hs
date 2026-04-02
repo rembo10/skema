@@ -6,8 +6,8 @@ module Skema.API.Handlers.Downloads
   ( downloadsServer
   ) where
 
-import Skema.API.Types.Downloads (DownloadsAPI, DownloadResponse(..), DownloadsPagination(..), DownloadsResponse(..), QueueDownloadRequest(..), SlskdFileRequest(..), QueueDownloadResponse(..), DownloadTaskRequest(..))
-import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
+import Skema.API.Types.Downloads (DownloadsAPI, DownloadResponse(..), DownloadsPagination(..), DownloadsResponse(..), QueueDownloadRequest(..), SlskdFileRequest(..), QueueDownloadResponse(..))
+import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..))
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import Skema.API.Handlers.Utils (throw404, readConfig, parsePagination)
@@ -48,14 +48,14 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
   :<|> queueDownloadHandler maybeAuthHeader
   :<|> deleteDownloadHandler maybeAuthHeader
   where
-    taskHandler :: Maybe Text -> DownloadTaskRequest -> Handler TaskResponse
+    taskHandler :: Maybe Text -> TaskRequest -> Handler TaskResponse
     taskHandler authHeader req = do
       _ <- requireAuth configVar jwtSecret authHeader
 
-      let downloadId = downloadTaskDownloadId req
+      let downloadId = fromMaybe 0 (taskRequestResourceId req)
 
       -- Create task based on request type
-      case downloadTaskType req of
+      case taskRequestType req of
         "reidentify" -> liftIO $ do
           -- Create the task
           taskResp <- TM.createTask tm DownloadsResource (Just downloadId) "reidentify"

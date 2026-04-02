@@ -10,6 +10,7 @@
 -- and all tasks can be monitored through the global /tasks endpoint.
 module Skema.API.Types.Tasks
   ( TasksAPI
+  , TaskRequest(..)
   , TaskResponse(..)
   , TaskStatus(..)
   , TaskResource(..)
@@ -18,6 +19,20 @@ module Skema.API.Types.Tasks
 import Data.Aeson (ToJSON(..), FromJSON(..), Value, defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
 import GHC.Generics ()
 import Servant
+
+-- | Unified request to create a task for any resource.
+data TaskRequest = TaskRequest
+  { taskRequestType :: Text
+    -- ^ Task type (e.g., "scan", "identify", "refresh", "reidentify", "evaluate")
+  , taskRequestResourceId :: Maybe Int64
+    -- ^ Resource ID to operate on (optional, e.g. cluster ID, artist ID)
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON TaskRequest where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
+
+instance FromJSON TaskRequest where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
 
 -- | Global tasks API endpoints.
 type TasksAPI = "tasks" :> Header "Authorization" Text :>

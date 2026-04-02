@@ -16,7 +16,7 @@ import Servant
 
 -- | Filesystem browsing API endpoints.
 type FilesystemAPI = "filesystem" :> Header "Authorization" Text :>
-  ( "browse" :> QueryParam "path" Text :> Get '[JSON] FilesystemBrowseResponse
+  ( QueryParam "path" Text :> Get '[JSON] FilesystemBrowseResponse
   )
 
 -- | Filesystem entry (file or directory).

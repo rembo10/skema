@@ -1,4 +1,4 @@
-import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, AcquisitionSummary, WantedAlbum, Config, CatalogQueryRequest, CatalogQueryResponse, CatalogArtist, ArtistsResponse, CatalogAlbum, Download, DownloadsResponse, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task, AlbumOverviewRequest, AlbumOverviewResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse } from '../types/api';
+import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, AcquisitionSummary, WantedAlbum, Config, CatalogQueryResponse, CatalogArtist, ArtistsResponse, CatalogAlbum, Download, DownloadsResponse, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task, AlbumOverviewRequest, AlbumOverviewResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse } from '../types/api';
 import { buildQueryString } from './queryBuilder';
 
 // Base path configuration
@@ -231,20 +231,6 @@ export const api = {
     });
   },
 
-  async applyGroupedDiff(fieldName: string, fileValue: string | null, mbValue: string | null): Promise<void> {
-    return fetchApi<void>('/diffs/apply-grouped', {
-      method: 'POST',
-      body: JSON.stringify({ field_name: fieldName, file_value: fileValue, mb_value: mbValue }),
-    });
-  },
-
-  async applyDiffToFile(fileId: number, fieldName: string, value: string | null): Promise<void> {
-    return fetchApi<void>(`/diffs/apply-to-file`, {
-      method: 'POST',
-      body: JSON.stringify({ file_id: fileId, field_name: fieldName, value }),
-    });
-  },
-
   // Metadata changes (for undo functionality)
   async applyMetadataChanges(diffIds: number[]): Promise<MetadataChange[]> {
     return fetchApi<MetadataChange[]>('/metadata-changes', {
@@ -324,12 +310,12 @@ export const api = {
 
   async searchReleases(query: string, limit?: number): Promise<CandidateRelease[]> {
     const qs = buildQueryString({ query, limit });
-    return fetchApi<CandidateRelease[]>(`/clusters/search-releases?${qs}`);
+    return fetchApi<CandidateRelease[]>(`/clusters/releases?${qs}`);
   },
 
   async searchRecordings(query: string, limit?: number): Promise<MBTrackInfo[]> {
     const qs = buildQueryString({ query, limit });
-    return fetchApi<MBTrackInfo[]>(`/clusters/search-recordings?${qs}`);
+    return fetchApi<MBTrackInfo[]>(`/clusters/recordings?${qs}`);
   },
 
   async updateTrackRecording(
@@ -352,7 +338,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({
         type: 'identify',
-        cluster_id: clusterId,
+        resource_id: clusterId,
       }),
     });
   },
@@ -456,22 +442,10 @@ export const api = {
     });
   },
 
-  async enableAcquisitionSource(sourceId: number): Promise<void> {
-    return fetchApi<void>(`/acquisition/sources/${sourceId}/enable`, {
-      method: 'PUT',
-    });
-  },
-
-  async disableAcquisitionSource(sourceId: number): Promise<void> {
-    return fetchApi<void>(`/acquisition/sources/${sourceId}/disable`, {
-      method: 'PUT',
-    });
-  },
-
   async evaluateAcquisitionSource(sourceId: number): Promise<Task> {
     return fetchApi<Task>('/acquisition/tasks', {
       method: 'POST',
-      body: JSON.stringify({ type: 'evaluate', source_id: sourceId }),
+      body: JSON.stringify({ type: 'evaluate', resource_id: sourceId }),
     });
   },
 
@@ -500,11 +474,9 @@ export const api = {
   },
 
   // Catalog (universal search)
-  async catalogQuery(request: CatalogQueryRequest): Promise<CatalogQueryResponse> {
-    return fetchApi<CatalogQueryResponse>('/catalog/query', {
-      method: 'POST',
-      body: JSON.stringify(request),
-    });
+  async catalogQuery(request: { query: string; limit?: number }): Promise<CatalogQueryResponse> {
+    const qs = buildQueryString({ q: request.query, limit: request.limit });
+    return fetchApi<CatalogQueryResponse>(`/catalog/search?${qs}`);
   },
 
   async getCatalogArtists(
@@ -559,7 +531,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({
         type: 'refresh',
-        artist_id: artistId,
+        resource_id: artistId,
       }),
     });
   },
@@ -654,8 +626,8 @@ export const api = {
   },
 
   async bulkAlbumAction(request: BulkAlbumActionRequest): Promise<void> {
-    return fetchApi<void>('/catalog/albums/bulk-action', {
-      method: 'POST',
+    return fetchApi<void>('/catalog/albums/batch', {
+      method: 'PATCH',
       body: JSON.stringify(request),
     });
   },
@@ -778,7 +750,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({
         type: 'reidentify',
-        download_id: downloadId,
+        resource_id: downloadId,
       }),
     });
   },
@@ -788,7 +760,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({
         type: 'retry',
-        download_id: downloadId,
+        resource_id: downloadId,
       }),
     });
   },
@@ -796,7 +768,7 @@ export const api = {
   // Filesystem browsing
   async browseFilesystem(path?: string): Promise<FilesystemBrowseResponse> {
     const params = path ? `?path=${encodeURIComponent(path)}` : '';
-    return fetchApi<FilesystemBrowseResponse>(`/filesystem/browse${params}`);
+    return fetchApi<FilesystemBrowseResponse>(`/filesystem${params}`);
   },
 
   // Quality profiles

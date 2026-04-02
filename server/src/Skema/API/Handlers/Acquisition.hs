@@ -6,8 +6,8 @@ module Skema.API.Handlers.Acquisition
   ( acquisitionServer
   ) where
 
-import Skema.API.Types.Acquisition (AcquisitionAPI, AcquisitionRuleResponse(..), AcquisitionSummaryResponse(..), SourceStatsResponse(..), CreateRuleRequest(..), UpdateRuleRequest(..), AcquisitionTaskRequest(..))
-import Skema.API.Types.Tasks (TaskResponse(..), TaskResource(..))
+import Skema.API.Types.Acquisition (AcquisitionAPI, AcquisitionRuleResponse(..), AcquisitionSummaryResponse(..), SourceStatsResponse(..), CreateRuleRequest(..), UpdateRuleRequest(..))
+import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..))
 import Skema.API.Handlers.Utils (throw400, withAuthDB)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
@@ -26,7 +26,7 @@ import Control.Concurrent.Async (async)
 import Control.Exception (try)
 import Servant
 import Katip (LogEnv)
-import Data.Time (UTCTime, getCurrentTime)
+import Data.Time (UTCTime)
 
 -- | Acquisition API handlers.
 acquisitionServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> TVar Cfg.Config -> MBClientEnv -> TaskManager -> Server AcquisitionAPI
@@ -35,8 +35,6 @@ acquisitionServer le bus _serverCfg jwtSecret connPool configVar mbClient tm = \
   :<|> createRuleHandler maybeAuthHeader
   :<|> updateRuleHandler maybeAuthHeader
   :<|> deleteRuleHandler maybeAuthHeader
-  :<|> enableRuleHandler maybeAuthHeader
-  :<|> disableRuleHandler maybeAuthHeader
   :<|> taskHandler maybeAuthHeader
   :<|> getSummaryHandler maybeAuthHeader
   where
@@ -127,31 +125,13 @@ acquisitionServer le bus _serverCfg jwtSecret connPool configVar mbClient tm = \
         DB.deleteAcquisitionRule conn sourceId
       pure NoContent
 
-    enableRuleHandler :: Maybe Text -> Int64 -> Handler NoContent
-    enableRuleHandler authHeader sourceId = do
-      withAuthDB configVar jwtSecret connPool authHeader $ \conn -> do
-        now <- getCurrentTime
-        executeQuery conn
-          "UPDATE acquisition_rules SET enabled = ?, updated_at = ? WHERE id = ?"
-          (True, now, sourceId)
-      pure NoContent
-
-    disableRuleHandler :: Maybe Text -> Int64 -> Handler NoContent
-    disableRuleHandler authHeader sourceId = do
-      withAuthDB configVar jwtSecret connPool authHeader $ \conn -> do
-        now <- getCurrentTime
-        executeQuery conn
-          "UPDATE acquisition_rules SET enabled = ?, updated_at = ? WHERE id = ?"
-          (False, now, sourceId)
-      pure NoContent
-
-    taskHandler :: Maybe Text -> AcquisitionTaskRequest -> Handler TaskResponse
+    taskHandler :: Maybe Text -> TaskRequest -> Handler TaskResponse
     taskHandler authHeader req = do
       _ <- requireAuth configVar jwtSecret authHeader
 
-      case acquisitionTaskType req of
+      case taskRequestType req of
         "evaluate" -> liftIO $ do
-          let sid = acquisitionTaskSourceId req
+          let sid = fromMaybe 0 (taskRequestResourceId req)
           taskResp <- TM.createTask tm AcquisitionResource (Just sid) "evaluate"
           let tid = taskResponseId taskResp
 

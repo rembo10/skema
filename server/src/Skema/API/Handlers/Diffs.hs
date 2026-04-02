@@ -5,7 +5,7 @@ module Skema.API.Handlers.Diffs
   ( diffsServer
   ) where
 
-import Skema.API.Types.Diffs (DiffsAPI, MetadataDiffResponse(..), GroupedDiffResponse(..), GroupedDiffsResponse(..), DiffsPagination(..), ApplyGroupedDiffRequest(..), ApplyToFileRequest(..), ApplyChangesRequest(..), MetadataChangeResponse(..), MetadataChangesResponse(..))
+import Skema.API.Types.Diffs (DiffsAPI, MetadataDiffResponse(..), GroupedDiffResponse(..), GroupedDiffsResponse(..), DiffsPagination(..), ApplyChangesRequest(..), MetadataChangeResponse(..), MetadataChangesResponse(..))
 import Skema.API.Handlers.Utils (throw500, parsePagination, withAuthDB)
 import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
@@ -28,9 +28,7 @@ diffsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceReg
 diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
   (\maybeAuthHeader ->
     getAllDiffsHandler maybeAuthHeader
-    :<|> getGroupedDiffsHandler maybeAuthHeader
-    :<|> applyGroupedHandler maybeAuthHeader
-    :<|> applyToFileHandler maybeAuthHeader)
+    :<|> getGroupedDiffsHandler maybeAuthHeader)
   :<|>
   (\maybeAuthHeader ->
     applyChangesHandler maybeAuthHeader
@@ -100,17 +98,6 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
               }
           , groupedDiffsResponseDiffs = paginated
           }
-
-    applyGroupedHandler :: Maybe Text -> ApplyGroupedDiffRequest -> Handler ()
-    applyGroupedHandler authHeader req =
-      withAuthDB configVar jwtSecret connPool authHeader $ \conn -> do
-        _ <- DB.applyGroupedMetadataDiff conn (applyFieldName req) (applyFileValue req) (applyMBValue req)
-        pure ()
-
-    applyToFileHandler :: Maybe Text -> ApplyToFileRequest -> Handler ()
-    applyToFileHandler authHeader req =
-      withAuthDB configVar jwtSecret connPool authHeader $ \conn ->
-        DB.applyMetadataChange conn (applyToTrackId req) (applyToFieldName req) (applyToValue req)
 
     -- Metadata changes handlers
     applyChangesHandler :: Maybe Text -> ApplyChangesRequest -> Handler [MetadataChangeResponse]

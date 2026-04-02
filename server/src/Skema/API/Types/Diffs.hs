@@ -10,8 +10,6 @@ module Skema.API.Types.Diffs
   , GroupedDiffResponse(..)
   , GroupedDiffsResponse(..)
   , DiffsPagination(..)
-  , ApplyGroupedDiffRequest(..)
-  , ApplyToFileRequest(..)
   , ApplyChangesRequest(..)
   , MetadataChangeResponse(..)
   , MetadataChangesResponse(..)
@@ -28,8 +26,6 @@ type DiffsAPI = "diffs" :> Header "Authorization" Text :>
     :> QueryParam "offset" Int
     :> QueryParam "limit" Int
     :> Get '[JSON] GroupedDiffsResponse
-  :<|> "apply-grouped" :> ReqBody '[JSON] ApplyGroupedDiffRequest :> Post '[JSON] ()
-  :<|> "apply-to-file" :> ReqBody '[JSON] ApplyToFileRequest :> Post '[JSON] ()
   )
   :<|> "metadata-changes" :> Header "Authorization" Text :>
   ( ReqBody '[JSON] ApplyChangesRequest :> PostCreated '[JSON] [MetadataChangeResponse]
@@ -96,32 +92,6 @@ instance ToJSON GroupedDiffsResponse where
 
 instance FromJSON GroupedDiffsResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 20 }
-
--- | Request to apply grouped diff.
-data ApplyGroupedDiffRequest = ApplyGroupedDiffRequest
-  { applyFieldName :: Text
-  , applyFileValue :: Maybe Text
-  , applyMBValue :: Maybe Text
-  } deriving (Show, Eq, Generic)
-
-instance ToJSON ApplyGroupedDiffRequest where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 5 }
-
-instance FromJSON ApplyGroupedDiffRequest where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 5 }
-
--- | Request to apply diff to a single track.
-data ApplyToFileRequest = ApplyToFileRequest
-  { applyToTrackId :: Int64
-  , applyToFieldName :: Text
-  , applyToValue :: Maybe Text
-  } deriving (Show, Eq, Generic)
-
-instance ToJSON ApplyToFileRequest where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 7 }
-
-instance FromJSON ApplyToFileRequest where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 7 }
 
 -- | Request to apply changes (creating metadata change records).
 data ApplyChangesRequest = ApplyChangesRequest

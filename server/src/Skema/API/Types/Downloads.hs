@@ -12,17 +12,16 @@ module Skema.API.Types.Downloads
   , QueueDownloadRequest(..)
   , SlskdFileRequest(..)
   , QueueDownloadResponse(..)
-  , DownloadTaskRequest(..)
   ) where
 
-import Skema.API.Types.Tasks (TaskResponse)
+import Skema.API.Types.Tasks (TaskRequest, TaskResponse)
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
 import GHC.Generics ()
 import Servant
 
 -- | Downloads API endpoints.
 type DownloadsAPI = "downloads" :> Header "Authorization" Text :>
-  ( "tasks" :> ReqBody '[JSON] DownloadTaskRequest :> PostCreated '[JSON] TaskResponse
+  ( "tasks" :> ReqBody '[JSON] TaskRequest :> PostCreated '[JSON] TaskResponse
   :<|> QueryParam "offset" Int
     :> QueryParam "limit" Int
     :> Get '[JSON] DownloadsResponse
@@ -136,17 +135,3 @@ instance ToJSON QueueDownloadResponse where
 
 instance FromJSON QueueDownloadResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 21 }
-
--- | Request to create a download task.
-data DownloadTaskRequest = DownloadTaskRequest
-  { downloadTaskType :: Text
-    -- ^ Task type: "reidentify"
-  , downloadTaskDownloadId :: Int64
-    -- ^ Download ID to operate on
-  } deriving (Show, Eq, Generic)
-
-instance ToJSON DownloadTaskRequest where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 12 }
-
-instance FromJSON DownloadTaskRequest where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 12 }

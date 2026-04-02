@@ -16,17 +16,16 @@ module Skema.API.Types.Clusters
   , AssignReleaseRequest(..)
   , UpdateTrackRecordingRequest(..)
   , CreateClusterRequest(..)
-  , ClusterTaskRequest(..)
   ) where
 
-import Skema.API.Types.Tasks (TaskResponse)
+import Skema.API.Types.Tasks (TaskRequest, TaskResponse)
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
 import GHC.Generics ()
 import Servant
 
 -- | Clusters API endpoints.
 type ClustersAPI = "clusters" :> Header "Authorization" Text :>
-  ( "tasks" :> ReqBody '[JSON] ClusterTaskRequest :> PostCreated '[JSON] TaskResponse
+  ( "tasks" :> ReqBody '[JSON] TaskRequest :> PostCreated '[JSON] TaskResponse
   :<|> QueryParam "offset" Int
     :> QueryParam "limit" Int
     :> QueryParam "search" Text
@@ -41,9 +40,9 @@ type ClustersAPI = "clusters" :> Header "Authorization" Text :>
   -- Track recording mapping endpoint
   :<|> Capture "clusterId" Int64 :> "tracks" :> Capture "trackId" Int64 :> "recording" :> ReqBody '[JSON] UpdateTrackRecordingRequest :> Put '[JSON] NoContent
   -- Search for releases (for manual matching)
-  :<|> "search-releases" :> QueryParam' '[Required, Strict] "query" Text :> QueryParam "limit" Int :> Get '[JSON] [CandidateRelease]
+  :<|> "releases" :> QueryParam' '[Required, Strict] "query" Text :> QueryParam "limit" Int :> Get '[JSON] [CandidateRelease]
   -- Search for recordings (for manual track matching)
-  :<|> "search-recordings" :> QueryParam' '[Required, Strict] "query" Text :> QueryParam "limit" Int :> Get '[JSON] [MBTrackInfo]
+  :<|> "recordings" :> QueryParam' '[Required, Strict] "query" Text :> QueryParam "limit" Int :> Get '[JSON] [MBTrackInfo]
   -- Cluster manipulation endpoints
   :<|> ReqBody '[JSON] CreateClusterRequest :> Post '[JSON] ClusterResponse
   :<|> Capture "clusterId" Int64 :> QueryParam "merge_into" Int64 :> DeleteNoContent
@@ -223,16 +222,3 @@ instance ToJSON CreateClusterRequest where
 instance FromJSON CreateClusterRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 13 }
 
--- | Request to create a cluster task.
-data ClusterTaskRequest = ClusterTaskRequest
-  { clusterTaskType :: Text
-    -- ^ Task type: "identify"
-  , clusterTaskClusterId :: Int64
-    -- ^ Cluster ID to operate on
-  } deriving (Show, Eq, Generic)
-
-instance ToJSON ClusterTaskRequest where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
-
-instance FromJSON ClusterTaskRequest where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
