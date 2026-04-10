@@ -448,7 +448,7 @@ data MusicBrainzConfig = MusicBrainzConfig
     -- ^ Password for Headphones VIP (required if using VIP)
   , mbAlbumTypes :: [Text]
     -- ^ Primary album types to fetch (e.g., ["Album", "EP"])
-    -- Default: ["Album"] (studio albums only)
+    -- Default: [] (all types - filtering is done per-source)
   , mbExcludeSecondaryTypes :: [Text]
     -- ^ Secondary types to exclude (e.g., ["Live", "Compilation"])
     -- Default: ["Live", "Compilation"] (no live or compilation albums)
@@ -460,7 +460,7 @@ instance FromJSON MusicBrainzConfig where
     serverVal <- parseJSON (Object o)
     username <- o .:? "username"
     password <- o .:? "password"
-    albumTypes <- o .:? "album_types" .!= ["Album"]
+    albumTypes <- o .:? "album_types" .!= []
     excludeSecondaryTypes <- o .:? "exclude_secondary_types" .!= ["Live", "Compilation"]
     pure $ MusicBrainzConfig serverVal username password albumTypes excludeSecondaryTypes
 

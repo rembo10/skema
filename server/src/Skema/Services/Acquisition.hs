@@ -257,6 +257,7 @@ evaluateLibraryArtistsAlbumFilters filters now album =
   -- Check if album type matches filter
   let albumTypeMatch = case lafAlbumTypes filters of
         Nothing -> True  -- No album type filter specified, accept all types
+        Just [] -> True  -- Empty list means include all types
         Just types -> case DB.catalogAlbumType album of
           Just albumType -> albumType `elem` types
           Nothing -> True  -- If no type, include by default
