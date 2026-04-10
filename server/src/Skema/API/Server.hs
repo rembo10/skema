@@ -9,6 +9,7 @@ module Skema.API.Server
   ) where
 
 import Skema.API.Types
+import Skema.API.OpenApi (openApiSpec, swaggerUiHtml)
 import Skema.API.Handlers.Auth (authServer)
 import Skema.API.Handlers.Library (libraryServer)
 import Skema.API.Handlers.Config (configServer, configSchemaServer)
@@ -92,7 +93,7 @@ app le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir c
 -- | Servant server.
 server :: LogEnv -> EventBus -> AuthStore -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> TVar Config -> FilePath -> Server API
 server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir configVar configPath =
-  (authServer authStore jwtSecret configVar
+  ((authServer authStore jwtSecret configVar
    :<|> libraryServer le bus serverCfg jwtSecret registry tm connPool configVar
    :<|> configServer le bus serverCfg jwtSecret connPool configVar configPath
    :<|> configSchemaServer
@@ -106,6 +107,7 @@ server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDi
    :<|> filesystemServer serverCfg jwtSecret configVar
    :<|> qualityProfilesServer serverCfg jwtSecret connPool configVar
    :<|> tasksServer jwtSecret tm configVar)
+   :<|> (pure swaggerUiHtml :<|> pure openApiSpec))
   :<|> staticFileServer cacheDir
   :<|> frontendServer configVar
 

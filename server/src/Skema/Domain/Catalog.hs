@@ -38,6 +38,7 @@ import Skema.Domain.Quality
   , needsUpgrade
   )
 import Data.Aeson (ToJSON(..), FromJSON(..))
+import Data.OpenApi (ToSchema(..), genericDeclareNamedSchema, defaultSchemaOptions)
 
 -- ============================================================================
 -- TYPES
@@ -59,6 +60,8 @@ data AlbumState
 
 instance ToJSON AlbumState
 instance FromJSON AlbumState
+instance ToSchema AlbumState where
+  declareNamedSchema = genericDeclareNamedSchema defaultSchemaOptions
 
 -- | Convert AlbumState to Text representation.
 albumStateToText :: AlbumState -> Text

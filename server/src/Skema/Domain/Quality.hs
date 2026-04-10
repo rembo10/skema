@@ -39,6 +39,9 @@ import GHC.Generics ()
 import qualified Data.Text as T
 import Data.Aeson (ToJSON(..), FromJSON(..), object, (.=), withObject, (.:), withText)
 import qualified Data.Aeson as Aeson
+import Data.OpenApi (ToSchema(..), NamedSchema(..), declareSchemaRef, properties, required, type_, OpenApiType(..), enum_)
+import Control.Lens ((.~), (?~))
+import qualified Data.HashMap.Strict.InsOrd as InsOrd
 import qualified Monatone.Metadata as Monatone
 
 -- | Audio quality levels, in rough order of file size/quality.
@@ -61,6 +64,11 @@ instance FromJSON Quality where
     case textToQuality t of
       Just q -> pure q
       Nothing -> fail $ "Unknown quality: " <> toString t
+
+instance ToSchema Quality where
+  declareNamedSchema _ = pure $ NamedSchema (Just "Quality") $ mempty
+    & type_ ?~ OpenApiString
+    & enum_ ?~ map (Aeson.String . qualityToText) [minBound .. maxBound]
 
 -- | Quality preference for a specific quality level.
 data QualityPreference = QualityPreference
@@ -85,6 +93,16 @@ instance FromJSON QualityPreference where
       <$> o .: "quality"
       <*> o .: "rank"
       <*> o .: "enabled"
+
+instance ToSchema QualityPreference where
+  declareNamedSchema _ = do
+    qualityRef <- declareSchemaRef (Proxy :: Proxy Quality)
+    intRef <- declareSchemaRef (Proxy :: Proxy Int)
+    boolRef <- declareSchemaRef (Proxy :: Proxy Bool)
+    pure $ NamedSchema (Just "QualityPreference") $ mempty
+      & type_ ?~ OpenApiObject
+      & properties .~ InsOrd.fromList [("quality", qualityRef), ("rank", intRef), ("enabled", boolRef)]
+      & required .~ ["quality", "rank", "enabled"]
 
 -- | Quality profile defining acceptable qualities and preferences.
 data QualityProfile = QualityProfile
@@ -117,6 +135,19 @@ instance FromJSON QualityProfile where
       <*> o .: "quality_preferences"
       <*> o .: "cutoff_quality"
       <*> o .: "upgrade_automatically"
+
+instance ToSchema QualityProfile where
+  declareNamedSchema _ = do
+    intRef <- declareSchemaRef (Proxy :: Proxy (Maybe Int64))
+    textRef <- declareSchemaRef (Proxy :: Proxy Text)
+    prefsRef <- declareSchemaRef (Proxy :: Proxy [QualityPreference])
+    qualityRef <- declareSchemaRef (Proxy :: Proxy Quality)
+    boolRef <- declareSchemaRef (Proxy :: Proxy Bool)
+    pure $ NamedSchema (Just "QualityProfile") $ mempty
+      & type_ ?~ OpenApiObject
+      & properties .~ InsOrd.fromList [ ("id", intRef), ("name", textRef), ("quality_preferences", prefsRef)
+                                      , ("cutoff_quality", qualityRef), ("upgrade_automatically", boolRef) ]
+      & required .~ ["id", "name", "quality_preferences", "cutoff_quality", "upgrade_automatically"]
 
 -- | Quality profile record as stored in database.
 data QualityProfileRecord = QualityProfileRecord

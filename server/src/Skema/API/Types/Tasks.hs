@@ -17,6 +17,10 @@ module Skema.API.Types.Tasks
   ) where
 
 import Data.Aeson (ToJSON(..), FromJSON(..), Value, defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
+import qualified Data.Aeson as Aeson
+import Data.OpenApi (ToSchema(..), NamedSchema(..), type_, OpenApiType(..), enum_, genericDeclareNamedSchema)
+import Control.Lens ((?~))
+import Skema.API.Types.Common (schemaOptions)
 import GHC.Generics ()
 import Servant
 
@@ -33,6 +37,9 @@ instance ToJSON TaskRequest where
 
 instance FromJSON TaskRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
+
+instance ToSchema TaskRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 11)
 
 -- | Global tasks API endpoints.
 type TasksAPI = "tasks" :> Header "Authorization" Text :>
@@ -65,6 +72,11 @@ instance FromJSON TaskStatus where
   parseJSON "cancelled" = pure TaskCancelled
   parseJSON _ = fail "Invalid task status"
 
+instance ToSchema TaskStatus where
+  declareNamedSchema _ = pure $ NamedSchema (Just "TaskStatus") $ mempty
+    & type_ ?~ OpenApiString
+    & enum_ ?~ map Aeson.String ["queued", "running", "completed", "failed", "cancelled"]
+
 -- | Resource that created the task.
 data TaskResource
   = LibraryResource
@@ -88,6 +100,11 @@ instance FromJSON TaskResource where
   parseJSON "downloads" = pure DownloadsResource
   parseJSON "acquisition" = pure AcquisitionResource
   parseJSON _ = fail "Invalid task resource"
+
+instance ToSchema TaskResource where
+  declareNamedSchema _ = pure $ NamedSchema (Just "TaskResource") $ mempty
+    & type_ ?~ OpenApiString
+    & enum_ ?~ map Aeson.String ["library", "clusters", "catalog", "downloads", "acquisition"]
 
 -- | Task response (for both creation and status queries).
 data TaskResponse = TaskResponse
@@ -122,3 +139,6 @@ instance ToJSON TaskResponse where
 
 instance FromJSON TaskResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 12 }
+
+instance ToSchema TaskResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 12)

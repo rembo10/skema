@@ -11,6 +11,8 @@ module Skema.API.Types.Filesystem
   ) where
 
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
+import Data.OpenApi (ToSchema(..), genericDeclareNamedSchema)
+import Skema.API.Types.Common (schemaOptions)
 import GHC.Generics ()
 import Servant
 
@@ -43,6 +45,9 @@ instance ToJSON FilesystemEntry where
 instance FromJSON FilesystemEntry where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
 
+instance ToSchema FilesystemEntry where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 15)
+
 -- | Response from filesystem browse endpoint.
 data FilesystemBrowseResponse = FilesystemBrowseResponse
   { filesystemBrowseResponsePath :: Text
@@ -60,3 +65,6 @@ instance ToJSON FilesystemBrowseResponse where
 
 instance FromJSON FilesystemBrowseResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 24 }
+
+instance ToSchema FilesystemBrowseResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 24)

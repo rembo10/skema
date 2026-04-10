@@ -92,6 +92,7 @@ library
     Skema.API.Types.Filesystem
     Skema.API.Types.QualityProfiles
     Skema.API.Types.Tasks
+    Skema.API.OpenApi
     Skema.API.Server
     Skema.API.Handlers.Auth
     Skema.API.Handlers.Library
@@ -236,6 +237,9 @@ library
     , crypton >= 0.34 && < 1.1
     , jose >= 0.11 && < 0.13
     , lens >= 5.0 && < 5.4
+    , openapi3 >= 3.2 && < 3.3
+    , servant-openapi3 >= 2.0 && < 2.1
+    , insert-ordered-containers >= 0.2 && < 0.3
     , mtl >= 2.2 && < 2.4
     , base16-bytestring >= 1.0 && < 1.1
     , JuicyPixels >= 3.3 && < 3.4

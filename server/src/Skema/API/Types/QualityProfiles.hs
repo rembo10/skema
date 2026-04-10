@@ -12,6 +12,8 @@ module Skema.API.Types.QualityProfiles
 
 import Skema.Domain.Quality (QualityProfile, QualityPreference, Quality)
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
+import Data.OpenApi (ToSchema(..), genericDeclareNamedSchema)
+import Skema.API.Types.Common (schemaOptions)
 import GHC.Generics ()
 import Servant
 
@@ -40,6 +42,9 @@ instance ToJSON CreateQualityProfileRequest where
 instance FromJSON CreateQualityProfileRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 20 }
 
+instance ToSchema CreateQualityProfileRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 20)
+
 -- | Request to update a quality profile.
 data UpdateQualityProfileRequest = UpdateQualityProfileRequest
   { updateQualityProfileName :: Text
@@ -53,3 +58,6 @@ instance ToJSON UpdateQualityProfileRequest where
 
 instance FromJSON UpdateQualityProfileRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 20 }
+
+instance ToSchema UpdateQualityProfileRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 20)

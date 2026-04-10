@@ -16,6 +16,8 @@ module Skema.API.Types.Acquisition
   ) where
 
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
+import Data.OpenApi (ToSchema(..), genericDeclareNamedSchema)
+import Skema.API.Types.Common (schemaOptions)
 import Skema.API.Types.Tasks (TaskRequest, TaskResponse)
 import GHC.Generics ()
 import Servant
@@ -46,6 +48,9 @@ instance ToJSON CreateRuleRequest where
 instance FromJSON CreateRuleRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 10 }
 
+instance ToSchema CreateRuleRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 10)
+
 -- | Update acquisition rule request.
 data UpdateRuleRequest = UpdateRuleRequest
   { updateRuleName :: Text
@@ -61,6 +66,9 @@ instance ToJSON UpdateRuleRequest where
 
 instance FromJSON UpdateRuleRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 10 }
+
+instance ToSchema UpdateRuleRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 10)
 
 -- | Tracked artist response.
 data TrackedArtistResponse = TrackedArtistResponse
@@ -82,6 +90,9 @@ instance ToJSON TrackedArtistResponse where
 instance FromJSON TrackedArtistResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 21 }
 
+instance ToSchema TrackedArtistResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 21)
+
 -- | Acquisition rule response.
 data AcquisitionRuleResponse = AcquisitionRuleResponse
   { acquisitionRuleResponseId :: Int64
@@ -100,6 +111,9 @@ instance ToJSON AcquisitionRuleResponse where
 
 instance FromJSON AcquisitionRuleResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 23 }
+
+instance ToSchema AcquisitionRuleResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 23)
 
 -- | Wanted album response.
 data WantedAlbumResponse = WantedAlbumResponse
@@ -122,6 +136,9 @@ instance ToJSON WantedAlbumResponse where
 instance FromJSON WantedAlbumResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
 
+instance ToSchema WantedAlbumResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 19)
+
 -- | Per-source stats response.
 data SourceStatsResponse = SourceStatsResponse
   { sourceStatsResponseSourceId :: Int64
@@ -135,6 +152,9 @@ instance ToJSON SourceStatsResponse where
 instance FromJSON SourceStatsResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
 
+instance ToSchema SourceStatsResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 19)
+
 -- | Acquisition summary response.
 data AcquisitionSummaryResponse = AcquisitionSummaryResponse
   { acquisitionSummaryResponseSources :: [SourceStatsResponse]
@@ -147,3 +167,6 @@ instance ToJSON AcquisitionSummaryResponse where
 
 instance FromJSON AcquisitionSummaryResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 26 }
+
+instance ToSchema AcquisitionSummaryResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 26)

@@ -15,6 +15,8 @@ module Skema.Auth.Types
 
 import GHC.Generics ()
 import Data.Aeson (FromJSON(..), ToJSON(..), Options(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
+import Data.OpenApi (ToSchema(..), genericDeclareNamedSchema)
+import Skema.API.Types.Common (schemaOptions)
 import qualified Data.Map.Strict as Map
 import Data.Time (UTCTime)
 import Control.Concurrent.STM ()
@@ -25,6 +27,7 @@ newtype ApiKey = ApiKey { unApiKey :: Text }
 
 instance FromJSON ApiKey
 instance ToJSON ApiKey
+instance ToSchema ApiKey
 
 -- | Credentials request from client.
 data CredentialsRequest = CredentialsRequest
@@ -37,6 +40,9 @@ instance FromJSON CredentialsRequest where
 
 instance ToJSON CredentialsRequest where
   toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 4 }
+
+instance ToSchema CredentialsRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 4)
 
 -- | Authentication response containing JWT.
 data AuthResponse = AuthResponse
@@ -52,6 +58,9 @@ instance FromJSON AuthResponse where
 
 instance ToJSON AuthResponse where
   toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 4 }
+
+instance ToSchema AuthResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 4)
 
 -- | Authentication errors.
 data AuthError

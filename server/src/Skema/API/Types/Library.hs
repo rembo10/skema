@@ -18,6 +18,8 @@ module Skema.API.Types.Library
 
 import Skema.API.Types.Tasks (TaskRequest, TaskResponse)
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
+import Data.OpenApi (ToSchema(..), genericDeclareNamedSchema)
+import Skema.API.Types.Common (schemaOptions)
 import GHC.Generics ()
 import Servant
 import Database.SQLite.Simple.FromRow (FromRow(..), field)
@@ -56,6 +58,9 @@ instance ToJSON FileInfo where
 instance FromJSON FileInfo where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 8 }
 
+instance ToSchema FileInfo where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 8)
+
 -- | Library statistics.
 data LibraryStats = LibraryStats
   { statsTotalFiles :: Int
@@ -78,6 +83,9 @@ instance ToJSON LibraryStats where
 instance FromJSON LibraryStats where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 5 }
 
+instance ToSchema LibraryStats where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 5)
+
 -- | Request to update track properties (e.g., move to different cluster).
 data UpdateTrackRequest = UpdateTrackRequest
   { updateTrackClusterId :: Maybe Int64  -- Nothing = remove from cluster
@@ -88,6 +96,9 @@ instance ToJSON UpdateTrackRequest where
 
 instance FromJSON UpdateTrackRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
+
+instance ToSchema UpdateTrackRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 11)
 
 -- | Track with cluster and MusicBrainz information for frontend.
 data TrackWithCluster = TrackWithCluster
@@ -120,6 +131,9 @@ instance ToJSON TrackWithCluster where
 
 instance FromJSON TrackWithCluster where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 5 }
+
+instance ToSchema TrackWithCluster where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 5)
 
 instance FromRow TrackWithCluster where
   fromRow = TrackWithCluster
@@ -156,6 +170,9 @@ instance ToJSON TracksPagination where
 instance FromJSON TracksPagination where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
 
+instance ToSchema TracksPagination where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 16)
+
 -- | Paginated tracks response.
 data TracksResponse = TracksResponse
   { tracksResponsePagination :: TracksPagination
@@ -167,6 +184,9 @@ instance ToJSON TracksResponse where
 
 instance FromJSON TracksResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 14 }
+
+instance ToSchema TracksResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 14)
 
 -- | Track statistics.
 data TracksStats = TracksStats
@@ -181,3 +201,6 @@ instance ToJSON TracksStats where
 
 instance FromJSON TracksStats where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
+
+instance ToSchema TracksStats where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 11)

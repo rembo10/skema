@@ -16,6 +16,8 @@ module Skema.API.Types.Diffs
   ) where
 
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
+import Data.OpenApi (ToSchema(..), genericDeclareNamedSchema)
+import Skema.API.Types.Common (schemaOptions)
 import GHC.Generics ()
 import Servant
 
@@ -52,6 +54,9 @@ instance ToJSON MetadataDiffResponse where
 instance FromJSON MetadataDiffResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 4 }
 
+instance ToSchema MetadataDiffResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 4)
+
 -- | Grouped diff response.
 data GroupedDiffResponse = GroupedDiffResponse
   { groupedFieldName :: Text
@@ -68,6 +73,9 @@ instance ToJSON GroupedDiffResponse where
 instance FromJSON GroupedDiffResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 7 }
 
+instance ToSchema GroupedDiffResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 7)
+
 -- | Pagination info for diffs.
 data DiffsPagination = DiffsPagination
   { diffsPaginationTotal :: Int
@@ -81,6 +89,9 @@ instance ToJSON DiffsPagination where
 instance FromJSON DiffsPagination where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
 
+instance ToSchema DiffsPagination where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 15)
+
 -- | Paginated grouped diffs response.
 data GroupedDiffsResponse = GroupedDiffsResponse
   { groupedDiffsResponsePagination :: DiffsPagination
@@ -93,6 +104,9 @@ instance ToJSON GroupedDiffsResponse where
 instance FromJSON GroupedDiffsResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 20 }
 
+instance ToSchema GroupedDiffsResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 20)
+
 -- | Request to apply changes (creating metadata change records).
 data ApplyChangesRequest = ApplyChangesRequest
   { applyChangesDiffIds :: [Int64]
@@ -104,6 +118,9 @@ instance ToJSON ApplyChangesRequest where
 
 instance FromJSON ApplyChangesRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 12 }
+
+instance ToSchema ApplyChangesRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 12)
 
 -- | Metadata change response (for history and undo).
 data MetadataChangeResponse = MetadataChangeResponse
@@ -124,6 +141,9 @@ instance ToJSON MetadataChangeResponse where
 instance FromJSON MetadataChangeResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 14 }
 
+instance ToSchema MetadataChangeResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 14)
+
 -- | Paginated metadata changes response.
 data MetadataChangesResponse = MetadataChangesResponse
   { metadataChangesResponsePagination :: DiffsPagination
@@ -135,3 +155,6 @@ instance ToJSON MetadataChangesResponse where
 
 instance FromJSON MetadataChangesResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 23 }
+
+instance ToSchema MetadataChangesResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 23)

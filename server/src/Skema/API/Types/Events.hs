@@ -16,6 +16,10 @@ module Skema.API.Types.Events
 
 import Skema.API.Types.Common (SourceIO)
 import Data.Aeson (ToJSON(..), FromJSON(..), Value, object, (.=), withObject, (.:), (.:?), encode, defaultOptions, fieldLabelModifier, camelTo2, genericToJSON, genericParseJSON)
+import Data.OpenApi (ToSchema(..), NamedSchema(..), declareSchemaRef, properties, required, type_, OpenApiType(..), genericDeclareNamedSchema)
+import Control.Lens ((.~), (?~))
+import qualified Data.HashMap.Strict.InsOrd as InsOrd
+import Skema.API.Types.Common (schemaOptions)
 import GHC.Generics ()
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text.Encoding as TE
@@ -51,6 +55,15 @@ instance FromJSON ServerEvent where
   parseJSON = withObject "ServerEvent" $ \o ->
     ServerEvent <$> o .: "type" <*> o .: "data"
 
+instance ToSchema ServerEvent where
+  declareNamedSchema _ = do
+    textRef <- declareSchemaRef (Proxy :: Proxy Text)
+    valueRef <- declareSchemaRef (Proxy :: Proxy Value)
+    pure $ NamedSchema (Just "ServerEvent") $ mempty
+      & type_ ?~ OpenApiObject
+      & properties .~ InsOrd.fromList [("type", textRef), ("data", valueRef)]
+      & required .~ ["type", "data"]
+
 -- | ToServerEvent instance for servant-event-stream.
 instance ToServerEvent ServerEvent where
   toServerEvent (ServerEvent evtType evtData) =
@@ -77,6 +90,15 @@ instance FromJSON EventRequest where
   parseJSON = withObject "EventRequest" $ \o ->
     EventRequest <$> o .: "type" <*> o .:? "data"
 
+instance ToSchema EventRequest where
+  declareNamedSchema _ = do
+    textRef <- declareSchemaRef (Proxy :: Proxy Text)
+    valueRef <- declareSchemaRef (Proxy :: Proxy (Maybe Value))
+    pure $ NamedSchema (Just "EventRequest") $ mempty
+      & type_ ?~ OpenApiObject
+      & properties .~ InsOrd.fromList [("type", textRef), ("data", valueRef)]
+      & required .~ ["type"]
+
 -- | Event response for submitted events.
 data EventResponse = EventResponse
   { eventResponseSuccess :: Bool
@@ -88,3 +110,6 @@ instance ToJSON EventResponse where
 
 instance FromJSON EventResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 13 }
+
+instance ToSchema EventResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 13)

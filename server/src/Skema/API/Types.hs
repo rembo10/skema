@@ -21,6 +21,7 @@
 -- * "Skema.API.Types.Common" - Shared common types
 module Skema.API.Types
   ( API
+  , DocumentedAPI
   ) where
 
 import Skema.API.Types.Auth (AuthAPI)
@@ -35,9 +36,20 @@ import Skema.API.Types.Events (EventsAPI)
 import Skema.API.Types.Filesystem (FilesystemAPI)
 import Skema.API.Types.QualityProfiles (QualityProfilesAPI)
 import Skema.API.Types.Tasks (TasksAPI)
+import Skema.API.Types.Common (RawHtml)
+import Data.OpenApi (OpenApi)
 import Servant
 
+-- | The documented portion of the API (for OpenAPI spec generation).
+type DocumentedAPI = AuthAPI :<|> LibraryAPI :<|> ConfigAPI :<|> ConfigSchemaAPI :<|> DiffsAPI :<|> ClustersAPI :<|> StatsAPI :<|> AcquisitionAPI :<|> CatalogAPI :<|> DownloadsAPI :<|> EventsAPI :<|> FilesystemAPI :<|> QualityProfilesAPI :<|> TasksAPI
+
+-- | Docs endpoints: Swagger UI and OpenAPI spec.
+type DocsAPI = "docs" :>
+  ( Get '[RawHtml] ByteString
+  :<|> "openapi.json" :> Get '[JSON] OpenApi
+  )
+
 -- | Top-level API combining all sub-APIs and static file serving.
-type API = "api" :> (AuthAPI :<|> LibraryAPI :<|> ConfigAPI :<|> ConfigSchemaAPI :<|> DiffsAPI :<|> ClustersAPI :<|> StatsAPI :<|> AcquisitionAPI :<|> CatalogAPI :<|> DownloadsAPI :<|> EventsAPI :<|> FilesystemAPI :<|> QualityProfilesAPI :<|> TasksAPI)
+type API = "api" :> (DocumentedAPI :<|> DocsAPI)
       :<|> "images" :> Raw
       :<|> Raw  -- Catch-all for frontend SPA

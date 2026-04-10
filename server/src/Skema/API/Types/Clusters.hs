@@ -20,6 +20,8 @@ module Skema.API.Types.Clusters
 
 import Skema.API.Types.Tasks (TaskRequest, TaskResponse)
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
+import Data.OpenApi (ToSchema(..), genericDeclareNamedSchema)
+import Skema.API.Types.Common (schemaOptions)
 import GHC.Generics ()
 import Servant
 
@@ -89,6 +91,9 @@ instance ToJSON ClusterResponse where
 instance FromJSON ClusterResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
 
+instance ToSchema ClusterResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 15)
+
 -- | Pagination info for clusters.
 data ClustersPagination = ClustersPagination
   { clustersPaginationTotal :: Int
@@ -102,6 +107,9 @@ instance ToJSON ClustersPagination where
 instance FromJSON ClustersPagination where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
 
+instance ToSchema ClustersPagination where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 18)
+
 -- | Paginated clusters response.
 data ClustersResponse = ClustersResponse
   { clustersResponsePagination :: ClustersPagination
@@ -113,6 +121,9 @@ instance ToJSON ClustersResponse where
 
 instance FromJSON ClustersResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
+
+instance ToSchema ClustersResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 16)
 
 -- | Track info for cluster detail view.
 data ClusterTrackInfo = ClusterTrackInfo
@@ -134,6 +145,9 @@ instance ToJSON ClusterTrackInfo where
 instance FromJSON ClusterTrackInfo where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 12 }
 
+instance ToSchema ClusterTrackInfo where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 12)
+
 -- | MusicBrainz track info from cached release data.
 data MBTrackInfo = MBTrackInfo
   { mbTrackInfoPosition :: Int
@@ -150,6 +164,9 @@ instance ToJSON MBTrackInfo where
 instance FromJSON MBTrackInfo where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
 
+instance ToSchema MBTrackInfo where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 11)
+
 -- | Cluster response with track details.
 data ClusterWithTracksResponse = ClusterWithTracksResponse
   { clusterWithTracksCluster :: ClusterResponse
@@ -162,6 +179,9 @@ instance ToJSON ClusterWithTracksResponse where
 
 instance FromJSON ClusterWithTracksResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 17 }
+
+instance ToSchema ClusterWithTracksResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 17)
 
 -- | MusicBrainz candidate release.
 data CandidateRelease = CandidateRelease
@@ -184,6 +204,9 @@ instance ToJSON CandidateRelease where
 instance FromJSON CandidateRelease where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 9 }
 
+instance ToSchema CandidateRelease where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 9)
+
 -- | Request to assign a release to a cluster.
 data AssignReleaseRequest = AssignReleaseRequest
   { assignReleaseId :: Text
@@ -197,6 +220,9 @@ instance ToJSON AssignReleaseRequest where
 instance FromJSON AssignReleaseRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 6 }
 
+instance ToSchema AssignReleaseRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 6)
+
 -- | Request to update a track's recording mapping.
 data UpdateTrackRecordingRequest = UpdateTrackRecordingRequest
   { updateRecordingId :: Text
@@ -208,6 +234,9 @@ instance ToJSON UpdateTrackRecordingRequest where
 
 instance FromJSON UpdateTrackRecordingRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 6 }
+
+instance ToSchema UpdateTrackRecordingRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 6)
 
 -- | Request to create a new cluster from tracks.
 data CreateClusterRequest = CreateClusterRequest
@@ -221,4 +250,7 @@ instance ToJSON CreateClusterRequest where
 
 instance FromJSON CreateClusterRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 13 }
+
+instance ToSchema CreateClusterRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 13)
 

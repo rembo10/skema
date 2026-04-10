@@ -36,6 +36,8 @@ import Skema.API.Types.Tasks (TaskRequest, TaskResponse)
 import Skema.API.Types.Common (SourceIO)
 import Skema.Domain.Catalog (AlbumState(..))
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2, withObject, (.:), object, (.=), encode)
+import Data.OpenApi (ToSchema(..), genericDeclareNamedSchema, defaultSchemaOptions)
+import Skema.API.Types.Common (schemaOptions)
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text.Encoding as TE
@@ -96,6 +98,9 @@ instance ToJSON CatalogQueryResponse where
 instance FromJSON CatalogQueryResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 20 }
 
+instance ToSchema CatalogQueryResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 20)
+
 -- | Catalog artist response.
 data CatalogArtistResponse = CatalogArtistResponse
   { catalogArtistResponseId :: Maybe Int64
@@ -127,6 +132,9 @@ instance ToJSON CatalogArtistResponse where
 instance FromJSON CatalogArtistResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 21 }
 
+instance ToSchema CatalogArtistResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 21)
+
 -- | Pagination info for artists.
 data ArtistsPagination = ArtistsPagination
   { artistsPaginationTotal :: Int
@@ -140,6 +148,9 @@ instance ToJSON ArtistsPagination where
 instance FromJSON ArtistsPagination where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 17 }
 
+instance ToSchema ArtistsPagination where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 17)
+
 -- | Paginated artists response.
 data ArtistsResponse = ArtistsResponse
   { artistsResponsePagination :: ArtistsPagination
@@ -151,6 +162,9 @@ instance ToJSON ArtistsResponse where
 
 instance FromJSON ArtistsResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
+
+instance ToSchema ArtistsResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 15)
 
 -- | Catalog album response.
 data CatalogAlbumResponse = CatalogAlbumResponse
@@ -187,6 +201,9 @@ instance ToJSON CatalogAlbumResponse where
 instance FromJSON CatalogAlbumResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 20 }
 
+instance ToSchema CatalogAlbumResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 20)
+
 -- | Request to create/upsert a catalog artist.
 data CreateCatalogArtistRequest = CreateCatalogArtistRequest
   { createCatalogArtistMBID :: Text
@@ -203,6 +220,9 @@ instance ToJSON CreateCatalogArtistRequest where
 instance FromJSON CreateCatalogArtistRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
 
+instance ToSchema CreateCatalogArtistRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 19)
+
 -- | Request to update a catalog artist (typically just the followed status).
 data UpdateCatalogArtistRequest = UpdateCatalogArtistRequest
   { updateCatalogArtistFollowed :: Bool
@@ -215,6 +235,9 @@ instance ToJSON UpdateCatalogArtistRequest where
 
 instance FromJSON UpdateCatalogArtistRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
+
+instance ToSchema UpdateCatalogArtistRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 19)
 
 -- | Request to create/upsert a catalog album.
 --
@@ -242,6 +265,9 @@ instance ToJSON CreateCatalogAlbumRequest where
 instance FromJSON CreateCatalogAlbumRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
 
+instance ToSchema CreateCatalogAlbumRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 18)
+
 -- | Request to update a catalog album's quality profile.
 -- Note: wanted status is derived automatically from quality_profile_id on the backend
 data UpdateCatalogAlbumRequest = UpdateCatalogAlbumRequest
@@ -263,6 +289,9 @@ instance FromJSON UpdateCatalogAlbumRequest where
       then Just <$> o .: profileIdField
       else pure Nothing
     pure $ UpdateCatalogAlbumRequest maybeProfileId
+
+instance ToSchema UpdateCatalogAlbumRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 18)
 
 -- ============================================================================
 -- ENHANCED CATALOG OVERVIEW
@@ -288,6 +317,9 @@ instance ToJSON ActiveDownloadInfo where
 
 instance FromJSON ActiveDownloadInfo where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 14 }
+
+instance ToSchema ActiveDownloadInfo where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 14)
 
 -- | Enhanced catalog album response with state and download info.
 data CatalogAlbumOverviewResponse = CatalogAlbumOverviewResponse
@@ -328,6 +360,9 @@ instance ToJSON CatalogAlbumOverviewResponse where
 instance FromJSON CatalogAlbumOverviewResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 20 }
 
+instance ToSchema CatalogAlbumOverviewResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 20)
+
 -- | Request for catalog albums overview (with filtering, sorting, pagination).
 data CatalogAlbumOverviewRequest = CatalogAlbumOverviewRequest
   { catalogAlbumOverviewReqPage :: Maybe Int
@@ -345,6 +380,9 @@ instance ToJSON CatalogAlbumOverviewRequest where
 instance FromJSON CatalogAlbumOverviewRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 23 }
 
+instance ToSchema CatalogAlbumOverviewRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 23)
+
 -- | Pagination info.
 data AlbumOverviewPagination = AlbumOverviewPagination
   { albumOverviewPaginationTotal :: Int
@@ -358,6 +396,9 @@ instance ToJSON AlbumOverviewPagination where
 instance FromJSON AlbumOverviewPagination where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 23 }
 
+instance ToSchema AlbumOverviewPagination where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 23)
+
 -- | Album statistics.
 data AlbumOverviewStats = AlbumOverviewStats
   { albumOverviewStatsByState :: [(AlbumState, Int)]
@@ -369,6 +410,9 @@ instance ToJSON AlbumOverviewStats where
 
 instance FromJSON AlbumOverviewStats where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 18 }
+
+instance ToSchema AlbumOverviewStats where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 18)
 
 -- | Complete album overview response (wrapper for pagination, stats, and albums).
 data AlbumOverviewResponse = AlbumOverviewResponse
@@ -383,6 +427,9 @@ instance ToJSON AlbumOverviewResponse where
 instance FromJSON AlbumOverviewResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 21 }
 
+instance ToSchema AlbumOverviewResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 21)
+
 -- | Bulk action type.
 data BulkAlbumAction
   = SetQualityProfile Int64
@@ -393,6 +440,8 @@ data BulkAlbumAction
 
 instance ToJSON BulkAlbumAction
 instance FromJSON BulkAlbumAction
+instance ToSchema BulkAlbumAction where
+  declareNamedSchema = genericDeclareNamedSchema defaultSchemaOptions
 
 -- | Bulk operation request.
 data BulkAlbumActionRequest = BulkAlbumActionRequest
@@ -405,6 +454,9 @@ instance ToJSON BulkAlbumActionRequest where
 
 instance FromJSON BulkAlbumActionRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
+
+instance ToSchema BulkAlbumActionRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 15)
 
 -- ============================================================================
 -- ALBUM RELEASES SEARCH
@@ -422,6 +474,9 @@ instance ToJSON AlbumReleasesResponse where
 
 instance FromJSON AlbumReleasesResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 13 }
+
+instance ToSchema AlbumReleasesResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 13)
 
 -- | Individual release information
 data ReleaseResponse = ReleaseResponse
@@ -450,11 +505,17 @@ instance ToJSON SlskdFileResponse where
 instance FromJSON SlskdFileResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 9 }
 
+instance ToSchema SlskdFileResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 9)
+
 instance ToJSON ReleaseResponse where
   toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
 
 instance FromJSON ReleaseResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 15 }
+
+instance ToSchema ReleaseResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 15)
 
 -- ============================================================================
 -- STREAMING RELEASE SEARCH
@@ -493,6 +554,9 @@ instance ToJSON ReleaseStreamEvent where
     [ "type" .= ("done" :: Text)
     , "total_time" .= totalTime
     ]
+
+instance ToSchema ReleaseStreamEvent where
+  declareNamedSchema = genericDeclareNamedSchema defaultSchemaOptions
 
 -- | ToServerEvent instance for servant-event-stream
 instance ToServerEvent ReleaseStreamEvent where

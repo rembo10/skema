@@ -16,6 +16,8 @@ module Skema.API.Types.Downloads
 
 import Skema.API.Types.Tasks (TaskRequest, TaskResponse)
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
+import Data.OpenApi (ToSchema(..), genericDeclareNamedSchema)
+import Skema.API.Types.Common (schemaOptions)
 import GHC.Generics ()
 import Servant
 
@@ -60,6 +62,9 @@ instance ToJSON DownloadResponse where
 instance FromJSON DownloadResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
 
+instance ToSchema DownloadResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 16)
+
 -- | Pagination info for downloads.
 data DownloadsPagination = DownloadsPagination
   { downloadsPaginationTotal :: Int
@@ -73,6 +78,9 @@ instance ToJSON DownloadsPagination where
 instance FromJSON DownloadsPagination where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 19 }
 
+instance ToSchema DownloadsPagination where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 19)
+
 -- | Paginated downloads response.
 data DownloadsResponse = DownloadsResponse
   { downloadsResponsePagination :: DownloadsPagination
@@ -84,6 +92,9 @@ instance ToJSON DownloadsResponse where
 
 instance FromJSON DownloadsResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 17 }
+
+instance ToSchema DownloadsResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 17)
 
 -- | Request to queue a new download.
 data QueueDownloadRequest = QueueDownloadRequest
@@ -117,11 +128,17 @@ instance ToJSON SlskdFileRequest where
 instance FromJSON SlskdFileRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 16 }
 
+instance ToSchema SlskdFileRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 16)
+
 instance ToJSON QueueDownloadRequest where
   toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 13 }
 
 instance FromJSON QueueDownloadRequest where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 13 }
+
+instance ToSchema QueueDownloadRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 13)
 
 -- | Response when queuing a download.
 data QueueDownloadResponse = QueueDownloadResponse
@@ -135,3 +152,6 @@ instance ToJSON QueueDownloadResponse where
 
 instance FromJSON QueueDownloadResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 21 }
+
+instance ToSchema QueueDownloadResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 21)

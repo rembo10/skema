@@ -11,6 +11,8 @@ module Skema.API.Types.Auth
 
 import Skema.Auth.Types (CredentialsRequest, AuthResponse)
 import Data.Aeson (ToJSON(..), FromJSON(..), defaultOptions, genericToJSON, genericParseJSON, fieldLabelModifier, camelTo2)
+import Data.OpenApi (ToSchema(..), genericDeclareNamedSchema)
+import Skema.API.Types.Common (schemaOptions)
 import GHC.Generics ()
 import Servant
 
@@ -31,3 +33,6 @@ instance ToJSON AuthStatusResponse where
 
 instance FromJSON AuthStatusResponse where
   parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 10 }
+
+instance ToSchema AuthStatusResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 10)
