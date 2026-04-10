@@ -1,9 +1,17 @@
+import { useEffect, useState } from 'react';
 import { useAppStore } from '../store';
-import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, ArrowUpCircle } from 'lucide-react';
+import { api } from '../lib/api';
+import type { VersionInfo } from '../types/api';
 
 export function StatusLine() {
   const status = useAppStore((state) => state.currentStatus);
   const connectionStatus = useAppStore((state) => state.connectionStatus);
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+
+  useEffect(() => {
+    api.getVersion().then(setVersionInfo).catch(() => {});
+  }, []);
 
   const getConnectionIcon = () => {
     switch (connectionStatus) {
@@ -94,7 +102,7 @@ export function StatusLine() {
 
   return (
     <div className={`border-t ${getBgColor()} px-4 py-2.5 transition-all duration-300`}>
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4">
         {/* Left side - operation status or connection status */}
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="flex-shrink-0">
@@ -105,9 +113,32 @@ export function StatusLine() {
           </p>
         </div>
 
-        {/* Right side - progress bar if active */}
-        <div className="flex-shrink-0">
+        {/* Right side - progress bar (when active) + version */}
+        <div className="flex items-center gap-4 flex-shrink-0">
           {getProgressBar()}
+          {versionInfo && (
+            <div className="flex items-center gap-2">
+              {versionInfo.update_available && versionInfo.latest_version ? (
+                <a
+                  href="https://github.com/rembo10/skema/releases/latest"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-[11px] text-dark-accent hover:text-dark-accent/80 transition-colors"
+                  title={`Update available: v${versionInfo.latest_version}`}
+                >
+                  <ArrowUpCircle className="w-3 h-3" />
+                  <span>{versionInfo.latest_version} available</span>
+                </a>
+              ) : (
+                <span className="text-[11px] text-dark-text-tertiary">
+                  v{versionInfo.version}
+                  {versionInfo.commit && versionInfo.commit !== 'UNKNOWN' && (
+                    <span className="opacity-50"> ({versionInfo.commit.substring(0, 7)})</span>
+                  )}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

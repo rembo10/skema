@@ -92,6 +92,7 @@ library
     Skema.API.Types.Filesystem
     Skema.API.Types.QualityProfiles
     Skema.API.Types.Tasks
+    Skema.API.Types.Version
     Skema.API.OpenApi
     Skema.API.Server
     Skema.API.Handlers.Auth
@@ -108,6 +109,7 @@ library
     Skema.API.Handlers.QualityProfiles
     Skema.API.Handlers.Tasks
     Skema.API.Handlers.Static
+    Skema.API.Handlers.Version
     Skema.API.Handlers.Utils
     Skema.Auth.Types
     Skema.Auth.Store
@@ -190,8 +192,12 @@ library
     Skema.Scraper.Http
     Skema.Scraper.Metacritic
     Skema.Scraper.Pitchfork
+    Skema.Version
 
   other-modules:
+    Paths_skema
+
+  autogen-modules:
     Paths_skema
 
   build-depends:
@@ -245,6 +251,7 @@ library
     , JuicyPixels >= 3.3 && < 3.4
     , scalpel >= 0.6 && < 0.7
     , template-haskell
+    , gitrev >= 1.3 && < 1.4
 
 executable skema
   import: common-options

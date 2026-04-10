@@ -72,9 +72,11 @@
             # Copy frontend files
             cp -r ${skema-web}/* $out/share/skema/web/
 
-            # Wrap backend binary with SKEMA_FRONTEND_DIR environment variable
+            # Wrap backend binary with environment variables
             makeWrapper ${skema-backend}/bin/skema $out/bin/skema \
-              --set SKEMA_FRONTEND_DIR $out/share/skema/web
+              --set SKEMA_FRONTEND_DIR $out/share/skema/web \
+              --set SKEMA_CHANNEL nix \
+              --set SKEMA_COMMIT "${self.shortRev or "dirty"}"
           '';
 
           meta = {

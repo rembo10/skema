@@ -23,6 +23,7 @@ import Skema.API.Handlers.Events (eventsServer)
 import Skema.API.Handlers.Filesystem (filesystemServer)
 import Skema.API.Handlers.QualityProfiles (qualityProfilesServer)
 import Skema.API.Handlers.Tasks (tasksServer)
+import Skema.API.Handlers.Version (versionServer, LatestRelease)
 import Skema.API.Handlers.Static (staticFileServer, frontendServer)
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
@@ -44,6 +45,7 @@ import Control.Monad.Catch (catch)
 import qualified Control.Exception as E
 import Data.List (isInfixOf)
 import Data.Time (getCurrentTime, diffUTCTime)
+import Skema.API.Handlers.Version (startUpdateChecker)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, AsyncCancelled)
 
@@ -85,14 +87,14 @@ requestLoggingMiddleware le application req responseHandler = do
     responseHandler response
 
 -- | WAI application with logging middleware.
-app :: LogEnv -> EventBus -> AuthStore -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> FilePath -> Application
-app le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir configPath =
+app :: LogEnv -> EventBus -> AuthStore -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> FilePath -> TVar (Maybe LatestRelease) -> Application
+app le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir configPath latestVar =
   requestLoggingMiddleware le $
-    serve (Proxy :: Proxy API) (server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir (srConfigVar registry) configPath)
+    serve (Proxy :: Proxy API) (server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir (srConfigVar registry) configPath latestVar)
 
 -- | Servant server.
-server :: LogEnv -> EventBus -> AuthStore -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> TVar Config -> FilePath -> Server API
-server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir configVar configPath =
+server :: LogEnv -> EventBus -> AuthStore -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> TVar Config -> FilePath -> TVar (Maybe LatestRelease) -> Server API
+server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir configVar configPath latestVar =
   ((authServer authStore jwtSecret configVar
    :<|> libraryServer le bus serverCfg jwtSecret registry tm connPool configVar
    :<|> configServer le bus serverCfg jwtSecret connPool configVar configPath
@@ -107,6 +109,7 @@ server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDi
    :<|> filesystemServer serverCfg jwtSecret configVar
    :<|> qualityProfilesServer serverCfg jwtSecret connPool configVar
    :<|> tasksServer jwtSecret tm configVar)
+   :<|> versionServer latestVar
    :<|> (pure swaggerUiHtml :<|> pure openApiSpec))
   :<|> staticFileServer cacheDir
   :<|> frontendServer configVar
@@ -153,6 +156,11 @@ startServer le bus serverCfg registry connPool libPath cacheDir configPath cliPo
     liftIO $ startHeartbeatWorker le bus
     $(logTM) InfoS $ logStr ("Heartbeat worker started" :: Text)
 
+    -- Start update checker
+    latestVar <- liftIO $ newTVarIO Nothing
+    liftIO $ startUpdateChecker le (srConfigVar registry) latestVar
+    $(logTM) InfoS $ logStr ("Update checker started" :: Text)
+
     -- Log server startup
     $(logTM) InfoS $ logStr $ "Starting Skema API server on " <> host <> ":" <> show port
 
@@ -168,7 +176,7 @@ startServer le bus serverCfg registry connPool libPath cacheDir configPath cliPo
                  $ defaultSettings
 
     -- Run server with exception handling
-    liftIO (runSettings settings (app le bus authStore serverCfg jwtSecret registry taskManager connPool libPath cacheDir configPath)) `catch` handleStartupException host port
+    liftIO (runSettings settings (app le bus authStore serverCfg jwtSecret registry taskManager connPool libPath cacheDir configPath latestVar)) `catch` handleStartupException host port
   where
     handleStartupException :: Text -> Int -> E.SomeException -> KatipContextT IO ()
     handleStartupException _h p ex =

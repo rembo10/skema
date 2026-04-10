@@ -1,4 +1,4 @@
-import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, AcquisitionSummary, WantedAlbum, Config, CatalogQueryResponse, CatalogArtist, ArtistsResponse, CatalogAlbum, Download, DownloadsResponse, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task, AlbumOverviewRequest, AlbumOverviewResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse } from '../types/api';
+import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, AcquisitionSummary, WantedAlbum, Config, CatalogQueryResponse, CatalogArtist, ArtistsResponse, CatalogAlbum, Download, DownloadsResponse, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task, AlbumOverviewRequest, AlbumOverviewResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse, VersionInfo } from '../types/api';
 import { buildQueryString } from './queryBuilder';
 
 // Base path configuration
@@ -808,5 +808,10 @@ export const api = {
     return fetchApi<void>(`/quality-profiles/default/${profileId}`, {
       method: 'PUT',
     });
+  },
+
+  // Version
+  async getVersion(): Promise<VersionInfo> {
+    return fetchApi<VersionInfo>('/version');
   },
 };

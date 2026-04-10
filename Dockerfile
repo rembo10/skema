@@ -102,12 +102,17 @@ COPY --from=backend-builder /build/skema /usr/local/bin/skema
 # Copy frontend assets from frontend builder
 COPY --from=frontend-builder /build/web/dist /usr/share/skema/web
 
+# Pass git commit hash from build time
+ARG SKEMA_COMMIT=unknown
+
 # Set environment variables for Docker deployment
 ENV SKEMA_FRONTEND_DIR=/usr/share/skema/web
 ENV SKEMA_PORT=8182
 ENV SKEMA_DATA_DIR=/data
 ENV SKEMA_CACHE_DIR=/cache
 ENV SKEMA_HOST=0.0.0.0
+ENV SKEMA_CHANNEL=docker
+ENV SKEMA_COMMIT=${SKEMA_COMMIT}
 
 # Switch to non-root user
 USER skema

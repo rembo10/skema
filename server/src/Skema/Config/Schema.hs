@@ -819,6 +819,9 @@ systemSchema = schema "system" "System and paths configuration"
   , "cache_dir" .:: "Cache directory override (default: platform-specific)"
       & pathField
       -- No example = null, uses platform default
+  , "check_updates" .:: "Periodically check GitHub for new Skema releases"
+      & boolField
+      & example "true"
   ]
 
 -- | Server configuration schema

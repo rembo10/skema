@@ -36,6 +36,7 @@ import Skema.API.Types.Events (EventsAPI)
 import Skema.API.Types.Filesystem (FilesystemAPI)
 import Skema.API.Types.QualityProfiles (QualityProfilesAPI)
 import Skema.API.Types.Tasks (TasksAPI)
+import Skema.API.Types.Version (VersionAPI)
 import Skema.API.Types.Common (RawHtml)
 import Data.OpenApi (OpenApi)
 import Servant
@@ -50,6 +51,6 @@ type DocsAPI = "docs" :>
   )
 
 -- | Top-level API combining all sub-APIs and static file serving.
-type API = "api" :> (DocumentedAPI :<|> DocsAPI)
+type API = "api" :> (DocumentedAPI :<|> VersionAPI :<|> DocsAPI)
       :<|> "images" :> Raw
       :<|> Raw  -- Catch-all for frontend SPA

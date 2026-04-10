@@ -174,6 +174,8 @@ data SystemConfig = SystemConfig
     -- ^ Data directory override (Nothing = use platform default)
   , systemCacheDir :: Maybe Text
     -- ^ Cache directory override (Nothing = use platform default)
+  , systemCheckUpdates :: Bool
+    -- ^ Periodically check GitHub for new releases
   } deriving (Show, Eq, Generic)
 
 instance FromJSON SystemConfig where
@@ -191,14 +193,17 @@ instance FromJSON SystemConfig where
     cacheDir <- o .:? "cache_dir"
     let expandedCacheDir = fmap (unsafePerformIO . PathExpansion.expandPathIO) cacheDir
 
-    pure $ SystemConfig watchConfig expandedDbPath expandedDataDir expandedCacheDir
+    checkUpdates <- o .:? "check_updates" .!= True
+
+    pure $ SystemConfig watchConfig expandedDbPath expandedDataDir expandedCacheDir checkUpdates
 
 instance ToJSON SystemConfig where
-  toJSON (SystemConfig watchConfig dbPath dataDir cacheDir) = object
+  toJSON (SystemConfig watchConfig dbPath dataDir cacheDir checkUpdates) = object
     [ "watch_config_file" .= watchConfig
     , "database_path" .= dbPath
     , "data_dir" .= dataDir
     , "cache_dir" .= cacheDir
+    , "check_updates" .= checkUpdates
     ]
 
 -- | Server configuration.
@@ -704,6 +709,7 @@ defaultSystemConfig = SystemConfig
   , systemDatabasePath = "skema.db"
   , systemDataDir = Nothing      -- Use platform default
   , systemCacheDir = Nothing     -- Use platform default
+  , systemCheckUpdates = True    -- Check for updates by default
   }
 
 -- | Default server configuration.

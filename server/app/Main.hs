@@ -20,6 +20,7 @@ import Skema.Events.Bus (newEventBus)
 import Skema.Services.Registry (startAllServices)
 import Skema.Services.AsyncRegistry (shutdownAllWithTimeout)
 import Skema.FileSystem.Utils (osPathToString)
+import Skema.Version (getVersionInfo, VersionInfo(..))
 import Options.Applicative
 import Katip
 import Control.Monad.Catch (bracket)
@@ -103,7 +104,9 @@ main = do
       -- Initialize logging (stdout only)
       bracket initializeLogging closeScribes $ \le ->
         withKatipNamespace le "main" $ do
-          $(logTM) InfoS $ logStr ("Starting Skema..." :: Text)
+          vi <- liftIO getVersionInfo
+          $(logTM) InfoS $ logStr $ "Starting Skema v" <> viVersion vi <>
+            " (" <> viCommit vi <> ", " <> viChannel vi <> ")"
           $(logTM) InfoS $ logStr $ "Configuration loaded from: " <> toText configPath
 
           -- Log resolved directories

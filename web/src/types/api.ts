@@ -653,3 +653,12 @@ export interface BulkAlbumActionRequest {
   album_ids: number[];
   action: BulkAlbumAction;
 }
+
+// Version info
+export interface VersionInfo {
+  version: string;
+  commit: string;
+  channel: string;
+  latest_version: string | null;
+  update_available: boolean;
+}
