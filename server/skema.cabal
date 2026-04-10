@@ -1,6 +1,6 @@
 cabal-version: 3.4
 name: skema
-version: 0.1.0.0
+version: 0.1.1.0
 synopsis: Music library management and acquisition system
 description:
   Skema is a system for managing and organizing music libraries with automatic
