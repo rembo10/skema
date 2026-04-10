@@ -56,6 +56,9 @@ module Skema.Database.Repository
     -- * Download operations
   , insertDownload
   , hasActiveDownloadForAlbum
+  , getFailedDownloadUrlsForAlbum
+  , getFailedDownloadCountForAlbum
+  , getDownloadById
     -- * Acquisition rule operations
   , createAcquisitionRule
   , getAllAcquisitionRules
@@ -175,6 +178,9 @@ import Skema.Database.Repository.Acquisition
 import Skema.Database.Repository.Downloads
   ( insertDownload
   , hasActiveDownloadForAlbum
+  , getFailedDownloadUrlsForAlbum
+  , getFailedDownloadCountForAlbum
+  , getDownloadById
   )
 
 -- Re-export quality profile operations

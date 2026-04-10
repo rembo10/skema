@@ -6,6 +6,8 @@ module Skema.Database.Repository.Downloads
   , insertDownload
   , deleteDownload
   , hasActiveDownloadForAlbum
+  , getFailedDownloadUrlsForAlbum
+  , getFailedDownloadCountForAlbum
   , downloadSelectColumns
   , getDownloadById
   , getAllDownloads
@@ -112,6 +114,25 @@ hasActiveDownloadForAlbum conn catalogAlbumId = do
   case results of
     [Only count] -> pure (count > 0)
     _ -> pure False
+
+-- | Get download URLs that have failed for a given catalog album.
+-- Used to exclude previously tried releases when auto-retrying.
+getFailedDownloadUrlsForAlbum :: SQLite.Connection -> Int64 -> IO [Text]
+getFailedDownloadUrlsForAlbum conn catalogAlbumId = do
+  results <- SQLite.query conn
+    "SELECT download_url FROM downloads WHERE catalog_album_id = ? AND status = 'failed'"
+    (Only catalogAlbumId) :: IO [Only Text]
+  pure $ map (\(Only url) -> url) results
+
+-- | Count failed downloads for a catalog album (for retry limiting).
+getFailedDownloadCountForAlbum :: SQLite.Connection -> Int64 -> IO Int
+getFailedDownloadCountForAlbum conn catalogAlbumId = do
+  results <- SQLite.query conn
+    "SELECT COUNT(*) FROM downloads WHERE catalog_album_id = ? AND status = 'failed'"
+    (Only catalogAlbumId) :: IO [Only Int]
+  case results of
+    [Only count] -> pure count
+    _ -> pure 0
 
 -- | Standard SELECT column list for download queries.
 downloadSelectColumns :: Text

@@ -171,8 +171,28 @@ checkAndUpdateDownloads le bus pool progressMap clientName client = do
         statusResult <- getDownloadStatus client clientId
 
         case statusResult of
-          Left err -> runKatipContextT le () "download.monitor" $ do
-            $(logTM) ErrorS $ logStr $ ("Failed to get download status for " <> DB.downloadTitle download <> ": " <> err :: Text)
+          Left err -> do
+            let downloadIdVal = fromMaybe 0 (DB.downloadId download)
+            runKatipContextT le () "download.monitor" $
+              $(logTM) WarningS $ logStr $ ("Download disappeared from client for " <> DB.downloadTitle download <> ": " <> err <> " — marking as failed" :: Text)
+
+            -- Mark as failed in database
+            now <- getCurrentTime
+            withConnection pool $ \conn ->
+              executeQuery conn
+                "UPDATE downloads SET status = 'failed', error_message = ?, completed_at = ? WHERE id = ?"
+                (err, now, DB.downloadId download)
+
+            -- Clean up progress map
+            STM.atomically $ STM.modifyTVar' progressMap $ \m ->
+              Map.delete downloadIdVal m
+
+            -- Emit failed event so search orchestrator can auto-retry
+            publishAndLog bus le "download" $ DownloadFailed
+              { downloadId = downloadIdVal
+              , downloadTitle = DB.downloadTitle download
+              , downloadError = Just err
+              }
 
           Right downloadInfo -> do
             let oldStatus = DB.downloadStatus download

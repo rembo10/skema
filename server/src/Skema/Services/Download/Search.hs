@@ -19,6 +19,8 @@ import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
 import Skema.Database.Repository
+import Skema.Database.Types (DownloadRecord(..))
+import qualified Skema.Database.Types as DB
 import Skema.HTTP.Client (HttpClient)
 import Skema.Indexer.Search (rankResultsWithContext)
 import Skema.Indexer.Client (searchIndexer)
@@ -35,6 +37,7 @@ import Control.Concurrent (threadDelay)
 import Control.Exception (try)
 import Data.Time (getCurrentTime, diffUTCTime)
 import qualified Data.Map.Strict as M
+import qualified Data.Set as Set
 import Katip
 
 -- ============================================================================
@@ -54,6 +57,10 @@ audioCategories = [3000, 3010, 3020]
 maxResultsPerIndexer :: Int
 maxResultsPerIndexer = 50
 
+-- | Maximum number of automatic retries per album before giving up
+maxAutoRetries :: Int
+maxAutoRetries = 5
+
 -- ============================================================================
 -- SEARCH ORCHESTRATOR
 -- ============================================================================
@@ -71,7 +78,7 @@ runSearchOrchestrator deps = do
       WantedAlbumAdded{..} -> do
         -- Process each event asynchronously to avoid blocking the event loop
         _ <- async $ do
-          result <- try $ handleWantedAlbumAdded deps wantedCatalogAlbumId wantedReleaseGroupId wantedAlbumTitle wantedArtistName
+          result <- try $ handleWantedAlbumAdded deps wantedCatalogAlbumId wantedReleaseGroupId wantedAlbumTitle wantedArtistName Set.empty
           case result of
             Left (e :: SomeException) -> do
               let le = dlLogEnv deps
@@ -79,12 +86,65 @@ runSearchOrchestrator deps = do
                 $(logTM) ErrorS $ logStr $ ("Exception searching for album " <> wantedAlbumTitle <> ": " <> show e :: Text)
             Right () -> pure ()
         pure ()
+      DownloadFailed{..} -> do
+        _ <- async $ do
+          result <- try $ handleDownloadFailed deps downloadId
+          case result of
+            Left (e :: SomeException) -> do
+              let le = dlLogEnv deps
+              runKatipContextT le () "download.search" $ do
+                $(logTM) ErrorS $ logStr $ ("Exception during auto-retry for download " <> show downloadId <> ": " <> show e :: Text)
+            Right () -> pure ()
+        pure ()
       _ -> pure ()  -- Ignore other events
   pure ()
 
+-- | Handle a download failure by looking up the album and auto-retrying with a new search.
+handleDownloadFailed :: DownloadDeps -> Int64 -> IO ()
+handleDownloadFailed deps@DownloadDeps{..} failedDownloadId = do
+  let le = dlLogEnv
+  let pool = dlDbPool
+
+  -- Look up the failed download record
+  maybeDownload <- withConnection pool $ \conn ->
+    getDownloadById conn failedDownloadId
+  case maybeDownload of
+    Nothing -> pure ()  -- Download record gone, nothing to retry
+    Just download -> do
+      let albumId = downloadCatalogAlbumId download
+
+      -- Check retry count
+      failedCount <- withConnection pool $ \conn ->
+        getFailedDownloadCountForAlbum conn albumId
+      when (failedCount > maxAutoRetries) $ do
+        runKatipContextT le () "download.search" $
+          $(logTM) WarningS $ logStr $ ("Max retries (" <> show maxAutoRetries <> ") reached for album " <> show albumId <> ", not retrying" :: Text)
+
+      when (failedCount <= maxAutoRetries) $ do
+        -- Look up the catalog album for search context
+        maybeAlbum <- withConnection pool $ \conn ->
+          getCatalogAlbumById conn albumId
+        case maybeAlbum of
+          Nothing -> runKatipContextT le () "download.search" $
+            $(logTM) WarningS $ logStr $ ("Cannot retry: catalog album " <> show albumId <> " not found" :: Text)
+          Just album -> do
+            -- Get all previously failed URLs to exclude
+            excludedUrls <- withConnection pool $ \conn ->
+              getFailedDownloadUrlsForAlbum conn albumId
+            let excluded = Set.fromList excludedUrls
+
+            runKatipContextT le () "download.search" $
+              $(logTM) InfoS $ logStr $ ("Auto-retrying search for " <> DB.catalogAlbumTitle album <> " (attempt " <> show failedCount <> "/" <> show maxAutoRetries <> ", excluding " <> show (Set.size excluded) <> " URLs)" :: Text)
+
+            handleWantedAlbumAdded deps albumId
+              (DB.catalogAlbumReleaseGroupMBID album)
+              (DB.catalogAlbumTitle album)
+              (DB.catalogAlbumArtistName album)
+              excluded
+
 -- | Handle a wanted album added event by searching indexers.
-handleWantedAlbumAdded :: DownloadDeps -> Int64 -> Text -> Text -> Text -> IO ()
-handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle artistName = do
+handleWantedAlbumAdded :: DownloadDeps -> Int64 -> Text -> Text -> Text -> Set.Set Text -> IO ()
+handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle artistName excludedUrls = do
   let le = dlLogEnv
   let pool = dlDbPool
   let bus = dlEventBus
@@ -174,15 +234,22 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
                       in meetsRequirement && isUpgrade
                       ) releasesWithSource
 
-              let qualifiedCount = length qualifyingReleasesWithSource
+              -- Exclude previously failed URLs (for auto-retry)
+              let afterExclusion = if Set.null excludedUrls
+                    then qualifyingReleasesWithSource
+                    else filter (\(_, release) -> not $ Set.member (riDownloadUrl release) excludedUrls) qualifyingReleasesWithSource
+                  qualifiedCount = length afterExclusion
 
               when (qualifiedCount < totalResults) $ do
                 $(logTM) InfoS $ logStr $ ("Filtered to " <> show qualifiedCount <> " releases that meet quality requirements" :: Text)
 
+              when (not (Set.null excludedUrls) && qualifiedCount < length qualifyingReleasesWithSource) $ do
+                $(logTM) InfoS $ logStr $ ("Excluded " <> show (length qualifyingReleasesWithSource - qualifiedCount) <> " previously failed releases" :: Text)
+
               -- Rank qualified results by quality (with album title context for better matching)
               -- Keep track of indexer names with a Map using download URL as key
-              let qualifyingReleases = map snd qualifyingReleasesWithSource
-                  indexerMap = M.fromList $ map (\(name, r) -> (riDownloadUrl r, name)) qualifyingReleasesWithSource
+              let qualifyingReleases = map snd afterExclusion
+                  indexerMap = M.fromList $ map (\(name, r) -> (riDownloadUrl r, name)) afterExclusion
                   rankedReleases = rankResultsWithContext (Just albumTitle) qualifyingReleases
                   bestRelease = listToMaybe rankedReleases
                   -- Find the indexer name for the best release using its download URL
