@@ -34,6 +34,8 @@ system:
   data_dir: null
   # Cache directory override (default: platform-specific)
   cache_dir: null
+  # Periodically check GitHub for new Skema releases
+  check_updates: true
 
 
 server:

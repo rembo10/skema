@@ -292,6 +292,16 @@ export function SystemConfigSection({ config, onChange, showAdvanced = false }: 
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
+      <ConfigField
+        section="system"
+        field="check_updates"
+        value={section.check_updates}
+        onChange={onChange}
+        type="boolean"
+        description="Periodically check GitHub for new Skema releases"
+        showAdvanced={showAdvanced}
+        sectionValues={section}
+      />
     </div>
   );
 }

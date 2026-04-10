@@ -23,6 +23,7 @@ export interface SystemConfig {
   database_path: string | null;
   data_dir: string | null;
   cache_dir: string | null;
+  check_updates: boolean;
 }
 
 export interface ServerConfig {
@@ -205,6 +206,13 @@ export const systemSchema: SectionMeta = {
       name: 'cache_dir',
       description: 'Cache directory override (default: platform-specific)',
       type: 'path'
+    }
+
+,
+    {
+      name: 'check_updates',
+      description: 'Periodically check GitHub for new Skema releases',
+      type: 'boolean'
     }
 
   ],
