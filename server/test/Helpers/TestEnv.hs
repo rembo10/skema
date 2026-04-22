@@ -5,10 +5,15 @@
 --
 -- Provides utilities for creating test databases, event buses,
 -- and complete service contexts for integration testing.
+--
+-- HTTP is mocked by default: 'withTestEnv' installs a transport that
+-- throws on any request. Tests that need HTTP must pass matchers via
+-- 'withTestEnvMock'.
 module Helpers.TestEnv
   ( -- * Test Environment
     TestEnv(..)
   , withTestEnv
+  , withTestEnvMock
     -- * Service Context Builders
   , mkTestServiceContext
   ) where
@@ -18,9 +23,15 @@ import Skema.Database.Types (DatabaseConfig(..))
 import Skema.Database.Migrations (runMigrations)
 import Skema.Events.Bus (EventBus, newEventBus)
 import Skema.Services.Types (ServiceContext(..))
-import Skema.HTTP.Client (HttpClient, newHttpClient, defaultHttpConfig, defaultUserAgentData)
+import Skema.HTTP.Client
+  ( HttpClient
+  , newHttpClientWithTransport
+  , defaultHttpConfig
+  , defaultUserAgentData
+  )
 import Skema.MusicBrainz.Client (MBClientEnv, newMBClientEnv)
 import Skema.Config.Types (Config, musicbrainz, defaultConfig)
+import Helpers.MockHttp (RequestMatcher, mockTransport)
 import Control.Exception (bracket)
 import System.IO.Temp (withSystemTempFile, withSystemTempDirectory)
 import Katip
@@ -44,12 +55,21 @@ data TestEnv = TestEnv
     -- ^ Temporary cache directory
   }
 
--- | Create a test environment with real HTTP client.
+-- | Create a test environment with a strict mock HTTP transport.
+--
+-- Any outbound HTTP request fails with 'UnexpectedHttpRequest'. Tests that
+-- need to serve canned responses should use 'withTestEnvMock' instead.
 --
 -- Uses in-memory SQLite database and temporary cache directory.
 -- Automatically runs migrations and sets up event bus.
 withTestEnv :: (TestEnv -> IO a) -> IO a
-withTestEnv action = do
+withTestEnv = withTestEnvMock []
+
+-- | Create a test environment with a mock HTTP transport driven by the
+-- given matchers. Matchers are tried in order; the first to match wins.
+-- Requests with no matching matcher throw 'UnexpectedHttpRequest'.
+withTestEnvMock :: [RequestMatcher] -> (TestEnv -> IO a) -> IO a
+withTestEnvMock matchers action = do
   -- Create minimal LogEnv for testing (only show errors and critical messages)
   handleScribe <- mkHandleScribe ColorIfTerminal stderr (permitItem ErrorS) V2
   let mkLogEnv = registerScribe "stderr" handleScribe defaultScribeSettings =<< initLogEnv "skema-test" "test"
@@ -74,8 +94,9 @@ withTestEnv action = do
           -- Create default config
           configVar <- STM.newTVarIO defaultConfig
 
-          -- Create HTTP client
-          httpClient <- newHttpClient le defaultHttpConfig defaultUserAgentData
+          -- Create HTTP client with a mock transport
+          let transport = mockTransport matchers
+          httpClient <- newHttpClientWithTransport le defaultHttpConfig defaultUserAgentData transport
 
           -- Read config for MusicBrainz setup
           config <- STM.readTVarIO configVar

@@ -26,33 +26,28 @@ module Skema.Slskd.Client
   , cancelTransfer
   ) where
 
-import Control.Exception (try)
 import Data.Aeson (FromJSON, Value, decode, encode, object, (.=))
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as T
 import Network.HTTP.Client
-  ( Manager
-  , RequestBody (..)
-  , httpLbs
+  ( RequestBody (..)
   , method
   , parseRequest
   , requestBody
   , requestHeaders
-  , responseBody
-  , responseStatus
   )
-import Network.HTTP.Types.Status (statusCode)
 
 import Skema.Config.Types (SlskdConfig (..))
-import Skema.HTTP.Client (HttpClient, getManager)
+import Skema.HTTP.Client (HttpClient, makeRequestWithRetry, prettyHttpError)
+import qualified Network.HTTP.Client as HTTP
 import Skema.Slskd.Types
 
 -- | slskd client instance.
 data SlskdClient = SlskdClient
   { scConfig :: SlskdConfig
     -- ^ Client configuration
-  , scManager :: Manager
-    -- ^ HTTP manager for requests
+  , scHttpClient :: HttpClient
+    -- ^ Shared HTTP client (rate limiting, retries, mockable transport)
   }
   deriving (Generic)
 
@@ -61,7 +56,7 @@ createSlskdClient :: SlskdConfig -> HttpClient -> SlskdClient
 createSlskdClient config httpClient =
   SlskdClient
     { scConfig = config
-    , scManager = getManager httpClient
+    , scHttpClient = httpClient
     }
 
 -- | Make an authenticated request to slskd API.
@@ -91,34 +86,21 @@ makeSlskdRequest SlskdClient {..} httpMethod apiPath maybeBody = do
               , requestBody = maybe mempty RequestBodyLBS maybeBody
               }
 
-      result <- try $ httpLbs req' scManager
+      result <- makeRequestWithRetry scHttpClient req'
       case result of
-        Left (err :: SomeException) ->
-          pure $ Left $ "HTTP error: " <> show err
+        Left err -> pure $ Left $ prettyHttpError err
         Right response -> do
-          let status = statusCode $ responseStatus response
-              body = responseBody response
-          if status >= 200 && status < 300
-            then case decode body of
-              Nothing ->
-                -- Some endpoints return empty body on success
-                if LBS.null body || body == "null"
-                  then
-                    -- Try to decode as the expected type, or fail
-                    pure $ Left "Empty response body"
-                  else
-                    pure $
-                      Left $
-                        "Failed to decode response: "
-                          <> decodeUtf8 (LBS.toStrict body)
-              Just val -> pure $ Right val
-            else
-              pure $
-                Left $
-                  "HTTP "
-                    <> show status
-                    <> ": "
-                    <> decodeUtf8 (LBS.toStrict body)
+          let body = HTTP.responseBody response
+          case decode body of
+            Nothing ->
+              if LBS.null body || body == "null"
+                then pure $ Left "Empty response body"
+                else
+                  pure $
+                    Left $
+                      "Failed to decode response: "
+                        <> decodeUtf8 (LBS.toStrict body)
+            Just val -> pure $ Right val
 
 -- | Make a request that returns no meaningful body.
 makeSlskdRequestNoBody ::
@@ -146,22 +128,10 @@ makeSlskdRequestNoBody SlskdClient {..} httpMethod apiPath maybeBody = do
               , requestBody = maybe mempty RequestBodyLBS maybeBody
               }
 
-      result <- try $ httpLbs req' scManager
+      result <- makeRequestWithRetry scHttpClient req'
       case result of
-        Left (err :: SomeException) ->
-          pure $ Left $ "HTTP error: " <> show err
-        Right response -> do
-          let status = statusCode $ responseStatus response
-              body = responseBody response
-          if status >= 200 && status < 300
-            then pure $ Right ()
-            else
-              pure $
-                Left $
-                  "HTTP "
-                    <> show status
-                    <> ": "
-                    <> decodeUtf8 (LBS.toStrict body)
+        Left err -> pure $ Left $ prettyHttpError err
+        Right _ -> pure $ Right ()
 
 -- | Test connection to slskd API.
 --

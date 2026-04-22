@@ -7,14 +7,16 @@ module Skema.Scraper.Http
 
 import qualified Data.Text as T
 import qualified Data.ByteString.Lazy as LBS
-import Network.HTTP.Client
-import Network.HTTP.Client.TLS (tlsManagerSettings)
+import Network.HTTP.Client (parseRequest, requestHeaders)
+
+import Skema.HTTP.Client (HttpClient, makeRequestWithRetry, prettyHttpError)
+import qualified Network.HTTP.Client as HTTP
 
 -- | Fetch a page with browser-like headers.
--- Returns the response body or an error message.
-fetchPage :: Text -> IO (Either String LBS.ByteString)
-fetchPage url = do
-  manager <- newManager tlsManagerSettings
+-- Routes through the shared HttpClient so requests are rate-limited,
+-- logged, and mockable in tests.
+fetchPage :: HttpClient -> Text -> IO (Either String LBS.ByteString)
+fetchPage httpClient url = do
   req <- parseRequest (T.unpack url)
   let reqWithHeaders = req
         { requestHeaders =
@@ -23,6 +25,7 @@ fetchPage url = do
             , ("Accept-Language", "en-US,en;q=0.5")
             ]
         }
-
-  response <- httpLbs reqWithHeaders manager
-  pure $ Right (responseBody response)
+  result <- makeRequestWithRetry httpClient reqWithHeaders
+  pure $ case result of
+    Left err -> Left $ T.unpack (prettyHttpError err)
+    Right response -> Right (HTTP.responseBody response)

@@ -9,6 +9,7 @@ import qualified Integration.EndToEndSpec
 import qualified Unit.ConfigSpec
 import qualified Unit.IndexerSpec
 import qualified Unit.MatchingSpec
+import qualified Unit.MusicBrainzSpec
 import qualified Unit.PathFormatterSpec
 import qualified Unit.Domain.CatalogSpec
 import qualified Unit.Domain.QualitySpec
@@ -23,6 +24,7 @@ tests = testGroup "Skema Tests"
   [ Unit.ConfigSpec.tests
   , Unit.IndexerSpec.tests
   , Unit.MatchingSpec.tests
+  , Unit.MusicBrainzSpec.tests
   , Unit.PathFormatterSpec.tests
   , Unit.Domain.CatalogSpec.tests
   , Unit.Domain.QualitySpec.tests

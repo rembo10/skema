@@ -17,8 +17,11 @@ module Skema.HTTP.Client
   , UserAgentFormat(..)
   , UserAgentData(..)
   , ConditionalResult(..)
+  , HttpTransport(..)
     -- * Client creation
   , newHttpClient
+  , newHttpClientWithTransport
+  , realTransport
   , defaultHttpConfig
   , defaultRetryConfig
   , defaultDomainConfig
@@ -28,10 +31,10 @@ module Skema.HTTP.Client
     -- * User agent formatting
   , formatUserAgent
     -- * Client accessors
-  , getManager
   , clientLogEnv
     -- * Making requests
   , makeRequest
+  , makeRequestRaw
   , makeRequestWithRetry
     -- * Convenience methods
   , get
@@ -219,9 +222,23 @@ defaultRetryConfig = RetryConfig
   , retryableStatuses = [429, 500, 502, 503, 504]
   }
 
--- | HTTP client with rate limiting and retry logic
+-- | Low-level request transport. Takes a fully-built Request and returns a Response.
+-- May throw on network errors - callers wrap in 'try'.
+--
+-- Swappable so tests can inject a mock that matches requests against
+-- canned responses without touching the network. The real implementation
+-- is 'realTransport', built on http-client's 'httpLbs'.
+newtype HttpTransport = HttpTransport
+  { runTransport :: Request -> IO (Response LBS.ByteString) }
+
+-- | Real transport backed by http-client and a live TLS Manager.
+realTransport :: Manager -> HttpTransport
+realTransport mgr = HttpTransport $ \req -> httpLbs req mgr
+
+-- | HTTP client with rate limiting and retry logic.
 data HttpClient = HttpClient
-  { hcManager :: Manager
+  { hcTransport :: HttpTransport
+    -- ^ Request execution layer. Swap this to mock HTTP in tests.
   , hcConfig :: HttpConfig
   , hcUserAgentData :: UserAgentData
     -- ^ Data for formatting user agent strings
@@ -232,22 +249,25 @@ data HttpClient = HttpClient
     -- ^ Logging environment
   }
 
--- | Create a new HTTP client with rate limiting
+-- | Create a new HTTP client with rate limiting, using the real network transport.
 newHttpClient :: LogEnv -> HttpConfig -> UserAgentData -> IO HttpClient
 newHttpClient logEnv config uaData = do
   manager <- newManager tlsManagerSettings
+  newHttpClientWithTransport logEnv config uaData (realTransport manager)
+
+-- | Create an HTTP client with a custom transport. Used by tests to supply
+-- a mock transport while keeping the rest of the client (rate limiting,
+-- retry, auth, logging) real.
+newHttpClientWithTransport :: LogEnv -> HttpConfig -> UserAgentData -> HttpTransport -> IO HttpClient
+newHttpClientWithTransport logEnv config uaData transport = do
   locks <- STM.newTVarIO Map.empty
   pure $ HttpClient
-    { hcManager = manager
+    { hcTransport = transport
     , hcConfig = config
     , hcUserAgentData = uaData
     , hcDomainLocks = locks
     , hcLogEnv = logEnv
     }
-
--- | Get the HTTP manager from a client
-getManager :: HttpClient -> Manager
-getManager = hcManager
 
 -- | Get the log environment from the HTTP client
 clientLogEnv :: HttpClient -> LogEnv
@@ -364,6 +384,22 @@ parseRetryAfter bs =
     Just seconds -> Just (seconds * 1000000)  -- Convert to microseconds
     Nothing -> Nothing  -- TODO: Parse HTTP date format
 
+-- | Make an HTTP request with rate limiting but no status-code interpretation.
+-- Returns the raw response regardless of status. Use this when the caller
+-- needs to inspect headers/body on non-2xx responses (e.g. Transmission's
+-- 409 session-handshake).
+makeRequestRaw :: HttpClient -> Request -> IO (Either HttpError (Response LBS.ByteString))
+makeRequestRaw client req = do
+  let domain = TE.decodeUtf8 (host req)
+  acquireAndReleaseRateLimitLock client domain
+  try (runTransport (hcTransport client) req) >>= \case
+    Left (err :: SomeException) -> do
+      let errText = show err :: String
+      runKatipContextT (hcLogEnv client) () "http-client" $ do
+        $(logTM) ErrorS $ logStr $ ("HTTP request failed: " <> toText errText :: Text)
+      pure $ Left $ HttpNetworkError (toText errText)
+    Right response -> pure $ Right response
+
 -- | Make an HTTP request with rate limiting (no retry)
 makeRequest :: HttpClient -> Request -> IO (Either HttpError (Response LBS.ByteString))
 makeRequest client req = do
@@ -380,7 +416,7 @@ makeRequest client req = do
   acquireAndReleaseRateLimitLock client domain
 
   -- Make the request (lock is now released, allowing concurrent requests to execute)
-  try (httpLbs req (hcManager client)) >>= \case
+  try (runTransport (hcTransport client) req) >>= \case
     Left (err :: SomeException) -> do
       let errText = show err :: String
       runKatipContextT (hcLogEnv client) () "http-client" $ do

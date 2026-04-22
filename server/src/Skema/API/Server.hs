@@ -102,7 +102,7 @@ server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDi
    :<|> diffsServer le bus serverCfg jwtSecret registry connPool configVar
    :<|> clustersServer le bus serverCfg jwtSecret registry tm connPool configVar
    :<|> statsServer serverCfg jwtSecret connPool configVar
-   :<|> acquisitionServer le bus serverCfg jwtSecret connPool configVar (srMBClientEnv registry) tm
+   :<|> acquisitionServer le bus serverCfg jwtSecret connPool configVar (srMBClientEnv registry) (srHttpClient registry) tm
    :<|> catalogServer le bus serverCfg jwtSecret registry tm connPool cacheDir configVar
    :<|> downloadsServer le bus serverCfg jwtSecret registry tm connPool (srDownloadProgressMap registry) configVar
    :<|> eventsServer le bus serverCfg jwtSecret connPool libPath configVar
@@ -158,7 +158,7 @@ startServer le bus serverCfg registry connPool libPath cacheDir configPath cliPo
 
     -- Start update checker
     latestVar <- liftIO $ newTVarIO Nothing
-    liftIO $ startUpdateChecker le (srConfigVar registry) latestVar
+    liftIO $ startUpdateChecker le (srHttpClient registry) (srConfigVar registry) latestVar
     $(logTM) InfoS $ logStr ("Update checker started" :: Text)
 
     -- Log server startup

@@ -37,8 +37,7 @@ import Skema.Config.Types (Config(..), LibraryConfig(..))
 import Skema.Config.Loader (loadConfigFromFile)
 import Skema.FileSystem.Utils (osPathToString)
 import Skema.MusicBrainz.Client (newMBClientEnv, MBClientEnv)
-import Skema.HTTP.Client (HttpClient, newHttpClient, getManager, defaultHttpConfig, defaultUserAgentData)
-import Network.HTTP.Client (Manager)
+import Skema.HTTP.Client (HttpClient, newHttpClient, defaultHttpConfig, defaultUserAgentData)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Control.Concurrent (threadDelay)
@@ -57,8 +56,6 @@ data ServiceRegistry = ServiceRegistry
     -- ^ Shared MusicBrainz client (ensures rate limiting)
   , srHttpClient :: HttpClient
     -- ^ Shared HTTP client for all services
-  , srHttpManager :: Manager
-    -- ^ Raw HTTP manager (for notification providers)
   , srConfigVar :: TVar Config
     -- ^ Shared config TVar (for live updates)
   , srDownloadProgressMap :: TVar (Map.Map Int64 (Double, T.Text))
@@ -386,6 +383,7 @@ startAllServices le bus pool config cacheDir configPath = do
           , sourceEvalLogEnv = scLogEnv ctx
           , sourceEvalDbPool = scDbPool ctx
           , sourceEvalMBClient = scMBClientEnv ctx
+          , sourceEvalHttpClient = scHttpClient ctx
           }
     sourceEvaluatorHandle <- liftIO $ startSourceEvaluatorService sourceEvaluatorDeps
     liftIO $ registerAsync asyncRegistry "SourceEvaluator" sourceEvaluatorHandle
@@ -400,7 +398,7 @@ startAllServices le bus pool config cacheDir configPath = do
     let notificationDeps = NotificationDeps
           { notifEventBus = scEventBus ctx
           , notifConfigVar = scConfigVar ctx
-          , notifHttpManager = getManager (scHttpClient ctx)
+          , notifHttpClient = scHttpClient ctx
           , notifLogEnv = scLogEnv ctx
           , notifDbPool = scDbPool ctx
           }
@@ -412,7 +410,6 @@ startAllServices le bus pool config cacheDir configPath = do
     let serviceRegistry = ServiceRegistry
           { srMBClientEnv = mbEnv
           , srHttpClient = httpClient
-          , srHttpManager = getManager httpClient
           , srConfigVar = configVar
           , srDownloadProgressMap = downloadProgressMap
           }

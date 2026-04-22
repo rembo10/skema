@@ -43,7 +43,6 @@ import Skema.Database.Connection (ConnectionPool)
 import Skema.Config.Types (Config)
 import Skema.MusicBrainz.Client (MBClientEnv)
 import Skema.HTTP.Client (HttpClient)
-import Network.HTTP.Client (Manager)
 import Katip (LogEnv)
 
 -- | Dependencies for the Scanner service.
@@ -168,6 +167,7 @@ data SourceEvaluatorDeps = SourceEvaluatorDeps
   , sourceEvalLogEnv :: LogEnv
   , sourceEvalDbPool :: ConnectionPool
   , sourceEvalMBClient :: MBClientEnv
+  , sourceEvalHttpClient :: HttpClient
   }
 
 -- | Dependencies for the MetadataWriter service.
@@ -183,7 +183,7 @@ data MetadataWriterDeps = MetadataWriterDeps
 data NotificationDeps = NotificationDeps
   { notifEventBus :: EventBus
   , notifConfigVar :: TVar Config
-  , notifHttpManager :: Manager
+  , notifHttpClient :: HttpClient
   , notifLogEnv :: LogEnv
   , notifDbPool :: ConnectionPool
   }

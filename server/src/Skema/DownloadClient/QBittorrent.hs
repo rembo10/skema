@@ -16,12 +16,12 @@ import Data.IORef ()
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import GHC.Generics ()
-import Network.HTTP.Client (RequestBody(..), parseRequest, httpLbs, responseBody, responseStatus, responseCookieJar, CookieJar, method, cookieJar, requestBody, requestHeaders)
-import Network.HTTP.Types (statusCode, hContentType, urlEncode)
+import Network.HTTP.Client (RequestBody(..), parseRequest, responseBody, responseCookieJar, CookieJar, method, cookieJar, requestBody, requestHeaders)
+import Network.HTTP.Types (hContentType, urlEncode)
 import qualified Data.ByteString.Char8 as BS8
 
 import Skema.DownloadClient.Types
-import Skema.HTTP.Client (HttpClient, getManager)
+import Skema.HTTP.Client (HttpClient, makeRequestWithRetry, prettyHttpError)
 
 -- | qBittorrent client configuration
 data QBittorrentClient = QBittorrentClient
@@ -80,7 +80,6 @@ instance DownloadClientAPI QBittorrentClient where
     cookieJar <- IORef.readIORef (qbtCookieJar client)
 
     let url = T.unpack (qbtUrl client) <> "/api/v2/torrents/add"
-        manager = getManager (qbtHttpClient client)
     request <- parseRequest url
     let request' = request
           { method = "POST"
@@ -89,18 +88,16 @@ instance DownloadClientAPI QBittorrentClient where
           , cookieJar = cookieJar
           }
 
-    response <- httpLbs request' manager
-    let status = statusCode $ responseStatus response
-
-    if status == 200
-      then do
+    result <- makeRequestWithRetry (qbtHttpClient client) request'
+    case result of
+      Right _ ->
         -- qBittorrent doesn't return the hash immediately, we'll use the URL as a temp ID
         pure $ Right $ AddDownloadResult
           { adrClientId = adrUrl  -- We'll need to poll to get the actual hash
           , adrSuccess = True
           , adrMessage = Just "Torrent added, hash will be available shortly"
           }
-      else pure $ Left $ "Failed to add torrent: HTTP " <> T.pack (show status)
+      Left err -> pure $ Left $ "Failed to add torrent: " <> prettyHttpError err
 
   getDownloadStatus client downloadId = do
     ensureLoggedIn client
@@ -119,7 +116,6 @@ instance DownloadClientAPI QBittorrentClient where
     cookieJar <- IORef.readIORef (qbtCookieJar client)
 
     let url = T.unpack (qbtUrl client) <> "/api/v2/torrents/pause"
-        manager = getManager (qbtHttpClient client)
     request <- parseRequest url
     let request' = request
           { method = "POST"
@@ -128,19 +124,16 @@ instance DownloadClientAPI QBittorrentClient where
           , cookieJar = cookieJar
           }
 
-    response <- httpLbs request' manager
-    let status = statusCode $ responseStatus response
-
-    if status == 200
-      then pure $ Right ()
-      else pure $ Left $ "Failed to pause torrent: HTTP " <> T.pack (show status)
+    result <- makeRequestWithRetry (qbtHttpClient client) request'
+    case result of
+      Right _ -> pure $ Right ()
+      Left err -> pure $ Left $ "Failed to pause torrent: " <> prettyHttpError err
 
   resumeDownload client downloadId = do
     ensureLoggedIn client
     cookieJar <- IORef.readIORef (qbtCookieJar client)
 
     let url = T.unpack (qbtUrl client) <> "/api/v2/torrents/resume"
-        manager = getManager (qbtHttpClient client)
     request <- parseRequest url
     let request' = request
           { method = "POST"
@@ -149,12 +142,10 @@ instance DownloadClientAPI QBittorrentClient where
           , cookieJar = cookieJar
           }
 
-    response <- httpLbs request' manager
-    let status = statusCode $ responseStatus response
-
-    if status == 200
-      then pure $ Right ()
-      else pure $ Left $ "Failed to resume torrent: HTTP " <> T.pack (show status)
+    result <- makeRequestWithRetry (qbtHttpClient client) request'
+    case result of
+      Right _ -> pure $ Right ()
+      Left err -> pure $ Left $ "Failed to resume torrent: " <> prettyHttpError err
 
   removeDownload client downloadId deleteFiles = do
     ensureLoggedIn client
@@ -162,7 +153,6 @@ instance DownloadClientAPI QBittorrentClient where
 
     let deleteParam = if deleteFiles then "true" else "false"
         url = T.unpack (qbtUrl client) <> "/api/v2/torrents/delete"
-        manager = getManager (qbtHttpClient client)
     request <- parseRequest url
     let request' = request
           { method = "POST"
@@ -172,12 +162,10 @@ instance DownloadClientAPI QBittorrentClient where
           , cookieJar = cookieJar
           }
 
-    response <- httpLbs request' manager
-    let status = statusCode $ responseStatus response
-
-    if status == 200
-      then pure $ Right ()
-      else pure $ Left $ "Failed to remove torrent: HTTP " <> T.pack (show status)
+    result <- makeRequestWithRetry (qbtHttpClient client) request'
+    case result of
+      Right _ -> pure $ Right ()
+      Left err -> pure $ Left $ "Failed to remove torrent: " <> prettyHttpError err
 
 -- Helper functions
 
@@ -189,7 +177,6 @@ ensureLoggedIn QBittorrentClient{..} = do
     Nothing -> do
       -- Need to login
       let url = T.unpack qbtUrl <> "/api/v2/auth/login"
-          manager = getManager qbtHttpClient
       request <- parseRequest url
       let encodedUsername = urlEncode True (TE.encodeUtf8 qbtUsername)
           encodedPassword = urlEncode True (TE.encodeUtf8 qbtPassword)
@@ -201,31 +188,28 @@ ensureLoggedIn QBittorrentClient{..} = do
             , requestHeaders = [(hContentType, "application/x-www-form-urlencoded")]
             }
 
-      response <- httpLbs request' manager
-      let status = statusCode $ responseStatus response
-          jar = responseCookieJar response
-
-      if status == 200
-        then IORef.writeIORef qbtCookieJar (Just jar)
-        else fail "Failed to login to qBittorrent"
+      result <- makeRequestWithRetry qbtHttpClient request'
+      case result of
+        Right response -> IORef.writeIORef qbtCookieJar (Just (responseCookieJar response))
+        Left err -> fail $ "Failed to login to qBittorrent: " <> T.unpack (prettyHttpError err)
 
 getAllTorrentsInternal :: QBittorrentClient -> IO [QBTorrent]
 getAllTorrentsInternal client = do
   cookieJar <- IORef.readIORef (qbtCookieJar client)
 
   let url = T.unpack (qbtUrl client) <> "/api/v2/torrents/info"
-      manager = getManager (qbtHttpClient client)
   request <- parseRequest url
   let request' = case cookieJar of
         Just jar -> request { cookieJar = Just jar }
         Nothing -> request
 
-  response <- httpLbs request' manager
-  let body = responseBody response
-
-  case Aeson.eitherDecode body of
-    Left err -> fail $ "Failed to parse qBittorrent response: " <> err
-    Right torrents -> pure torrents
+  result <- makeRequestWithRetry (qbtHttpClient client) request'
+  case result of
+    Left err -> fail $ "Failed to fetch qBittorrent torrents: " <> T.unpack (prettyHttpError err)
+    Right response ->
+      case Aeson.eitherDecode (responseBody response) of
+        Left decodeErr -> fail $ "Failed to parse qBittorrent response: " <> decodeErr
+        Right torrents -> pure torrents
 
 qbtTorrentToDownloadInfo :: QBTorrent -> DownloadInfo
 qbtTorrentToDownloadInfo QBTorrent{..} =

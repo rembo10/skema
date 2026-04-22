@@ -18,6 +18,7 @@ import qualified Skema.Database.Utils as DBUtils
 import qualified Skema.Config.Types as Cfg
 import Skema.Events.Bus (EventBus)
 import Skema.MusicBrainz.Client (MBClientEnv)
+import Skema.HTTP.Client (HttpClient)
 import Skema.Services.SourceEvaluator (evaluateSource)
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
@@ -29,8 +30,8 @@ import Katip (LogEnv)
 import Data.Time (UTCTime)
 
 -- | Acquisition API handlers.
-acquisitionServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> TVar Cfg.Config -> MBClientEnv -> TaskManager -> Server AcquisitionAPI
-acquisitionServer le bus _serverCfg jwtSecret connPool configVar mbClient tm = \maybeAuthHeader ->
+acquisitionServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> TVar Cfg.Config -> MBClientEnv -> HttpClient -> TaskManager -> Server AcquisitionAPI
+acquisitionServer le bus _serverCfg jwtSecret connPool configVar mbClient httpClient tm = \maybeAuthHeader ->
   getRulesHandler maybeAuthHeader
   :<|> createRuleHandler maybeAuthHeader
   :<|> updateRuleHandler maybeAuthHeader
@@ -144,7 +145,7 @@ acquisitionServer le bus _serverCfg jwtSecret connPool configVar mbClient tm = \
                 TM.failTask tm tid $ "Source not found: " <> show sid
               Just s -> do
                 TM.updateTaskProgress tm tid 0.2 (Just $ "Evaluating source: " <> DBTypes.sourceName s)
-                result <- try $ evaluateSource connPool bus le mbClient s
+                result <- try $ evaluateSource connPool bus le mbClient httpClient s
                 case result of
                   Left (e :: SomeException) ->
                     TM.failTask tm tid $ "Evaluation failed: " <> show e

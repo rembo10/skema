@@ -20,8 +20,8 @@ import GHC.Generics ()
 import Network.HTTP.Types (statusCode, hContentType)
 
 import Skema.DownloadClient.Types
-import Skema.HTTP.Client (HttpClient, getManager)
-import Network.HTTP.Client (RequestBody(..), parseRequest, httpLbs, responseBody, responseStatus, responseHeaders, method, requestBody, requestHeaders)
+import Skema.HTTP.Client (HttpClient, makeRequestRaw, prettyHttpError)
+import Network.HTTP.Client (RequestBody(..), parseRequest, responseBody, responseStatus, responseHeaders, method, requestBody, requestHeaders)
 
 -- | Transmission client configuration
 data TransmissionClient = TransmissionClient
@@ -250,8 +250,6 @@ rpcCallWithSession :: FromJSON a => TransmissionClient -> Text -> Aeson.Value ->
 rpcCallWithSession TransmissionClient{..} method args sessionId = do
   let rpcReq = TransRPCRequest method args
       body = Aeson.encode rpcReq
-      -- Get the raw manager for special session handling
-      manager = getManager transHttpClient
 
   request <- parseRequest $ T.unpack transUrl <> "/transmission/rpc"
   let request' = request
@@ -262,22 +260,23 @@ rpcCallWithSession TransmissionClient{..} method args sessionId = do
             ] <> maybe [] (\sid -> [("X-Transmission-Session-Id", TE.encodeUtf8 sid)]) sessionId
         }
 
-  response <- httpLbs request' manager
-  let status = statusCode $ responseStatus response
-
-  if status == 409
-    then do
-      -- Extract session ID from response headers
-      let headers = responseHeaders response
-          sessionIdHeader = lookup "X-Transmission-Session-Id" headers
-      case sessionIdHeader of
-        Just sid -> pure $ Left $ TE.decodeUtf8 sid
-        Nothing -> fail "Got 409 but no session ID in response"
-    else do
-      let responseBody' = responseBody response
-      case Aeson.eitherDecode responseBody' of
-        Left err -> fail $ "Failed to parse Transmission response: " <> err
-        Right result -> pure $ Right result
+  -- Use raw request so we can inspect headers on 409 (session handshake)
+  result <- makeRequestRaw transHttpClient request'
+  case result of
+    Left err -> fail $ "Transmission RPC failed: " <> T.unpack (prettyHttpError err)
+    Right response -> do
+      let status = statusCode $ responseStatus response
+      if status == 409
+        then do
+          let headers = responseHeaders response
+              sessionIdHeader = lookup "X-Transmission-Session-Id" headers
+          case sessionIdHeader of
+            Just sid -> pure $ Left $ TE.decodeUtf8 sid
+            Nothing -> fail "Got 409 but no session ID in response"
+        else
+          case Aeson.eitherDecode (responseBody response) of
+            Left err -> fail $ "Failed to parse Transmission response: " <> err
+            Right parsed -> pure $ Right parsed
 
 torrentToDownloadInfo :: TransTorrent -> DownloadInfo
 torrentToDownloadInfo TransTorrent{..} =

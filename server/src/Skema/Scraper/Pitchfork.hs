@@ -36,6 +36,7 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as T
 import Text.HTML.Scalpel (scrapeStringLike, chroots, text, attr, (@:), hasClass)
 import Skema.Scraper.Http (fetchPage)
+import Skema.HTTP.Client (HttpClient)
 import Skema.Domain.Acquisition (PitchforkGenre, textToPitchforkGenre)
 
 -- | A scraped album from Pitchfork.
@@ -49,16 +50,16 @@ data PitchforkAlbum = PitchforkAlbum
   } deriving (Show, Eq)
 
 -- | Scrape recent album reviews from Pitchfork's main reviews page.
-scrapeReviews :: IO (Either String [PitchforkAlbum])
-scrapeReviews = scrapeUrl "https://pitchfork.com/reviews/albums/" []
+scrapeReviews :: HttpClient -> IO (Either String [PitchforkAlbum])
+scrapeReviews httpClient = scrapeUrl httpClient "https://pitchfork.com/reviews/albums/" []
 
 -- | Scrape albums from a URL, optionally filtering by genre.
 --
 -- Scores are not fetched here — they must be fetched separately via
 -- 'fetchReviewScore' for individual review pages.
-scrapeUrl :: Text -> [PitchforkGenre] -> IO (Either String [PitchforkAlbum])
-scrapeUrl url genres = do
-  result <- fetchPage url
+scrapeUrl :: HttpClient -> Text -> [PitchforkGenre] -> IO (Either String [PitchforkAlbum])
+scrapeUrl httpClient url genres = do
+  result <- fetchPage httpClient url
   case result of
     Left err -> pure $ Left err
     Right htmlBody -> case parsePitchforkPage htmlBody genres of
@@ -100,9 +101,9 @@ parsePitchforkPage html filterGenres = do
 
 -- | Fetch the review score from an individual Pitchfork review page.
 -- Extracts the rating from the embedded __PRELOADED_STATE__ JSON.
-fetchReviewScore :: Text -> IO (Maybe Double)
-fetchReviewScore reviewUrl = do
-  result <- fetchPage reviewUrl
+fetchReviewScore :: HttpClient -> Text -> IO (Maybe Double)
+fetchReviewScore httpClient reviewUrl = do
+  result <- fetchPage httpClient reviewUrl
   case result of
     Left _ -> pure Nothing
     Right body -> pure $ extractScore (decodeUtf8 $ LBS.toStrict body)

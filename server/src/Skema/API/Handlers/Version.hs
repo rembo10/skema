@@ -13,13 +13,11 @@ module Skema.API.Handlers.Version
 import Skema.API.Types.Version (VersionAPI, VersionResponse(..))
 import Skema.Version (getVersionInfo, VersionInfo(..))
 import qualified Skema.Config.Types as Cfg
+import Skema.HTTP.Client (HttpClient, makeRequestWithRetry, HttpError(..))
 import Servant
 import Data.Aeson (FromJSON(..), withObject, (.:), decode)
-import Network.HTTP.Client (Manager, parseRequest, httpLbs, responseBody, responseStatus, requestHeaders, newManager)
-import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types.Status (statusCode)
+import Network.HTTP.Client (parseRequest, responseBody, requestHeaders)
 import Network.HTTP.Types.Header (HeaderName)
-import Control.Exception (try)
 import qualified Data.Text as T
 import Katip
 import Control.Concurrent (threadDelay)
@@ -71,15 +69,15 @@ githubHeaders = [("User-Agent", "Skema"), ("Accept", "application/vnd.github.v3+
 
 -- | Start the background update checker thread.
 -- Checks GitHub releases API periodically and caches the result.
-startUpdateChecker :: LogEnv -> TVar Cfg.Config -> TVar (Maybe LatestRelease) -> IO ()
-startUpdateChecker le configVar latestVar = do
+startUpdateChecker :: LogEnv -> HttpClient -> TVar Cfg.Config -> TVar (Maybe LatestRelease) -> IO ()
+startUpdateChecker le httpClient configVar latestVar = do
   vi <- getVersionInfo
   _ <- async $ forever $ do
     config <- readTVarIO configVar
     let checkEnabled = Cfg.systemCheckUpdates (Cfg.system config)
     if checkEnabled
       then do
-        result <- checkForUpdate le vi
+        result <- checkForUpdate le httpClient vi
         case result of
           Just release -> atomically $ writeTVar latestVar (Just release)
           Nothing -> pure ()
@@ -91,10 +89,9 @@ startUpdateChecker le configVar latestVar = do
 -- | Check for updates. For source channel builds with a known commit,
 -- uses the GitHub compare API to avoid false positives when running
 -- ahead of the latest release.
-checkForUpdate :: LogEnv -> VersionInfo -> IO (Maybe LatestRelease)
-checkForUpdate le vi = do
-  manager <- newManager tlsManagerSettings
-  fetchLatestRelease le manager >>= \case
+checkForUpdate :: LogEnv -> HttpClient -> VersionInfo -> IO (Maybe LatestRelease)
+checkForUpdate le httpClient vi =
+  fetchLatestRelease le httpClient >>= \case
     Nothing -> pure Nothing
     Just (GitHubRelease tag) -> do
       let latestVer = fromMaybe tag (T.stripPrefix "v" tag)
@@ -108,7 +105,7 @@ checkForUpdate le vi = do
       -- running from a git checkout past the latest release.
       if versionBehind && ch == "source" && commit /= "UNKNOWN"
         then do
-          isAhead <- checkCommitAhead le manager tag commit
+          isAhead <- checkCommitAhead le httpClient tag commit
           let updateAvail = not isAhead
           logResult le currentVer latestVer updateAvail
                     (if isAhead then " (commit is ahead of release)" else "")
@@ -126,52 +123,44 @@ logResult le currentVer latestVer updateAvail extra =
       (if updateAvail then " (update available)" else " (up to date)") <> extra
 
 -- | Fetch the latest release from GitHub.
-fetchLatestRelease :: LogEnv -> Manager -> IO (Maybe GitHubRelease)
-fetchLatestRelease le manager = do
+fetchLatestRelease :: LogEnv -> HttpClient -> IO (Maybe GitHubRelease)
+fetchLatestRelease le httpClient = do
   let url = "https://api.github.com/repos/rembo10/skema/releases/latest"
   case parseRequest url of
     Nothing -> pure Nothing
     Just req -> do
       let req' = req { requestHeaders = githubHeaders }
-      result <- try (httpLbs req' manager)
+      result <- makeRequestWithRetry httpClient req'
       case result of
-        Left (err :: SomeException) -> do
+        Left (HttpStatusError 404 _ _) -> pure Nothing
+        Left err -> do
           runKatipContextT le () "update-checker" $
             $(logTM) DebugS $ logStr $ ("Failed to check for updates: " <> show err :: Text)
           pure Nothing
-        Right response -> do
-          let status = statusCode (responseStatus response)
-          if status == 200
-            then case decode (responseBody response) of
-              Just release -> pure $ Just release
-              Nothing -> do
-                runKatipContextT le () "update-checker" $
-                  $(logTM) DebugS $ logStr ("Failed to parse GitHub release response" :: Text)
-                pure Nothing
-            else do
-              when (status /= 404) $
-                runKatipContextT le () "update-checker" $
-                  $(logTM) DebugS $ logStr $ ("GitHub API returned status " <> show status :: Text)
+        Right response ->
+          case decode (responseBody response) of
+            Just release -> pure $ Just release
+            Nothing -> do
+              runKatipContextT le () "update-checker" $
+                $(logTM) DebugS $ logStr ("Failed to parse GitHub release response" :: Text)
               pure Nothing
 
 -- | Check if the current commit is at or ahead of a release tag using
 -- the GitHub compare API. Returns True if we're ahead or identical.
 -- Falls back to False on any error (so version comparison takes over).
-checkCommitAhead :: LogEnv -> Manager -> Text -> Text -> IO Bool
-checkCommitAhead le manager tag commit = do
+checkCommitAhead :: LogEnv -> HttpClient -> Text -> Text -> IO Bool
+checkCommitAhead le httpClient tag commit = do
   let url = "https://api.github.com/repos/rembo10/skema/compare/"
             <> toString tag <> "..." <> toString commit
   case parseRequest url of
     Nothing -> pure False
     Just req -> do
       let req' = req { requestHeaders = githubHeaders }
-      result <- try (httpLbs req' manager)
+      result <- makeRequestWithRetry httpClient req'
       case result of
-        Left (_ :: SomeException) -> pure False
-        Right response -> do
-          let status = statusCode (responseStatus response)
-          if status == 200
-            then case decode (responseBody response) of
+        Left _ -> pure False
+        Right response ->
+          case decode (responseBody response) of
               Just (GitHubCompare compareStatus) -> do
                 let ahead = compareStatus == "ahead" || compareStatus == "identical"
                 runKatipContextT le () "update-checker" $
@@ -180,7 +169,6 @@ checkCommitAhead le manager tag commit = do
                      " (commit " <> T.take 7 commit <> " vs " <> tag <> ")" :: Text)
                 pure ahead
               Nothing -> pure False
-            else pure False
 
 -- | Compare version strings to determine if an update is available.
 -- Returns True if the latest version is newer than the current version.

@@ -294,6 +294,7 @@ test-suite skema-test
     Unit.ConfigSpec
     Unit.IndexerSpec
     Unit.MatchingSpec
+    Unit.MusicBrainzSpec
     Unit.PathFormatterSpec
     Unit.Domain.CatalogSpec
     Unit.Domain.QualitySpec
@@ -303,6 +304,7 @@ test-suite skema-test
     Helpers.Builders
     Helpers.EventAssertions
     Helpers.TempLibrary
+    Helpers.MockHttp
 
   build-depends:
     base >= 4.17 && < 5
@@ -320,3 +322,6 @@ test-suite skema-test
     , async >= 2.2 && < 2.3
     , aeson >= 2.1 && < 2.3
     , bytestring >= 0.11 && < 0.13
+    , http-client >= 0.7 && < 0.8
+    , http-types >= 0.12 && < 0.13
+    , text >= 2.0 && < 2.2

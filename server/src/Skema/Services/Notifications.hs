@@ -128,12 +128,12 @@ sendToAllProviders deps notification = do
   let notifConfig = notifications config
   let providers = notificationProviders notifConfig
   let le = notifLogEnv deps
-  let manager = notifHttpManager deps
+  let httpClient = notifHttpClient deps
 
   forM_ providers $ \provider -> do
     case provider of
       PushoverProvider pushoverConfig -> do
-        let client = newPushoverClient pushoverConfig manager
+        let client = newPushoverClient pushoverConfig httpClient
         result <- sendNotification client notification
 
         case result of

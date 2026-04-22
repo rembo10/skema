@@ -34,6 +34,7 @@ import Skema.Scraper.Metacritic (MetacriticAlbum(..), scrapeGenreUrl)
 import Skema.Scraper.Pitchfork (PitchforkAlbum(..), scrapeUrl, fetchReviewScore)
 import qualified Skema.Scraper.Pitchfork as PF
 import Skema.MusicBrainz.Client (searchReleaseGroups, MBClientEnv)
+import Skema.HTTP.Client (HttpClient)
 import Skema.MusicBrainz.Types (MBReleaseGroupSearch(..), MBReleaseGroupSearchResult(..), MBID(..))
 import Control.Concurrent.Async (Async, async)
 import Control.Exception (try)
@@ -83,6 +84,7 @@ runEvaluation SourceEvaluatorDeps{..} = do
   let pool = sourceEvalDbPool
   let bus = sourceEvalEventBus
   let mbClient = sourceEvalMBClient
+  let httpClient = sourceEvalHttpClient
 
   runKatipContextT le () "services.source_evaluator" $ do
     $(logTM) InfoS $ logStr ("Starting source evaluation cycle" :: Text)
@@ -95,7 +97,7 @@ runEvaluation SourceEvaluatorDeps{..} = do
     -- Evaluate each source
     forM_ sources $ \source -> do
       $(logTM) InfoS $ logStr $ ("Evaluating source: " <> sourceName source :: Text)
-      result <- liftIO $ try $ evaluateSource pool bus le mbClient source
+      result <- liftIO $ try $ evaluateSource pool bus le mbClient httpClient source
       case result of
         Left (e :: SomeException) -> do
           $(logTM) ErrorS $ logStr $
@@ -114,19 +116,19 @@ logEval le msg =
 
 -- | Evaluate a single acquisition source.
 -- Returns the number of albums added to the wanted list.
-evaluateSource :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> AcquisitionSourceRecord -> IO Int
-evaluateSource pool bus le mbClient source = do
+evaluateSource :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> HttpClient -> AcquisitionSourceRecord -> IO Int
+evaluateSource pool bus le mbClient httpClient source = do
   case sourceType source of
     LibraryArtists -> do
       -- Library Artists sources are event-driven, not periodically evaluated
       pure 0
 
-    Metacritic -> evaluateMetacriticSource pool bus le mbClient source
-    Pitchfork -> evaluatePitchforkSource pool bus le mbClient source
+    Metacritic -> evaluateMetacriticSource pool bus le mbClient httpClient source
+    Pitchfork -> evaluatePitchforkSource pool bus le mbClient httpClient source
 
 -- | Evaluate a Metacritic source.
-evaluateMetacriticSource :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> AcquisitionSourceRecord -> IO Int
-evaluateMetacriticSource pool bus le mbClient source = do
+evaluateMetacriticSource :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> HttpClient -> AcquisitionSourceRecord -> IO Int
+evaluateMetacriticSource pool bus le mbClient httpClient source = do
   -- Parse filters
   let filters = parseSourceFilters (sourceType source) (sourceFilters source)
 
@@ -146,7 +148,7 @@ evaluateMetacriticSource pool bus le mbClient source = do
       -- Scrape each genre and collect results
       allAlbums <- fmap concat $ forM genresToScrape $ \genre -> do
         let url = "https://www.metacritic.com/browse/albums/genre/date/" <> metacriticGenreToUrl genre
-        result <- scrapeGenreUrl url [genre]
+        result <- scrapeGenreUrl httpClient url [genre]
         case result of
           Left err -> do
             logEval le $ "Failed to scrape genre " <> show genre <> ": " <> show err
@@ -190,8 +192,8 @@ evaluateMetacriticSource pool bus le mbClient source = do
 -- Genre filtering is done client-side by the parser.
 -- Only processes entries newer than the last-seen URL to avoid redundant scraping.
 -- Individual review pages are fetched for scores only when a min score filter is set.
-evaluatePitchforkSource :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> AcquisitionSourceRecord -> IO Int
-evaluatePitchforkSource pool bus le mbClient source = do
+evaluatePitchforkSource :: ConnectionPool -> EventBus -> LogEnv -> MBClientEnv -> HttpClient -> AcquisitionSourceRecord -> IO Int
+evaluatePitchforkSource pool bus le mbClient httpClient source = do
   let filters = parseSourceFilters (sourceType source) (sourceFilters source)
 
   case filters of
@@ -203,7 +205,7 @@ evaluatePitchforkSource pool bus le mbClient source = do
         <> ", min_score: " <> maybe "none" show minScore <> ")"
 
       -- Scrape main listing page (no genre filter - we filter in the evaluator for clearer logging)
-      result <- scrapeUrl "https://pitchfork.com/reviews/albums/" []
+      result <- scrapeUrl httpClient "https://pitchfork.com/reviews/albums/" []
       case result of
         Left err -> do
           logEval le $ "Failed to scrape Pitchfork: " <> show err
@@ -240,7 +242,7 @@ evaluatePitchforkSource pool bus le mbClient source = do
               logEval le $ "Fetching scores for " <> show (length newAlbums) <> " review(s)..."
               forM (zip [1::Int ..] newAlbums) $ \(i, album) -> do
                 threadDelay 1000000  -- 1 second delay between requests
-                score <- fetchReviewScore (pfReviewUrl album)
+                score <- fetchReviewScore httpClient (pfReviewUrl album)
                 logEval le $ "[" <> show i <> "/" <> show (length newAlbums) <> "] "
                   <> pfArtistName album <> " - " <> pfAlbumTitle album
                   <> " => " <> maybe "no score" (\s -> show s <> "/10") score

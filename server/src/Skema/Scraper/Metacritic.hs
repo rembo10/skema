@@ -26,6 +26,7 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as T
 import Text.HTML.Scalpel (scrapeStringLike, chroots, text, attr, (@:), (//), hasClass)
 import Skema.Scraper.Http (fetchPage)
+import Skema.HTTP.Client (HttpClient)
 import Skema.Domain.Acquisition (MetacriticGenre, metacriticGenreToUrl)
 
 -- | A scraped album from Metacritic.
@@ -41,10 +42,10 @@ data MetacriticAlbum = MetacriticAlbum
 
 -- | Scrape albums from a Metacritic genre page.
 -- Returns a list of albums with their scores and metadata.
-scrapeGenre :: MetacriticGenre -> IO (Either String [MetacriticAlbum])
-scrapeGenre genre = do
+scrapeGenre :: HttpClient -> MetacriticGenre -> IO (Either String [MetacriticAlbum])
+scrapeGenre httpClient genre = do
   let url = buildGenreUrl genre
-  scrapeGenreUrl url [genre]
+  scrapeGenreUrl httpClient url [genre]
 
 -- | Build the URL for a genre's new releases page.
 buildGenreUrl :: MetacriticGenre -> Text
@@ -52,9 +53,9 @@ buildGenreUrl genre =
   "https://www.metacritic.com/browse/albums/genre/date/" <> metacriticGenreToUrl genre
 
 -- | Scrape albums from a specific URL, tagging them with genres.
-scrapeGenreUrl :: Text -> [MetacriticGenre] -> IO (Either String [MetacriticAlbum])
-scrapeGenreUrl url genres = do
-  result <- fetchPage url
+scrapeGenreUrl :: HttpClient -> Text -> [MetacriticGenre] -> IO (Either String [MetacriticAlbum])
+scrapeGenreUrl httpClient url genres = do
+  result <- fetchPage httpClient url
   case result of
     Left err -> pure $ Left err
     Right htmlBody -> case parseMetacriticPage htmlBody genres of
