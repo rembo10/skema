@@ -12,10 +12,14 @@ module Skema.Domain.Metadata
   , normalizeEmpty
   , compareField
   , compareTextField
+    -- * Record Conversions
+  , metadataRecordToMonatone
+  , parseAudioFormat
   ) where
 
 import Monatone.Metadata (Metadata(..))
 import qualified Monatone.Metadata as M
+import Skema.Database.Types (LibraryTrackMetadataRecord(..))
 import Skema.MusicBrainz.Types (MBTrack(..), MBRelease(..))
 import qualified Data.Text as T
 
@@ -106,3 +110,63 @@ compareTextField fieldName fileVal mbVal =
     (Nothing, Nothing) -> Nothing  -- Both empty, no diff
     _ | fileVal' == mbVal' -> Nothing  -- Same value, no diff
     _ -> Just (fieldName, fileVal', mbVal')  -- Different, create diff
+
+-- | Parse an audio format string into the Monatone format enum.
+-- Unknown strings fall back to 'M.MP3'.
+parseAudioFormat :: Text -> M.AudioFormat
+parseAudioFormat "FLAC" = M.FLAC
+parseAudioFormat "OGG"  = M.OGG
+parseAudioFormat "Opus" = M.Opus
+parseAudioFormat "MP3"  = M.MP3
+parseAudioFormat _      = M.MP3
+
+-- | Convert a persisted 'LibraryTrackMetadataRecord' to the Monatone
+-- 'Metadata' shape used for MusicBrainz identification and diff generation.
+--
+-- Fields not represented in the persisted record (album art, raw tags,
+-- bitrate/sample rate/channels) are emitted as 'Nothing' / 'mempty'.
+-- Duration is converted from seconds (stored) to milliseconds (Monatone).
+metadataRecordToMonatone :: LibraryTrackMetadataRecord -> M.Metadata
+metadataRecordToMonatone meta = M.Metadata
+  { M.format = maybe M.MP3 parseAudioFormat (metaFormat meta)
+  , M.title = metaTitle meta
+  , M.artist = metaArtist meta
+  , M.album = metaAlbum meta
+  , M.albumArtist = metaAlbumArtist meta
+  , M.trackNumber = metaTrackNumber meta
+  , M.totalTracks = metaTotalTracks meta
+  , M.discNumber = metaDiscNumber meta
+  , M.totalDiscs = metaTotalDiscs meta
+  , M.date = metaDate meta
+  , M.year = metaYear meta
+  , M.genre = metaGenre meta
+  , M.publisher = metaPublisher meta
+  , M.comment = metaComment meta
+  , M.releaseCountry = metaCountry meta
+  , M.recordLabel = metaLabel meta
+  , M.catalogNumber = metaCatalogNumber meta
+  , M.barcode = metaBarcode meta
+  , M.releaseStatus = metaReleaseStatus meta
+  , M.releaseType = metaReleaseType meta
+  , M.albumArtInfo = Nothing
+  , M.audioProperties = M.AudioProperties
+      { M.duration = fmap (\secs -> round (secs * 1000.0)) (metaDurationSeconds meta)
+      , M.bitrate = Nothing
+      , M.sampleRate = Nothing
+      , M.channels = Nothing
+      , M.bitsPerSample = metaBitsPerSample meta
+      }
+  , M.musicBrainzIds = M.MusicBrainzIds
+      { M.mbRecordingId = metaMBRecordingId meta
+      , M.mbTrackId = metaMBTrackId meta
+      , M.mbReleaseId = metaMBReleaseId meta
+      , M.mbArtistId = metaMBArtistId meta
+      , M.mbAlbumArtistId = metaMBAlbumArtistId meta
+      , M.mbReleaseGroupId = metaMBReleaseGroupId meta
+      , M.mbWorkId = metaMBWorkId meta
+      , M.mbDiscId = metaMBDiscId meta
+      }
+  , M.acoustidFingerprint = metaAcoustidFingerprint meta
+  , M.acoustidId = metaAcoustidId meta
+  , M.rawTags = mempty
+  }

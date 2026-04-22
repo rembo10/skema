@@ -32,7 +32,7 @@ import qualified Skema.Database.Types as DB
 import Skema.Database.Utils (downloadStatusToText)
 import Skema.Domain.Quality (textToQuality, QualityProfile(..))
 import qualified Skema.Domain.Catalog as Core
-import Skema.FileSystem.PathFormatter (PathContext(..), formatPath, truncateFileName)
+import Skema.Domain.PathFormatter (PathContext(..), formatPath, truncateFileName)
 import Skema.FileSystem.Utils (moveFile, osPathToString, stringToOsPath)
 import Skema.FileSystem.Trash (moveToTrash)
 import Skema.Services.Metadata (scanAndParseMetadata, groupParsedFiles, MetadataResult(..), GroupedFiles(..))

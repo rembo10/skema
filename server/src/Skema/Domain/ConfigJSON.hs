@@ -16,6 +16,8 @@ module Skema.Domain.ConfigJSON
     configToAPIJSON
     -- * JSON merge updates
   , applyConfigJSONUpdate
+    -- * Validation
+  , validateConfig
   ) where
 
 import Data.Aeson (Value(..), ToJSON(..), encode, eitherDecode)
@@ -120,7 +122,7 @@ applyConfigJSONUpdate currentCfg updateValue maybeHashedPassword = do
     Left err -> pure $ Left $ "Failed to parse updated config: " <> toText err
     Right updatedCfg -> do
       -- Validate the updated config
-      case CfgVal.validateConfig updatedCfg of
+      case validateConfig updatedCfg of
         Just err -> pure $ Left err
         Nothing -> pure $ Right updatedCfg
 
@@ -182,3 +184,12 @@ adjustValue :: KM.Key -> (Value -> Value) -> KM.KeyMap Value -> KM.KeyMap Value
 adjustValue key f km = case KM.lookup key km of
   Just v -> KM.insert key (f v) km
   Nothing -> km
+
+-- | Validate a 'Cfg.Config' value against domain invariants.
+--
+-- Returns 'Just' an error message when invalid, 'Nothing' when valid.
+validateConfig :: Cfg.Config -> Maybe Text
+validateConfig cfg
+  | Cfg.libraryAutoScanIntervalMins (Cfg.library cfg) < 1 =
+      Just "auto_scan_interval_mins must be at least 1"
+  | otherwise = Nothing

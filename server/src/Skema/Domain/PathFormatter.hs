@@ -15,7 +15,7 @@
 -- - "{album_artist}/{year} - {album}/"
 -- - "{album_artist}/{year} - {album}/{if:multidisc|Disc {disc}/}{track:02} - {title}.{ext}"
 -- - "{if:lossless|Lossless/|Lossy/}{album_artist}/{album}/"
-module Skema.FileSystem.PathFormatter
+module Skema.Domain.PathFormatter
   ( PathContext(..)
   , formatPath
   , formatTrackPath
@@ -95,6 +95,10 @@ parseTemplateLoop text acc =
 parseVariablePart :: Text -> TemplatePart
 parseVariablePart text
   | "if:" `T.isPrefixOf` text = parseConditional text
+  -- Padded number specs like {track:02}, {disc:03} must be treated as
+  -- variables so lookupVariable can apply the padding.
+  | "track:" `T.isPrefixOf` text = Variable text
+  | "disc:" `T.isPrefixOf` text = Variable text
   | ":" `T.isInfixOf` text = parseFunction text
   | otherwise = Variable text
 

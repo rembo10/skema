@@ -20,7 +20,7 @@ import System.Environment (setEnv, unsetEnv)
 import Skema.Config.Types
 import Skema.Config.EnvOverrides (applyEnvOverrides, fieldToEnvVar, fieldToEnvVars)
 import Skema.Config.Schema (schemaToJSON, allSchemas)
-import Skema.Domain.ConfigJSON (configToAPIJSON, applyConfigJSONUpdate)
+import Skema.Domain.ConfigJSON (configToAPIJSON, applyConfigJSONUpdate, validateConfig)
 
 tests :: TestTree
 tests = testGroup "Unit.Config"
@@ -29,6 +29,34 @@ tests = testGroup "Unit.Config"
   , configToAPIJSONTests
   , configUpdateTests
   , schemaTests
+  , validateConfigTests
+  ]
+
+-- =============================================================================
+-- validateConfig Tests
+-- =============================================================================
+
+validateConfigTests :: TestTree
+validateConfigTests = testGroup "validateConfig"
+  [ testCase "default config is valid" $
+      validateConfig defaultConfig @?= Nothing
+
+  , testCase "auto_scan_interval_mins of 1 is valid (boundary)" $ do
+      let lib = (library defaultConfig) { libraryAutoScanIntervalMins = 1 }
+          cfg = defaultConfig { library = lib }
+      validateConfig cfg @?= Nothing
+
+  , testCase "auto_scan_interval_mins of 0 is invalid" $ do
+      let lib = (library defaultConfig) { libraryAutoScanIntervalMins = 0 }
+          cfg = defaultConfig { library = lib }
+      validateConfig cfg @?=
+        Just "auto_scan_interval_mins must be at least 1"
+
+  , testCase "negative auto_scan_interval_mins is invalid" $ do
+      let lib = (library defaultConfig) { libraryAutoScanIntervalMins = -5 }
+          cfg = defaultConfig { library = lib }
+      validateConfig cfg @?=
+        Just "auto_scan_interval_mins must be at least 1"
   ]
 
 -- =============================================================================

@@ -13,7 +13,7 @@ module Skema.Services.Download.Search
   ) where
 
 import Skema.Services.Dependencies (DownloadDeps(..))
-import Skema.Domain.Scoring (scoreRelease)
+import Skema.Domain.Scoring (scoreRelease, rankReleases)
 import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
 import Skema.Events.Bus
 import Skema.Events.Types
@@ -22,7 +22,6 @@ import Skema.Database.Repository
 import Skema.Database.Types (DownloadRecord(..))
 import qualified Skema.Database.Types as DB
 import Skema.HTTP.Client (HttpClient)
-import Skema.Indexer.Search (rankResultsWithContext)
 import Skema.Indexer.Client (searchIndexer)
 import Skema.Indexer.Types
 import Skema.Config.Types (Config(..), DownloadConfig(..), Indexer(..), IndexerConfig(..), SlskdConfig(..))
@@ -250,14 +249,14 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
               -- Keep track of indexer names with a Map using download URL as key
               let qualifyingReleases = map snd afterExclusion
                   indexerMap = M.fromList $ map (\(name, r) -> (riDownloadUrl r, name)) afterExclusion
-                  rankedReleases = rankResultsWithContext (Just albumTitle) qualifyingReleases
+                  rankedReleases = rankReleases (Just albumTitle) qualifyingReleases
                   bestRelease = listToMaybe rankedReleases
                   -- Find the indexer name for the best release using its download URL
                   bestIndexerName = bestRelease >>= \r -> M.lookup (riDownloadUrl r) indexerMap
 
               -- Calculate best score
               let bestScore = case bestRelease of
-                    Just rel -> Just $ scoreRelease rel
+                    Just rel -> Just $ scoreRelease (Just albumTitle) rel
                     Nothing -> Nothing
 
               -- Emit search completed event
@@ -280,7 +279,7 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
                   liftIO $ publishAndLog bus le "download" $ BestReleaseSelected
                     { selectedTitle = riTitle release
                     , selectedIndexer = indexerName
-                    , selectedScore = scoreRelease release
+                    , selectedScore = scoreRelease (Just albumTitle) release
                     , selectedSeeders = riSeeders release
                     }
 

@@ -45,7 +45,7 @@ library
     Skema.Domain.Library
     Skema.FileSystem.Scanner
     Skema.FileSystem.Watcher
-    Skema.FileSystem.PathFormatter
+    Skema.Domain.PathFormatter
     Skema.FileSystem.Utils
     Skema.FileSystem.Browser
     Skema.FileSystem.Trash
@@ -159,7 +159,6 @@ library
     Skema.Notifications.Pushover
     Skema.Services.Types
     Skema.Services.Dependencies
-    Skema.Services.Common
     Skema.Services.Supervisor
     Skema.Services.AsyncRegistry
     Skema.Services.Scanner
@@ -295,11 +294,14 @@ test-suite skema-test
     Unit.IndexerSpec
     Unit.MatchingSpec
     Unit.MusicBrainzSpec
-    Unit.PathFormatterSpec
+    Unit.Domain.PathFormatterSpec
     Unit.Domain.CatalogSpec
     Unit.Domain.QualitySpec
     Unit.Domain.MetadataSpec
     Unit.Domain.ImportSpec
+    Unit.Domain.ScoringSpec
+    Unit.Domain.AcquisitionSpec
+    Unit.Domain.IdentificationSpec
     Helpers.TestEnv
     Helpers.Builders
     Helpers.EventAssertions

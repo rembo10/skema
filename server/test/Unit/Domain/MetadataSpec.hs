@@ -13,8 +13,9 @@ module Unit.Domain.MetadataSpec
 import Test.Tasty
 import Test.Tasty.HUnit
 import Skema.Domain.Metadata
+import Skema.Database.Types (LibraryTrackMetadataRecord(..))
 import qualified Monatone.Metadata as M
-import Helpers.Builders (mkTestMBRelease, mkTestMBTrack)
+import Helpers.Builders (mkTestMBRelease, mkTestMBTrack, mkTestMetadataRecord)
 import qualified Data.HashMap.Strict as HM
 
 -- =============================================================================
@@ -61,6 +62,8 @@ tests = testGroup "Unit.Domain.Metadata"
   [ normalizeEmptyTests
   , compareTextFieldTests
   , computeMetadataDiffsTests
+  , parseAudioFormatTests
+  , metadataRecordToMonatoneTests
   ]
 
 -- =============================================================================
@@ -119,4 +122,78 @@ computeMetadataDiffsTests = testGroup "computeMetadataDiffs"
           diffs = computeMetadataDiffs fileMeta mbTrack mbRelease
           titleDiffs = filter (\(field, _, _) -> field == "title") diffs
       assertBool "Should not have a title diff" (null titleDiffs)
+  ]
+
+-- =============================================================================
+-- parseAudioFormat Tests
+-- =============================================================================
+
+parseAudioFormatTests :: TestTree
+parseAudioFormatTests = testGroup "parseAudioFormat"
+  [ testCase "FLAC -> FLAC" $ parseAudioFormat "FLAC" @?= M.FLAC
+  , testCase "OGG -> OGG"   $ parseAudioFormat "OGG"  @?= M.OGG
+  , testCase "Opus -> Opus" $ parseAudioFormat "Opus" @?= M.Opus
+  , testCase "MP3 -> MP3"   $ parseAudioFormat "MP3"  @?= M.MP3
+  , testCase "unknown text defaults to MP3" $
+      parseAudioFormat "gibberish" @?= M.MP3
+  , testCase "case-sensitive: flac (lowercase) defaults to MP3" $
+      parseAudioFormat "flac" @?= M.MP3
+  ]
+
+-- =============================================================================
+-- metadataRecordToMonatone Tests
+-- =============================================================================
+
+metadataRecordToMonatoneTests :: TestTree
+metadataRecordToMonatoneTests = testGroup "metadataRecordToMonatone"
+  [ testCase "copies basic track fields through" $ do
+      let rec = mkTestMetadataRecord "Test Album" "Test Artist" 3
+          meta = metadataRecordToMonatone rec
+      M.title meta @?= Just "Track 3"
+      M.artist meta @?= Just "Test Artist"
+      M.album meta @?= Just "Test Album"
+      M.trackNumber meta @?= Just 3
+
+  , testCase "missing format field defaults to MP3" $ do
+      let rec = mkTestMetadataRecord "A" "B" 1
+          meta = metadataRecordToMonatone rec
+      M.format meta @?= M.MP3
+
+  , testCase "FLAC format string parses to FLAC" $ do
+      let rec = (mkTestMetadataRecord "A" "B" 1) { metaFormat = Just "FLAC" }
+          meta = metadataRecordToMonatone rec
+      M.format meta @?= M.FLAC
+
+  , testCase "duration converts seconds to milliseconds" $ do
+      let rec = (mkTestMetadataRecord "A" "B" 1) { metaDurationSeconds = Just 180.5 }
+          meta = metadataRecordToMonatone rec
+      M.duration (M.audioProperties meta) @?= Just 180500
+
+  , testCase "missing duration -> Nothing" $ do
+      let rec = (mkTestMetadataRecord "A" "B" 1) { metaDurationSeconds = Nothing }
+          meta = metadataRecordToMonatone rec
+      M.duration (M.audioProperties meta) @?= Nothing
+
+  , testCase "bitrate/sampleRate/channels always Nothing (not stored)" $ do
+      let rec = mkTestMetadataRecord "A" "B" 1
+          props = M.audioProperties (metadataRecordToMonatone rec)
+      M.bitrate props @?= Nothing
+      M.sampleRate props @?= Nothing
+      M.channels props @?= Nothing
+
+  , testCase "MusicBrainz IDs round-trip" $ do
+      let rec = (mkTestMetadataRecord "A" "B" 1)
+            { metaMBRecordingId = Just "rec-id"
+            , metaMBReleaseId = Just "rel-id"
+            , metaMBArtistId = Just "art-id"
+            }
+          mbIds = M.musicBrainzIds (metadataRecordToMonatone rec)
+      M.mbRecordingId mbIds @?= Just "rec-id"
+      M.mbReleaseId mbIds @?= Just "rel-id"
+      M.mbArtistId mbIds @?= Just "art-id"
+
+  , testCase "rawTags is empty (not persisted in DB)" $ do
+      let rec = mkTestMetadataRecord "A" "B" 1
+          meta = metadataRecordToMonatone rec
+      HM.null (M.rawTags meta) @?= True
   ]

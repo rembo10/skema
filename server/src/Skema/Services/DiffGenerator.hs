@@ -12,7 +12,7 @@ module Skema.Services.DiffGenerator
   ) where
 
 import Skema.Services.Dependencies (DiffGeneratorDeps(..))
-import Skema.Services.Common (metadataRecordToMonatone)
+import Skema.Domain.Metadata (metadataRecordToMonatone)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection

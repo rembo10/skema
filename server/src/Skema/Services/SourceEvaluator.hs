@@ -29,6 +29,8 @@ import Skema.Domain.Acquisition
   , MetacriticGenre(..)
   , parseSourceFilters
   , metacriticGenreToUrl
+  , matchesMetacriticFilters
+  , matchesPitchforkFilters
   )
 import Skema.Scraper.Metacritic (MetacriticAlbum(..), scrapeGenreUrl)
 import Skema.Scraper.Pitchfork (PitchforkAlbum(..), scrapeUrl, fetchReviewScore)
@@ -160,7 +162,7 @@ evaluateMetacriticSource pool bus le mbClient httpClient source = do
       logEval le $ "Total scraped: " <> show (length allAlbums) <> " album(s)"
 
       -- Filter albums by score thresholds
-      let filteredAlbums = filter (matchesMetacriticFilters mcFilters) allAlbums
+      let filteredAlbums = filter (\a -> matchesMetacriticFilters mcFilters (mcCriticScore a) (mcUserScore a)) allAlbums
       let failedFilter = length allAlbums - length filteredAlbums
       logEval le $ "Score filter: " <> show (length filteredAlbums) <> " passed"
         <> (if failedFilter > 0
@@ -252,7 +254,7 @@ evaluatePitchforkSource pool bus le mbClient httpClient source = do
               pure newAlbums
 
           -- Filter by score threshold
-          let filteredAlbums = filter (matchesPitchforkFilters pf) scoredAlbums
+          let filteredAlbums = filter (matchesPitchforkFilters pf . pfScore) scoredAlbums
           let failedScore = length scoredAlbums - length filteredAlbums
           logEval le $ "Score filter: " <> show (length filteredAlbums) <> " passed"
             <> (if failedScore > 0
@@ -285,27 +287,6 @@ takeNewEntries :: Maybe Text -> (a -> Text) -> [a] -> [a]
 takeNewEntries Nothing _ entries = entries
 takeNewEntries (Just lastUrl) getUrl entries =
   takeWhile (\e -> getUrl e /= lastUrl) entries
-
--- | Check if a Metacritic album matches the filter criteria.
-matchesMetacriticFilters :: MetacriticFilters -> MetacriticAlbum -> Bool
-matchesMetacriticFilters MetacriticFilters{..} album =
-  let criticOk = case (mcMinCriticScore, mcCriticScore album) of
-        (Just minScore, Just score) -> score >= minScore
-        (Just _, Nothing) -> False  -- Filter requires score but album has none
-        (Nothing, _) -> True  -- No filter
-      userOk = case (mcMinUserScore, mcUserScore album) of
-        (Just minScore, Just score) -> score >= minScore
-        (Just _, Nothing) -> False
-        (Nothing, _) -> True
-  in criticOk && userOk
-
--- | Check if a Pitchfork album matches the filter criteria.
-matchesPitchforkFilters :: PitchforkFilters -> PitchforkAlbum -> Bool
-matchesPitchforkFilters PitchforkFilters{..} album =
-  case (pfMinScore, pfScore album) of
-    (Just minScore, Just score) -> score >= minScore
-    (Just _, Nothing) -> False  -- Filter requires score but album has none
-    (Nothing, _) -> True  -- No filter
 
 -- | Match an album to MusicBrainz and add it to the wanted list.
 -- Returns True if successfully added, False otherwise.

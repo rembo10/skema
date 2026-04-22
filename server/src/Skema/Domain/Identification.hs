@@ -22,15 +22,20 @@ module Skema.Domain.Identification
     -- * Cluster classification
   , clusterNeedsIdentification
   , partitionClusters
+    -- * FileGroup construction
+  , buildFileGroup
   ) where
 
 import Skema.MusicBrainz.Types
 import Skema.Domain.Matching
+import Skema.Domain.Metadata (metadataRecordToMonatone)
 import Skema.Config.Types (LibraryConfig(..))
-import Skema.Database.Types (ClusterRecord(..))
+import Skema.Database.Types (ClusterRecord(..), LibraryTrackMetadataRecord(..))
+import qualified Monatone.Metadata as M
 import Data.List (partition)
 import qualified Data.Text as T
 import Data.Time (UTCTime, NominalDiffTime, addUTCTime)
+import System.OsPath (OsPath, takeDirectory)
 
 -- | Configuration for identification process
 data IdentifyConfig = IdentifyConfig
@@ -211,3 +216,48 @@ partitionClusters :: UTCTime -> IdentifyConfig -> [ClusterRecord] -> ([ClusterRe
 partitionClusters now config clusters =
   let (needs, matched) = partition (clusterNeedsIdentification config now) clusters
   in (matched, needs)
+
+-- | Build a 'FileGroup' from a cluster and its tracks.
+--
+-- Aggregation rules:
+-- - Directory is taken from the first track's path.
+-- - Album and album artist come from the cluster record.
+-- - Each optional release-level field (label, catalog number, barcode, country,
+--   date) uses the first non-Nothing value across tracks.
+-- - MusicBrainz release and release-group IDs come from the first track's tags.
+--
+-- Returns 'Nothing' if the track list is empty.
+buildFileGroup
+  :: ClusterRecord
+  -> [(Int64, OsPath, LibraryTrackMetadataRecord, Maybe Text, Maybe Text)]
+  -> Maybe FileGroup
+buildFileGroup _ [] = Nothing
+buildFileGroup cluster tracks@((_, firstPath, _, _, _) : _) =
+  let filesWithMetadata = map trackToFileMetadata tracks
+      dir = takeDirectory firstPath
+      allMeta = map (\(_, _, meta, _, _) -> meta) tracks
+      findFirst f = viaNonEmpty head $ mapMaybe f allMeta
+      findFirstMBId selector = do
+        meta <- viaNonEmpty head allMeta
+        let mbIds = M.musicBrainzIds (metadataRecordToMonatone meta)
+        mbid <- selector mbIds
+        pure (MBID mbid)
+  in Just FileGroup
+    { fgDirectory = dir
+    , fgAlbum = clusterAlbum cluster
+    , fgArtist = clusterAlbumArtist cluster
+    , fgReleaseId = findFirstMBId M.mbReleaseId
+    , fgReleaseGroupId = findFirstMBId M.mbReleaseGroupId
+    , fgLabel = findFirst metaLabel
+    , fgCatalogNumber = findFirst metaCatalogNumber
+    , fgBarcode = findFirst metaBarcode
+    , fgCountry = findFirst metaCountry
+    , fgDate = findFirst metaDate
+    , fgFiles = filesWithMetadata
+    }
+
+-- | Convert a track row to the (path, metadata) shape used by 'FileGroup'.
+trackToFileMetadata
+  :: (Int64, OsPath, LibraryTrackMetadataRecord, Maybe Text, Maybe Text)
+  -> (OsPath, M.Metadata)
+trackToFileMetadata (_, path, meta, _, _) = (path, metadataRecordToMonatone meta)

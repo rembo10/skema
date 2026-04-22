@@ -10,7 +10,7 @@ module Skema.Services.Grouper
   ) where
 
 import Skema.Services.Dependencies (GrouperDeps(..))
-import Skema.Services.Common (metadataRecordToMonatone)
+import Skema.Domain.Metadata (metadataRecordToMonatone)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection

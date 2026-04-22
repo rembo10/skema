@@ -1,32 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Configuration validation and helper functions.
+-- | Configuration helper functions for auth/server access.
 --
 -- Note: Environment variable overrides are applied in Loader.hs.
 -- These helpers just read from the already-merged config.
+--
+-- Validation logic lives in "Skema.Domain.ConfigJSON".
 module Skema.Config.Validation
-  ( -- * Validation
-    validateConfig
-    -- * Helpers
-  , getAuthCredentials
+  ( getAuthCredentials
   , getServerPort
   , getServerHost
   ) where
 
-import Skema.Config.Types
-  ( Config(..)
-  , LibraryConfig(..)
-  , ServerConfig(..)
-  )
-
--- | Validate configuration.
---
--- Returns an error message if invalid, Nothing if valid.
-validateConfig :: Config -> Maybe Text
-validateConfig cfg
-  | libraryAutoScanIntervalMins (library cfg) < 1 =
-      Just "auto_scan_interval_mins must be at least 1"
-  | otherwise = Nothing
+import Skema.Config.Types (ServerConfig(..))
 
 -- | Get authentication credentials from config.
 --

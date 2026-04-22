@@ -35,6 +35,8 @@ module Skema.Domain.Acquisition
   , shouldProcessArtistById
   , shouldIncludeReleaseGroup
   , mbReleaseGroupIsUpcoming
+  , matchesMetacriticFilters
+  , matchesPitchforkFilters
   ) where
 
 import Data.Aeson (FromJSON(..), ToJSON(..), withObject, withText, (.:), (.:?), (.!=), eitherDecode)
@@ -479,6 +481,33 @@ checkReviewCriteria ReviewCriteria{..} (Just score) =
         Nothing -> True
         Just maxScore -> score <= maxScore
   in minPass && maxPass
+
+-- | Check if Metacritic critic and user scores satisfy the filter's thresholds.
+--
+-- A missing score against a configured threshold fails the filter
+-- (we require the data we're filtering on). Missing thresholds pass.
+matchesMetacriticFilters
+  :: MetacriticFilters
+  -> Maybe Int     -- ^ Critic score (0-100)
+  -> Maybe Double  -- ^ User score (0-10)
+  -> Bool
+matchesMetacriticFilters MetacriticFilters{..} criticScore userScore =
+  passesMin mcMinCriticScore criticScore && passesMin mcMinUserScore userScore
+  where
+    passesMin :: Ord a => Maybe a -> Maybe a -> Bool
+    passesMin Nothing _ = True
+    passesMin (Just _) Nothing = False
+    passesMin (Just threshold) (Just value) = value >= threshold
+
+-- | Check if a Pitchfork score satisfies the filter's threshold.
+--
+-- A missing score against a configured threshold fails the filter.
+matchesPitchforkFilters :: PitchforkFilters -> Maybe Double -> Bool
+matchesPitchforkFilters PitchforkFilters{..} score =
+  case (pfMinScore, score) of
+    (Nothing, _) -> True
+    (Just _, Nothing) -> False
+    (Just threshold, Just s) -> s >= threshold
 
 -- | Check if a release group is upcoming (release date in the future).
 mbReleaseGroupIsUpcoming :: UTCTime -> MBReleaseGroup -> Bool

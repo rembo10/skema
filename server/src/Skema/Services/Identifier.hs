@@ -10,19 +10,16 @@ module Skema.Services.Identifier
   ) where
 
 import Skema.Services.Dependencies (IdentifierDeps(..))
-import Skema.Services.Common (metadataRecordToMonatone)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
 import Skema.Database.Repository (getAllClusters, getClusterById, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster)
-import Skema.Database.Types (ClusterRecord(..), LibraryTrackMetadataRecord(..))
+import Skema.Database.Types (ClusterRecord(..))
 import Skema.MusicBrainz.Identify (identifyFileGroup)
-import Skema.Domain.Identification (mkIdentifyConfig, clusterNeedsIdentification)
+import Skema.Domain.Identification (mkIdentifyConfig, clusterNeedsIdentification, buildFileGroup)
 import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), TrackMatch(..), IdentificationResult(..), MBID(..), unMBID, MBRelease(..), MBTrack(..))
 import Skema.Config.Types (Config(..))
 import Skema.FileSystem.Utils (osPathToString)
-import qualified Monatone.Metadata as M
-import System.OsPath (OsPath, takeDirectory)
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
@@ -243,55 +240,15 @@ handleClustersGenerated IdentifierDeps{..} affectedIds = do
           }
 
 -- | Convert a cluster record to a FileGroup.
--- Returns Nothing if the cluster has no tracks.
+-- Returns Nothing if the cluster has no id or no tracks.
+--
+-- IO responsibility is limited to fetching tracks from the database.
+-- The aggregation logic lives in 'Skema.Domain.Identification.buildFileGroup'.
 clusterToFileGroup :: SQLite.Connection -> ClusterRecord -> IO (Maybe FileGroup)
-clusterToFileGroup conn cluster = do
-  case clusterId cluster of
-    Nothing -> pure Nothing
-    Just cid -> do
-      result <- getClusterWithTracks conn cid
-      case result of
-        Nothing -> pure Nothing
-        Just (_, tracks) -> do
-          if null tracks
-            then pure Nothing
-            else do
-              -- Convert tracks to (OsPath, Metadata) format
-              let filesWithMetadata = map trackToFileMetadata tracks
-
-              -- Use first track for directory
-              case viaNonEmpty head tracks of
-                Nothing -> pure Nothing  -- Should never happen due to null check above
-                Just (_, firstPath, _, _, _) -> do
-                  let dir = takeDirectory firstPath
-
-                  -- Extract metadata from all tracks - use first non-Nothing value for each field
-                  -- This ensures we use available metadata even if it's only on one track
-                  let allMeta = map (\(_, _, meta, _, _) -> meta) tracks
-
-                  -- Find first non-Nothing value for each field
-                  let findFirst f = viaNonEmpty head $ mapMaybe f allMeta
-                  let findFirstMBId selector = do
-                        meta <- viaNonEmpty head allMeta
-                        let mbIds = M.musicBrainzIds (metadataRecordToMonatone meta)
-                        mbid <- selector mbIds
-                        pure (MBID mbid)
-
-                  -- Get metadata from cluster and search through all tracks for additional context
-                  pure $ Just FileGroup
-                    { fgDirectory = dir
-                    , fgAlbum = clusterAlbum cluster
-                    , fgArtist = clusterAlbumArtist cluster
-                    , fgReleaseId = findFirstMBId M.mbReleaseId
-                    , fgReleaseGroupId = findFirstMBId M.mbReleaseGroupId
-                    , fgLabel = findFirst metaLabel
-                    , fgCatalogNumber = findFirst metaCatalogNumber
-                    , fgBarcode = findFirst metaBarcode
-                    , fgCountry = findFirst metaCountry
-                    , fgDate = findFirst metaDate
-                    , fgFiles = filesWithMetadata
-                    }
-
--- | Convert a track with metadata to (OsPath, Metadata) format.
-trackToFileMetadata :: (Int64, OsPath, LibraryTrackMetadataRecord, Maybe Text, Maybe Text) -> (OsPath, M.Metadata)
-trackToFileMetadata (_, path, meta, _, _) = (path, metadataRecordToMonatone meta)
+clusterToFileGroup conn cluster = case clusterId cluster of
+  Nothing -> pure Nothing
+  Just cid -> do
+    result <- getClusterWithTracks conn cid
+    pure $ case result of
+      Nothing -> Nothing
+      Just (_, tracks) -> buildFileGroup cluster tracks

@@ -10,11 +10,14 @@ import qualified Unit.ConfigSpec
 import qualified Unit.IndexerSpec
 import qualified Unit.MatchingSpec
 import qualified Unit.MusicBrainzSpec
-import qualified Unit.PathFormatterSpec
+import qualified Unit.Domain.PathFormatterSpec
 import qualified Unit.Domain.CatalogSpec
 import qualified Unit.Domain.QualitySpec
 import qualified Unit.Domain.MetadataSpec
 import qualified Unit.Domain.ImportSpec
+import qualified Unit.Domain.ScoringSpec
+import qualified Unit.Domain.AcquisitionSpec
+import qualified Unit.Domain.IdentificationSpec
 
 main :: IO ()
 main = defaultMain tests
@@ -25,11 +28,14 @@ tests = testGroup "Skema Tests"
   , Unit.IndexerSpec.tests
   , Unit.MatchingSpec.tests
   , Unit.MusicBrainzSpec.tests
-  , Unit.PathFormatterSpec.tests
+  , Unit.Domain.PathFormatterSpec.tests
   , Unit.Domain.CatalogSpec.tests
   , Unit.Domain.QualitySpec.tests
   , Unit.Domain.MetadataSpec.tests
   , Unit.Domain.ImportSpec.tests
+  , Unit.Domain.ScoringSpec.tests
+  , Unit.Domain.AcquisitionSpec.tests
+  , Unit.Domain.IdentificationSpec.tests
   , Integration.GrouperSpec.tests
   , Integration.ScanGroupIdentifySpec.tests
   , Integration.EndToEndSpec.tests
