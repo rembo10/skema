@@ -212,10 +212,12 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
               -- Get quality profile and current quality for filtering
               qualityProfile <- liftIO $ getEffectiveQualityProfile pool catalogAlbumId
 
-              -- Get current quality from catalog album
+              -- Get current quality from the latest cluster linked to this album
               currentQuality <- liftIO $ withConnection pool $ \conn -> do
                 results <- queryRows conn
-                  "SELECT current_quality FROM catalog_albums WHERE id = ?"
+                  "SELECT quality FROM clusters \
+                  \WHERE catalog_album_id = ? AND quality IS NOT NULL \
+                  \ORDER BY id DESC LIMIT 1"
                   (Only catalogAlbumId) :: IO [Only (Maybe Text)]
                 case results of
                   [Only maybeQualText] -> pure $ maybeQualText >>= textToQuality

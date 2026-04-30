@@ -25,13 +25,25 @@ import qualified Database.SQLite.Simple as SQLite
 
 -- * Catalog album operations
 
--- | Upsert a catalog album (insert or update if exists).
--- NOTE: "wanted" status is no longer stored - it's computed from quality_profile_id + current_quality
+-- | Columns selected for a 'CatalogAlbumRecord'. The current_quality value is
+-- derived from the latest cluster linked via clusters.catalog_album_id rather
+-- than stored on the album row itself.
+albumSelectColumns :: Text
+albumSelectColumns =
+  "ca.id, ca.release_group_mbid, ca.title, ca.artist_id, ca.artist_mbid, ca.artist_name, \
+  \ca.album_type, ca.first_release_date, ca.album_cover_url, ca.album_cover_thumbnail_url, \
+  \ca.quality_profile_id, \
+  \(SELECT c.quality FROM clusters c WHERE c.catalog_album_id = ca.id ORDER BY c.id DESC LIMIT 1) AS current_quality, \
+  \ca.created_at, ca.updated_at"
+
+-- | Upsert a catalog album (insert or update if exists). After upsert, link
+-- any existing unlinked clusters whose mb_release_group_id matches the album's
+-- release group, so previously-orphaned library imports become discoverable.
 upsertCatalogAlbum :: SQLite.Connection -> Text -> Text -> Int64 -> Text -> Text -> Maybe Text -> Maybe Text -> IO Int64
-upsertCatalogAlbum conn releaseGroupMBID title artistId artistMBID artistName albumType firstReleaseDate =
+upsertCatalogAlbum conn releaseGroupMBID title artistId artistMBID artistName albumType firstReleaseDate = do
   let normalizedTitle = normalizeForSearch title
       normalizedArtistName = normalizeForSearch artistName
-  in insertReturningId conn
+  albumId <- insertReturningId conn
     "INSERT INTO catalog_albums (release_group_mbid, title, title_normalized, artist_id, artist_mbid, artist_name, artist_name_normalized, album_type, first_release_date) \
     \VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
     \ON CONFLICT(release_group_mbid) DO UPDATE SET \
@@ -46,20 +58,22 @@ upsertCatalogAlbum conn releaseGroupMBID title artistId artistMBID artistName al
     \  updated_at = CURRENT_TIMESTAMP \
     \RETURNING id"
     (releaseGroupMBID, title, normalizedTitle, artistId, artistMBID, artistName, normalizedArtistName, albumType, firstReleaseDate)
+  executeQuery conn
+    "UPDATE clusters SET catalog_album_id = ? \
+    \WHERE catalog_album_id IS NULL AND mb_release_group_id = ?"
+    (albumId, releaseGroupMBID)
+  pure albumId
 
 -- | Get all catalog albums.
 getCatalogAlbums :: SQLite.Connection -> IO [CatalogAlbumRecord]
 getCatalogAlbums conn =
-  queryRows_ conn
-    "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, quality_profile_id, current_quality, created_at, updated_at \
-    \FROM catalog_albums ORDER BY created_at DESC"
+  queryRows_ conn ("SELECT " <> albumSelectColumns <> " FROM catalog_albums ca ORDER BY ca.created_at DESC")
 
 -- | Get a catalog album by database ID.
 getCatalogAlbumById :: SQLite.Connection -> Int64 -> IO (Maybe CatalogAlbumRecord)
 getCatalogAlbumById conn albumId = do
   results <- queryRows conn
-    "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, quality_profile_id, current_quality, created_at, updated_at \
-    \FROM catalog_albums WHERE id = ?"
+    ("SELECT " <> albumSelectColumns <> " FROM catalog_albums ca WHERE ca.id = ?")
     (Only albumId)
   pure $ viaNonEmpty head results
 
@@ -67,16 +81,14 @@ getCatalogAlbumById conn albumId = do
 getCatalogAlbumsByArtistId :: SQLite.Connection -> Int64 -> IO [CatalogAlbumRecord]
 getCatalogAlbumsByArtistId conn artistId =
   queryRows conn
-    "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, quality_profile_id, current_quality, created_at, updated_at \
-    \FROM catalog_albums WHERE artist_id = ? ORDER BY first_release_date DESC"
+    ("SELECT " <> albumSelectColumns <> " FROM catalog_albums ca WHERE ca.artist_id = ? ORDER BY ca.first_release_date DESC")
     (Only artistId)
 
 -- | Get a catalog album by release group MusicBrainz ID.
 getCatalogAlbumByReleaseGroupMBID :: SQLite.Connection -> Text -> IO (Maybe CatalogAlbumRecord)
 getCatalogAlbumByReleaseGroupMBID conn releaseGroupMBID = do
   results <- queryRows conn
-    "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, quality_profile_id, current_quality, created_at, updated_at \
-    \FROM catalog_albums WHERE release_group_mbid = ?"
+    ("SELECT " <> albumSelectColumns <> " FROM catalog_albums ca WHERE ca.release_group_mbid = ?")
     (Only releaseGroupMBID)
   pure $ viaNonEmpty head results
 

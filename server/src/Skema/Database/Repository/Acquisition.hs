@@ -114,21 +114,18 @@ getAcquisitionSummary conn = do
   [Only totalWanted] <- queryRows_ conn
     "SELECT COUNT(*) FROM catalog_albums ca \
     \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
-    \LEFT JOIN ( \
-    \  SELECT mb_release_group_id, MIN(id) as id \
-    \  FROM clusters \
-    \  WHERE mb_release_group_id IS NOT NULL \
-    \  GROUP BY mb_release_group_id \
-    \) c ON ca.release_group_mbid = c.mb_release_group_id \
+    \LEFT JOIN clusters c ON c.id = ( \
+    \  SELECT MAX(c2.id) FROM clusters c2 WHERE c2.catalog_album_id = ca.id \
+    \) \
     \WHERE ca.quality_profile_id IS NOT NULL \
     \  AND CASE \
     \    WHEN c.id IS NULL THEN 1 \
-    \    WHEN ca.current_quality IS NULL THEN 1 \
+    \    WHEN c.quality IS NULL THEN 1 \
     \    WHEN qp.cutoff_quality IS NULL THEN 0 \
     \    ELSE CASE \
-    \      WHEN ca.current_quality = 'FLAC' AND qp.cutoff_quality IN ('MP3', 'V0', 'FLAC') THEN 0 \
-    \      WHEN ca.current_quality = 'V0' AND qp.cutoff_quality IN ('MP3', 'V0') THEN 0 \
-    \      WHEN ca.current_quality = 'MP3' AND qp.cutoff_quality = 'MP3' THEN 0 \
+    \      WHEN c.quality = 'FLAC' AND qp.cutoff_quality IN ('MP3', 'V0', 'FLAC') THEN 0 \
+    \      WHEN c.quality = 'V0' AND qp.cutoff_quality IN ('MP3', 'V0') THEN 0 \
+    \      WHEN c.quality = 'MP3' AND qp.cutoff_quality = 'MP3' THEN 0 \
     \      ELSE 1 \
     \    END \
     \  END = 1"

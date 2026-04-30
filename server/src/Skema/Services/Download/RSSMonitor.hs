@@ -178,7 +178,9 @@ data WantedAlbumInfo = WantedAlbumInfo
 getWantedAlbums :: ConnectionPool -> IO [WantedAlbumInfo]
 getWantedAlbums pool = withConnection pool $ \conn -> do
   results <- queryRows conn
-    "SELECT ca.id, ca.release_group_mbid, ca.title, ca.artist_name, ca.current_quality \
+    "SELECT ca.id, ca.release_group_mbid, ca.title, ca.artist_name, \
+    \  (SELECT cl.quality FROM clusters cl \
+    \   WHERE cl.catalog_album_id = ca.id ORDER BY cl.id DESC LIMIT 1) AS current_quality \
     \FROM catalog_albums ca \
     \WHERE ca.quality_profile_id IS NOT NULL \
     \AND NOT EXISTS ( \

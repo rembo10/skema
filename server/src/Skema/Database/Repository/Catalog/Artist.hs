@@ -83,11 +83,14 @@ getCatalogArtists conn maybeFollowed maybeSearch maybeSort maybeOrder = do
                   \ca.mb_etag, ca.bio, ca.created_at, ca.updated_at \
                   \FROM catalog_artists ca \
                   \LEFT JOIN ( \
-                  \  SELECT artist_id, \
+                  \  SELECT cab.artist_id, \
                   \    COUNT(*) as total_albums, \
-                  \    SUM(CASE WHEN current_quality IS NOT NULL THEN 1 ELSE 0 END) as albums_in_library \
-                  \  FROM catalog_albums \
-                  \  GROUP BY artist_id \
+                  \    SUM(CASE WHEN EXISTS ( \
+                  \      SELECT 1 FROM clusters cl \
+                  \      WHERE cl.catalog_album_id = cab.id \
+                  \    ) THEN 1 ELSE 0 END) as albums_in_library \
+                  \  FROM catalog_albums cab \
+                  \  GROUP BY cab.artist_id \
                   \) album_stats ON ca.id = album_stats.artist_id \
                   \WHERE 1=1 "
 

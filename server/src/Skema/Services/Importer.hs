@@ -522,22 +522,17 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
                     "UPDATE downloads SET matched_cluster_id = ?, library_path = ? WHERE id = ?"
                     (clusterId, dirPath, DB.downloadId downloadRec)
 
-                -- 14. Get cluster quality (already computed and stored)
-                maybeCluster <- liftIO $ withConnection pool $ \conn ->
-                  getClusterById conn clusterId
-
-                -- Default to "unknown" so current_quality IS NOT NULL signals "in library"
-                let qualityText = fromMaybe "unknown" (maybeCluster >>= DB.clusterQuality)
-
-                -- Update catalog_albums.current_quality from cluster
-                -- Use catalog album ID directly (not cluster MBID) because MusicBrainz
-                -- may identify the content as a different release group than expected
+                -- 14. Link the cluster to the catalog album. This is the single
+                -- source of truth for "album is in library"; the API derives
+                -- current_quality by joining clusters back to catalog_albums on
+                -- this FK. Bind directly by catalog album ID rather than RG match
+                -- because MusicBrainz may identify content as a different RG.
                 let catalogAlbumId = fromMaybe 0 (DB.catalogAlbumId catalogAlbum)
                 liftIO $ withConnection pool $ \conn ->
                   executeQuery conn
-                    "UPDATE catalog_albums SET current_quality = ?, updated_at = CURRENT_TIMESTAMP \
+                    "UPDATE clusters SET catalog_album_id = ?, updated_at = CURRENT_TIMESTAMP \
                     \WHERE id = ?"
-                    (qualityText, catalogAlbumId)
+                    (catalogAlbumId, clusterId)
 
                 -- 15. Mark download as imported
                 now <- liftIO getCurrentTime

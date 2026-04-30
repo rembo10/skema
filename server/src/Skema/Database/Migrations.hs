@@ -583,6 +583,105 @@ runIncrementalMigrations le conn = do
         recordMigration conn "011_add_artist_bio"
       $(logTM) InfoS "Completed migration: 011_add_artist_bio"
 
+    -- Migration 012: Replace catalog_albums.current_quality denormalization with
+    -- a direct FK from clusters to catalog_albums. "In library" and current
+    -- quality are now derived from the cluster join instead of a denormalized
+    -- column kept in sync with brittle release_group_mbid string matches.
+    applied012 <- liftIO $ migrationApplied conn "012_clusters_catalog_album_fk"
+    unless applied012 $ do
+      $(logTM) InfoS "Running migration: 012_clusters_catalog_album_fk"
+      liftIO $ do
+        -- Add catalog_album_id column to clusters (if not already present)
+        catalogAlbumIdExists <- columnExists conn "clusters" "catalog_album_id"
+        unless catalogAlbumIdExists $ do
+          executeQuery_ conn
+            "ALTER TABLE clusters ADD COLUMN catalog_album_id INTEGER \
+            \REFERENCES catalog_albums(id) ON DELETE SET NULL"
+          executeQuery_ conn
+            "CREATE INDEX IF NOT EXISTS idx_clusters_catalog_album_id ON clusters(catalog_album_id)"
+
+          -- Backfill #1: from existing release_group_mbid matches.
+          executeQuery_ conn
+            "UPDATE clusters \
+            \SET catalog_album_id = ( \
+            \  SELECT ca.id FROM catalog_albums ca \
+            \  WHERE ca.release_group_mbid = clusters.mb_release_group_id \
+            \) \
+            \WHERE catalog_album_id IS NULL \
+            \  AND mb_release_group_id IS NOT NULL \
+            \  AND EXISTS ( \
+            \    SELECT 1 FROM catalog_albums ca \
+            \    WHERE ca.release_group_mbid = clusters.mb_release_group_id \
+            \  )"
+
+          -- Backfill #2: from downloads.matched_cluster_id, which records the
+          -- definitive link skema established at import time. This rescues the
+          -- original bug #81 case where the cluster's RG diverged from the
+          -- catalog album's RG (MusicBrainz reidentification, etc.) — previous
+          -- versions stored current_quality directly on the album, but the
+          -- denormalization couldn't survive the new derived-from-cluster model
+          -- without this rescue.
+          executeQuery_ conn
+            "UPDATE clusters \
+            \SET catalog_album_id = ( \
+            \  SELECT d.catalog_album_id FROM downloads d \
+            \  WHERE d.matched_cluster_id = clusters.id \
+            \    AND d.status = 'imported' \
+            \  ORDER BY d.id DESC LIMIT 1 \
+            \) \
+            \WHERE catalog_album_id IS NULL \
+            \  AND EXISTS ( \
+            \    SELECT 1 FROM downloads d \
+            \    WHERE d.matched_cluster_id = clusters.id \
+            \      AND d.status = 'imported' \
+            \  )"
+
+        -- Drop current_quality column from catalog_albums via table rebuild
+        currentQualityExists <- columnExists conn "catalog_albums" "current_quality"
+        when currentQualityExists $ do
+          executeQuery_ conn
+            "CREATE TABLE catalog_albums_new ( \
+            \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
+            \  release_group_mbid TEXT NOT NULL UNIQUE, \
+            \  title TEXT NOT NULL, \
+            \  artist_id INTEGER REFERENCES catalog_artists(id) ON DELETE CASCADE, \
+            \  artist_mbid TEXT NOT NULL, \
+            \  artist_name TEXT NOT NULL, \
+            \  album_type TEXT, \
+            \  first_release_date TEXT, \
+            \  album_cover_url TEXT, \
+            \  album_cover_thumbnail_url TEXT, \
+            \  quality_profile_id INTEGER REFERENCES quality_profiles(id) ON DELETE SET NULL, \
+            \  title_normalized TEXT, \
+            \  artist_name_normalized TEXT, \
+            \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
+            \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
+            \)"
+
+          executeQuery_ conn
+            "INSERT INTO catalog_albums_new \
+            \  (id, release_group_mbid, title, artist_id, artist_mbid, artist_name, \
+            \   album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, \
+            \   quality_profile_id, title_normalized, artist_name_normalized, created_at, updated_at) \
+            \SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, \
+            \       album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, \
+            \       quality_profile_id, title_normalized, artist_name_normalized, created_at, updated_at \
+            \FROM catalog_albums"
+
+          executeQuery_ conn "DROP TABLE catalog_albums"
+          executeQuery_ conn "ALTER TABLE catalog_albums_new RENAME TO catalog_albums"
+
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_release_group_mbid ON catalog_albums(release_group_mbid)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_artist_id ON catalog_albums(artist_id)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_artist_mbid ON catalog_albums(artist_mbid)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_created_at ON catalog_albums(created_at DESC)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_quality_profile_id ON catalog_albums(quality_profile_id)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_title_search ON catalog_albums(title_normalized)"
+          executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_artist_search ON catalog_albums(artist_name_normalized)"
+
+        recordMigration conn "012_clusters_catalog_album_fk"
+      $(logTM) InfoS "Completed migration: 012_clusters_catalog_album_fk"
+
 -- | Normalize text for search by:
 -- 1. Decomposing accented characters (NFD normalization)
 -- 2. Removing diacritical marks
@@ -783,9 +882,12 @@ createSchema conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_artists_created_at ON catalog_artists(created_at DESC)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_artists_quality_profile_id ON catalog_artists(quality_profile_id)"
 
-  -- Create catalog_albums table with all fields
-  -- NOTE: "wanted" is NOT stored - it's computed from quality_profile_id + current_quality + cluster match
-  -- NOTE: matched_cluster_id is NOT stored - it's derived via JOIN on clusters.mb_release_group_id
+  -- Create catalog_albums table with all fields.
+  -- "wanted" is NOT stored - it's computed from quality_profile_id and the
+  -- cluster link. "in library" / current quality are derived from clusters
+  -- via the clusters.catalog_album_id FK; current_quality below is the legacy
+  -- denormalized column kept around so older migrations (005) can still apply
+  -- their original backfill on fresh DBs. Migration 012 drops it.
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS catalog_albums ( \
     \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
@@ -809,7 +911,6 @@ createSchema conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_artist_mbid ON catalog_albums(artist_mbid)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_created_at ON catalog_albums(created_at DESC)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_quality_profile_id ON catalog_albums(quality_profile_id)"
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_albums_current_quality ON catalog_albums(current_quality)"
 
   -- Create downloads table with all fields
   executeQuery_ conn

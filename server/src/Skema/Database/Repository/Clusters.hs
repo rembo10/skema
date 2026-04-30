@@ -74,6 +74,19 @@ createCluster conn hash album albumArtist trackCount =
     "INSERT INTO clusters (metadata_hash, album, album_artist, track_count) VALUES (?, ?, ?, ?) RETURNING id"
     (hash, album, albumArtist, trackCount)
 
+-- | Resolve the catalog_albums.id for a given release group MBID, if any.
+-- Used by cluster identification flows to keep clusters.catalog_album_id in
+-- sync with the cluster's MusicBrainz release group.
+resolveCatalogAlbumIdForRG :: SQLite.Connection -> Maybe Text -> IO (Maybe Int64)
+resolveCatalogAlbumIdForRG _ Nothing = pure Nothing
+resolveCatalogAlbumIdForRG conn (Just rgId) = do
+  results <- queryRows conn
+    "SELECT id FROM catalog_albums WHERE release_group_mbid = ?"
+    (Only rgId) :: IO [Only Int64]
+  pure $ case viaNonEmpty head results of
+    Just (Only aid) -> Just aid
+    Nothing -> Nothing
+
 -- | Update a cluster with MusicBrainz match data (automatic matching).
 -- Now accepts the full MBRelease and candidate list, caching both as JSON for performance.
 -- Sets match_source to auto_metadata and does NOT lock the match.
@@ -90,9 +103,10 @@ updateClusterWithMBData conn cid release confidence candidates = do
                        else Just $ TL.toStrict $ TLE.decodeUtf8 $ encode candidates
       -- Auto matching source
       matchSource = matchSourceToText AutoMetadata
+  resolvedAlbumId <- resolveCatalogAlbumIdForRG conn releaseGroupId
   executeQuery conn
-    "UPDATE clusters SET mb_release_id = ?, mb_release_group_id = ?, mb_confidence = ?, last_identified_at = ?, updated_at = ?, mb_release_data = ?, mb_candidates = ?, match_source = ? WHERE id = ?"
-    (Just releaseId, releaseGroupId, Just confidence, Just now, now, Just releaseJson, candidatesJson, Just matchSource, cid)
+    "UPDATE clusters SET mb_release_id = ?, mb_release_group_id = ?, mb_confidence = ?, last_identified_at = ?, updated_at = ?, mb_release_data = ?, mb_candidates = ?, match_source = ?, catalog_album_id = ? WHERE id = ?"
+    (Just releaseId, releaseGroupId, Just confidence, Just now, now, Just releaseJson, candidatesJson, Just matchSource, resolvedAlbumId, cid)
 
 -- | Update a cluster with MusicBrainz match data (manual assignment).
 -- This version marks the match as "manual" and LOCKS it to prevent automatic re-matching.
@@ -105,9 +119,10 @@ updateClusterWithMBDataManual conn cid release confidence = do
       releaseJson = TL.toStrict $ TLE.decodeUtf8 $ encode release
       -- Manual matching source
       matchSource = matchSourceToText Manual
+  resolvedAlbumId <- resolveCatalogAlbumIdForRG conn releaseGroupId
   executeQuery conn
-    "UPDATE clusters SET mb_release_id = ?, mb_release_group_id = ?, mb_confidence = ?, last_identified_at = ?, updated_at = ?, mb_release_data = ?, match_source = ?, match_locked = ? WHERE id = ?"
-    (Just releaseId, releaseGroupId, Just confidence, Just now, now, Just releaseJson, Just matchSource, True, cid)
+    "UPDATE clusters SET mb_release_id = ?, mb_release_group_id = ?, mb_confidence = ?, last_identified_at = ?, updated_at = ?, mb_release_data = ?, match_source = ?, match_locked = ?, catalog_album_id = ? WHERE id = ?"
+    (Just releaseId, releaseGroupId, Just confidence, Just now, now, Just releaseJson, Just matchSource, True, resolvedAlbumId, cid)
 
 -- | Update last_identified_at timestamp for a cluster (even when no match found).
 -- This prevents repeatedly trying to identify clusters that failed to match.
@@ -137,10 +152,10 @@ clearClusterRelease conn cid clearCandidates = do
   now <- getCurrentTime
   if clearCandidates
     then executeQuery conn
-      "UPDATE clusters SET mb_release_id = NULL, mb_release_group_id = NULL, mb_confidence = NULL, match_source = NULL, match_locked = 0, mb_candidates = NULL, updated_at = ? WHERE id = ?"
+      "UPDATE clusters SET mb_release_id = NULL, mb_release_group_id = NULL, mb_confidence = NULL, match_source = NULL, match_locked = 0, mb_candidates = NULL, catalog_album_id = NULL, updated_at = ? WHERE id = ?"
       (now, cid)
     else executeQuery conn
-      "UPDATE clusters SET mb_release_id = NULL, mb_release_group_id = NULL, mb_confidence = NULL, match_source = NULL, match_locked = 0, updated_at = ? WHERE id = ?"
+      "UPDATE clusters SET mb_release_id = NULL, mb_release_group_id = NULL, mb_confidence = NULL, match_source = NULL, match_locked = 0, catalog_album_id = NULL, updated_at = ? WHERE id = ?"
       (now, cid)
 
 -- | Update the cluster_id for tracks.

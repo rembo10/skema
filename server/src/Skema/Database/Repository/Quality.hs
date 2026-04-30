@@ -8,7 +8,6 @@ module Skema.Database.Repository.Quality
   , getQualityProfile
   , getAllQualityProfiles
   , getEffectiveQualityProfile
-  , updateAlbumQuality
   , qualityProfileRecordToDomain
   , resolveQualityProfileId
   ) where
@@ -114,30 +113,6 @@ getEffectiveQualityProfile pool albumId = withConnection pool $ \conn -> do
                   case viaNonEmpty head defaultResults of
                     Just (Only (Just defaultProfileId)) -> getQualityProfile conn defaultProfileId
                     _ -> pure Nothing
-
--- | Update album quality and status based on new quality.
--- This function determines the album status based on the quality profile.
-updateAlbumQuality :: ConnectionPool -> Int64 -> Quality -> IO ()
-updateAlbumQuality pool albumId newQuality = withConnection pool $ \conn -> do
-  now <- getCurrentTime
-  let qualityText = qualityToText newQuality
-
-  -- Get the effective quality profile for this album
-  maybeProfile <- getEffectiveQualityProfile pool albumId
-
-  case maybeProfile of
-    Nothing -> do
-      -- No profile, just update the quality without changing status
-      executeQuery conn
-        "UPDATE catalog_albums SET current_quality = ?, updated_at = ? WHERE id = ?"
-        (qualityText, now, albumId)
-
-    Just _profile -> do
-      -- Just update the quality - the wanted status is now derived from
-      -- quality_profile_id + current_quality + matched_cluster_id
-      executeQuery conn
-        "UPDATE catalog_albums SET current_quality = ?, updated_at = ? WHERE id = ?"
-        (qualityText, now, albumId)
 
 -- | Resolve quality profile for a new album.
 -- Priority: explicit > artist > source > default
