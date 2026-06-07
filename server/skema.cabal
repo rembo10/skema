@@ -291,6 +291,7 @@ test-suite skema-test
     Integration.GrouperSpec
     Integration.ScanGroupIdentifySpec
     Integration.EndToEndSpec
+    Integration.SubmissionSpec
     Unit.ConfigSpec
     Unit.IndexerSpec
     Unit.MatchingSpec
