@@ -57,6 +57,7 @@ testScanAndGroup = withTestEnv $ \env -> do
       , groupLogEnv = teLogEnv env
       , groupDbPool = tePool env
       , groupConfigVar = teConfigVar env
+      , groupClock = teClock env
       }
 
     -- Trigger library scan
@@ -127,6 +128,7 @@ testMultipleAlbums = withTestEnv $ \env -> do
       , groupLogEnv = teLogEnv env
       , groupDbPool = tePool env
       , groupConfigVar = teConfigVar env
+      , groupClock = teClock env
       }
 
     -- Trigger scan
@@ -194,6 +196,7 @@ testCompilationAlbum = withTestEnv $ \env -> do
       , groupLogEnv = teLogEnv env
       , groupDbPool = tePool env
       , groupConfigVar = teConfigVar env
+      , groupClock = teClock env
       }
 
     -- Trigger scan

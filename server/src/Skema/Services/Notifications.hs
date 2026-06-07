@@ -27,7 +27,8 @@ import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Exception (try)
 import Katip (Severity(..), logStr, logTM, runKatipContextT, sl, katipAddContext)
-import Data.Time (UTCTime, getCurrentTime)
+import Data.Time (UTCTime)
+import Skema.Clock (getNow)
 import Data.Time.Format (parseTimeM, defaultTimeLocale)
 
 -- | Start the notification service.
@@ -84,7 +85,7 @@ handleWantedAlbumAdded deps releaseGroupId albumTitle artistName = do
         let maybeReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
 
         -- Check if the release date is in the future
-        now <- getCurrentTime
+        now <- getNow (notifClock deps)
         let isUpcoming = case maybeReleaseDate of
               Nothing -> False  -- No release date, not upcoming
               Just releaseDateStr ->

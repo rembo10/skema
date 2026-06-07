@@ -41,6 +41,7 @@ library
   hs-source-dirs: src
 
   exposed-modules:
+    Skema.Clock
     Skema.Domain.Catalog
     Skema.Domain.Library
     Skema.FileSystem.Scanner

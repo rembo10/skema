@@ -32,7 +32,8 @@ import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Monad ()
 import Control.Exception (try)
-import Data.Time (getCurrentTime, formatTime, defaultTimeLocale, UTCTime, NominalDiffTime, diffUTCTime, nominalDay)
+import Data.Time (formatTime, defaultTimeLocale, UTCTime, NominalDiffTime, diffUTCTime, nominalDay)
+import Skema.Clock (getNow)
 import Data.Time.Format (parseTimeM)
 import Data.Text (pack)
 import qualified Data.Text as T
@@ -124,7 +125,7 @@ handleCatalogArtistFollowed CatalogDeps{..} artistMBID artistName = do
 
                     -- Emit event for observability
                     -- Note: last_checked_at is not updated during initial follow, only during refresh
-                    now <- liftIO getCurrentTime
+                    now <- liftIO (getNow catClock)
                     liftIO $ publishAndLog bus le "catalog" $ ArtistDiscographyFetched
                       { artistDiscographyArtistId = artistId
                       , artistMBID = artistMBID
@@ -230,7 +231,7 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
 
               Right NotModified -> do
                 -- Data hasn't changed, just update last_checked_at
-                now <- liftIO getCurrentTime
+                now <- liftIO (getNow catClock)
                 case DB.catalogArtistId artist of
                   Just artistId -> do
                     liftIO $ withConnection pool $ \conn ->
@@ -262,7 +263,7 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                 let releaseGroups = filter (shouldIncludeReleaseGroup allowedTypes excludedSecondaryTypes) allReleaseGroups
 
                 -- Update last_checked_at timestamp and ETag
-                now <- liftIO getCurrentTime
+                now <- liftIO (getNow catClock)
                 case DB.catalogArtistId artist of
                   Just artistId -> do
                     liftIO $ withConnection pool $ \conn -> do
@@ -410,7 +411,7 @@ startCatalogRefreshScheduler deps = async $ do
       artists <- liftIO $ withConnection pool $ \conn ->
         getCatalogArtists conn (Just True) Nothing Nothing Nothing
 
-      now <- liftIO getCurrentTime
+      now <- liftIO (getNow (catClock deps))
       scheduledCount <- liftIO $ newIORef (0 :: Int)
 
       forM_ artists $ \artist -> do

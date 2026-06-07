@@ -23,7 +23,7 @@ import Control.Concurrent.Async (async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Concurrent (threadDelay)
-import Data.Time (getCurrentTime)
+import Skema.Clock (Clock, getNow)
 import qualified Data.Map.Strict as Map
 import Database.SQLite.Simple (Only(..))
 import Skema.Database.Types (DownloadRecord(..))
@@ -134,7 +134,7 @@ runDownloadMonitor DownloadDeps{..} = do
           -- Active downloads exist - poll every 1 second for real-time updates
           $(logTM) DebugS $ logStr $ ("Checking " <> show (length clients) <> " clients..." :: Text)
           forM_ clients $ \(clientName, client) ->
-            liftIO $ checkAndUpdateDownloads dlLogEnv bus pool dlProgressMap clientName client
+            liftIO $ checkAndUpdateDownloads dlLogEnv dlClock bus pool dlProgressMap clientName client
 
           -- Sleep briefly to provide real-time updates to frontend
           liftIO $ threadDelay activePollingIntervalMicros
@@ -148,8 +148,8 @@ runDownloadMonitor DownloadDeps{..} = do
   pure ()
 
 -- | Check all downloads for a specific client and update database
-checkAndUpdateDownloads :: LogEnv -> EventBus -> ConnectionPool -> STM.TVar (Map.Map Int64 (Double, Text)) -> Text -> DownloadClientInstance -> IO ()
-checkAndUpdateDownloads le bus pool progressMap clientName client = do
+checkAndUpdateDownloads :: LogEnv -> Clock -> EventBus -> ConnectionPool -> STM.TVar (Map.Map Int64 (Double, Text)) -> Text -> DownloadClientInstance -> IO ()
+checkAndUpdateDownloads le clock bus pool progressMap clientName client = do
   -- Get all active downloads from database for this client
   activeDownloads <- withConnection pool $ \conn ->
     queryRows conn
@@ -177,7 +177,7 @@ checkAndUpdateDownloads le bus pool progressMap clientName client = do
               $(logTM) WarningS $ logStr $ ("Download disappeared from client for " <> DB.downloadTitle download <> ": " <> err <> " — marking as failed" :: Text)
 
             -- Mark as failed in database
-            now <- getCurrentTime
+            now <- getNow clock
             withConnection pool $ \conn ->
               executeQuery conn
                 "UPDATE downloads SET status = 'failed', error_message = ?, completed_at = ? WHERE id = ?"
@@ -203,7 +203,7 @@ checkAndUpdateDownloads le bus pool progressMap clientName client = do
 
             -- Only update database when status changes
             when (oldStatus /= newStatus) $ do
-              now <- getCurrentTime
+              now <- getNow clock
               withConnection pool $ \conn -> do
                 executeQuery conn
                   "UPDATE downloads SET status = ?, download_path = ?, \

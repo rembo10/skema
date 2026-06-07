@@ -11,6 +11,7 @@ import Skema.Database.Types
 import Skema.Services.Grouper (handleMetadataReadComplete)
 import Skema.Services.Dependencies (GrouperDeps(..))
 import Skema.Services.Types
+import Skema.Clock (systemClock)
 import Skema.Events.Bus
 import Data.Time (getCurrentTime)
 import System.IO.Temp (withSystemTempFile)
@@ -84,6 +85,7 @@ testGrouperWithManyAlbums = do
           , groupLogEnv = le
           , groupDbPool = pool
           , groupConfigVar = dummyConfig
+          , groupClock = systemClock
           }
     handleMetadataReadComplete grouperDeps 30
 
@@ -185,6 +187,7 @@ withTestDb action = do
               , scMBClientEnv = error "MB client not needed for this test"
               , scCacheDir = "/tmp"
               , scDownloadProgressMap = progressMap
+              , scClock = systemClock
               }
 
         action ctx

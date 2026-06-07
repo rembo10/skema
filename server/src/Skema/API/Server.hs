@@ -95,7 +95,7 @@ app le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir c
 -- | Servant server.
 server :: LogEnv -> EventBus -> AuthStore -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> TVar Config -> FilePath -> TVar (Maybe LatestRelease) -> Server API
 server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir configVar configPath latestVar =
-  ((authServer authStore jwtSecret configVar
+  ((authServer authStore jwtSecret configVar (srClock registry)
    :<|> libraryServer le bus serverCfg jwtSecret registry tm connPool configVar
    :<|> configServer le bus serverCfg jwtSecret connPool configVar configPath
    :<|> configSchemaServer
@@ -149,7 +149,7 @@ startServer le bus serverCfg registry connPool libPath cacheDir configPath cliPo
     authStore <- liftIO newAuthStore
 
     -- Create task manager
-    taskManager <- liftIO $ TM.newTaskManager bus le
+    taskManager <- liftIO $ TM.newTaskManager bus le (srClock registry)
     $(logTM) InfoS $ logStr ("Task manager initialized" :: Text)
 
     -- Start heartbeat worker for SSE keep-alive

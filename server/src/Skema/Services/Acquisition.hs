@@ -27,7 +27,8 @@ import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Monad ()
 import Control.Exception (try)
-import Data.Time (getCurrentTime, UTCTime)
+import Data.Time (UTCTime)
+import Skema.Clock (getNow)
 import qualified Data.Text as T
 import Katip
 
@@ -211,7 +212,7 @@ handleCatalogAlbumAdded AcquisitionDeps{..} releaseGroupMBID albumTitle artistMB
 
                             forM_ matchingSources $ \source -> do
                               -- Evaluate source filters to determine if album should be wanted
-                              now <- liftIO getCurrentTime
+                              now <- liftIO (getNow acqClock)
 
                               -- Evaluate provider-specific filters
                               let shouldWant = case parseSourceFilters LibraryArtists (sourceFilters source) of

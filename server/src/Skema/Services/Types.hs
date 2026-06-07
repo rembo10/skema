@@ -8,6 +8,7 @@ import Skema.Database.Connection (ConnectionPool)
 import Skema.Config.Types (Config)
 import Skema.MusicBrainz.Client (MBClientEnv)
 import Skema.HTTP.Client (HttpClient)
+import Skema.Clock (Clock)
 import Katip (LogEnv)
 
 -- | Shared context for all services.
@@ -31,4 +32,6 @@ data ServiceContext = ServiceContext
   , scCacheDir :: FilePath
   , scDownloadProgressMap :: TVar (Map Int64 (Double, Text))
     -- ^ In-memory map of download progress and status (download_id -> (progress 0.0-1.0, display_status))
+  , scClock :: Clock
+    -- ^ Source of the current time (real in production, controllable in tests)
   }

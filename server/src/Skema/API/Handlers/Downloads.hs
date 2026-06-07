@@ -31,7 +31,7 @@ import qualified Skema.Slskd.Types as SlskdTypes
 import Skema.Domain.Quality (textToQuality)
 import Control.Concurrent.Async (async)
 import Data.Aeson (toJSON, object, (.=))
-import Data.Time (getCurrentTime)
+import Skema.Clock (getNow)
 import Servant
 import Katip
 import Database.SQLite.Simple (Only(..))
@@ -258,7 +258,7 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
             }
 
       -- Create ReleaseInfo from request
-      now <- liftIO getCurrentTime
+      now <- liftIO (getNow (srClock registry))
       let release = ReleaseInfo
             { riTitle = title
             , riGuid = Nothing
@@ -284,6 +284,7 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
             , dscHttpClient = srHttpClient registry
             , dscDownloadConfig = Cfg.download config
             , dscIndexerName = indexerName
+            , dscClock = srClock registry
             }
 
       -- Submit download

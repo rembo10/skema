@@ -293,6 +293,7 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
                         , dscHttpClient = httpClient
                         , dscDownloadConfig = downloadConfig
                         , dscIndexerName = indexerName
+                        , dscClock = dlClock
                         }
 
                   _ <- liftIO $ submitDownload submissionCtx release catalogAlbumId

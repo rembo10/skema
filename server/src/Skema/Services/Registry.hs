@@ -11,6 +11,7 @@ module Skema.Services.Registry
 import Skema.Services.Types
 import Skema.Services.Dependencies (ScannerDeps(..), GrouperDeps(..), IdentifierDeps(..), DiffGeneratorDeps(..), PersisterDeps(..), DownloadDeps(..), ThumbnailerDeps(..), ImageDeps(..), ImporterDeps(..), CatalogDeps(..), AcquisitionDeps(..), StatsDeps(..), SourceEvaluatorDeps(..), MetadataWriterDeps(..), NotificationDeps(..))
 import Skema.Services.Slskd (SlskdDeps(..), runSlskdMonitor)
+import Skema.Clock (Clock, systemClock)
 import Skema.Services.AsyncRegistry (AsyncRegistry, newAsyncRegistry, registerAsync)
 import Skema.Services.Scanner (startScannerService, processDiff)
 import Skema.FileSystem.Watcher (watchDirectoryWithEvents, defaultDebounceMs)
@@ -60,6 +61,8 @@ data ServiceRegistry = ServiceRegistry
     -- ^ Shared config TVar (for live updates)
   , srDownloadProgressMap :: TVar (Map.Map Int64 (Double, T.Text))
     -- ^ In-memory map of download progress and status (download_id -> (progress 0.0-1.0, display_status))
+  , srClock :: Clock
+    -- ^ Source of the current time (real in production, controllable in tests)
   }
 
 
@@ -168,6 +171,7 @@ startAllServices le bus pool config cacheDir configPath = do
           , scMBClientEnv = mbEnv
           , scCacheDir = cacheDir
           , scDownloadProgressMap = downloadProgressMap
+          , scClock = systemClock
           }
 
     -- Define scanner deps early (needed by both scanner service and watcher)
@@ -226,6 +230,7 @@ startAllServices le bus pool config cacheDir configPath = do
           , groupLogEnv = scLogEnv ctx
           , groupDbPool = scDbPool ctx
           , groupConfigVar = scConfigVar ctx
+          , groupClock = scClock ctx
           }
     grouperHandle <- liftIO $ startGrouperService grouperDeps
     liftIO $ registerAsync asyncRegistry "Grouper" grouperHandle
@@ -237,6 +242,7 @@ startAllServices le bus pool config cacheDir configPath = do
           , identDbPool = scDbPool ctx
           , identConfigVar = scConfigVar ctx
           , identMBClient = scMBClientEnv ctx
+          , identClock = scClock ctx
           }
     identifierHandle <- liftIO $ startIdentifierService identifierDeps
     liftIO $ registerAsync asyncRegistry "Identifier" identifierHandle
@@ -269,6 +275,7 @@ startAllServices le bus pool config cacheDir configPath = do
           , catMBClient = scMBClientEnv ctx
           , catHttpClient = scHttpClient ctx
           , catCacheDir = scCacheDir ctx
+          , catClock = scClock ctx
           }
     catalogHandle <- liftIO $ startCatalogService catalogDeps
     liftIO $ registerAsync asyncRegistry "Catalog" catalogHandle
@@ -284,6 +291,7 @@ startAllServices le bus pool config cacheDir configPath = do
           , acqDbPool = scDbPool ctx
           , acqConfigVar = scConfigVar ctx
           , acqMBClient = scMBClientEnv ctx
+          , acqClock = scClock ctx
           }
     acquisitionHandle <- liftIO $ startAcquisitionService acquisitionDeps
     liftIO $ registerAsync asyncRegistry "Acquisition" acquisitionHandle
@@ -318,13 +326,14 @@ startAllServices le bus pool config cacheDir configPath = do
           , dlConfigVar = scConfigVar ctx
           , dlHttpClient = scHttpClient ctx
           , dlProgressMap = scDownloadProgressMap ctx
+          , dlClock = scClock ctx
           }
     (downloadSearchHandle, downloadMonitorHandle) <- liftIO $ startDownloadService downloadDeps
     liftIO $ registerAsync asyncRegistry "Download.Search" downloadSearchHandle
     liftIO $ registerAsync asyncRegistry "Download.Monitor" downloadMonitorHandle
 
     $(logTM) InfoS $ logStr ("Starting RSS Monitor service..." :: Text)
-    rssMonitorHandle <- liftIO $ async $ runRSSMonitor le bus pool httpClient config
+    rssMonitorHandle <- liftIO $ async $ runRSSMonitor le bus pool httpClient (scClock ctx) config
     liftIO $ registerAsync asyncRegistry "Download.RSSMonitor" rssMonitorHandle
 
     $(logTM) InfoS $ logStr ("Starting slskd Monitor service..." :: Text)
@@ -335,6 +344,7 @@ startAllServices le bus pool config cacheDir configPath = do
           , slskdConfigVar = scConfigVar ctx
           , slskdHttpClient = scHttpClient ctx
           , slskdProgressMap = scDownloadProgressMap ctx
+          , slskdClock = scClock ctx
           }
     slskdMonitorHandle <- liftIO $ async $ runSlskdMonitor slskdDeps
     liftIO $ registerAsync asyncRegistry "Download.SlskdMonitor" slskdMonitorHandle
@@ -346,6 +356,7 @@ startAllServices le bus pool config cacheDir configPath = do
           , impDbPool = scDbPool ctx
           , impConfigVar = scConfigVar ctx
           , impMBClient = scMBClientEnv ctx
+          , impClock = scClock ctx
           }
     importerHandle <- liftIO $ startImporterService importerDeps
     liftIO $ registerAsync asyncRegistry "Importer" importerHandle
@@ -401,6 +412,7 @@ startAllServices le bus pool config cacheDir configPath = do
           , notifHttpClient = scHttpClient ctx
           , notifLogEnv = scLogEnv ctx
           , notifDbPool = scDbPool ctx
+          , notifClock = scClock ctx
           }
     notificationHandle <- liftIO $ startNotificationService notificationDeps
     liftIO $ registerAsync asyncRegistry "Notification" notificationHandle
@@ -412,6 +424,7 @@ startAllServices le bus pool config cacheDir configPath = do
           , srHttpClient = httpClient
           , srConfigVar = configVar
           , srDownloadProgressMap = downloadProgressMap
+          , srClock = scClock ctx
           }
 
     pure (serviceRegistry, asyncRegistry)

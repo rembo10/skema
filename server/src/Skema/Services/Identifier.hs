@@ -25,7 +25,7 @@ import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Monad (foldM)
 import Control.Exception (try)
-import Data.Time (getCurrentTime)
+import Skema.Clock (getNow)
 import qualified Database.SQLite.Simple as SQLite
 import Katip
 
@@ -86,7 +86,7 @@ handleClustersGenerated IdentifierDeps{..} affectedIds = do
           }
 
         -- Get clusters that need identification, scoped to affected clusters
-        now <- liftIO getCurrentTime
+        now <- liftIO (getNow identClock)
 
         clusters <- liftIO $ withConnection pool $ \conn -> do
           scopedClusters <- if null affectedIds

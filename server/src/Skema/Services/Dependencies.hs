@@ -43,6 +43,7 @@ import Skema.Database.Connection (ConnectionPool)
 import Skema.Config.Types (Config)
 import Skema.MusicBrainz.Client (MBClientEnv)
 import Skema.HTTP.Client (HttpClient)
+import Skema.Clock (Clock)
 import Katip (LogEnv)
 
 -- | Dependencies for the Scanner service.
@@ -61,6 +62,7 @@ data IdentifierDeps = IdentifierDeps
   , identDbPool :: ConnectionPool
   , identConfigVar :: TVar Config
   , identMBClient :: MBClientEnv
+  , identClock :: Clock
   }
 
 -- | Dependencies for the Grouper service.
@@ -70,6 +72,7 @@ data GrouperDeps = GrouperDeps
   , groupLogEnv :: LogEnv
   , groupDbPool :: ConnectionPool
   , groupConfigVar :: TVar Config
+  , groupClock :: Clock
   }
 
 -- | Dependencies for the Download service.
@@ -81,6 +84,7 @@ data DownloadDeps = DownloadDeps
   , dlConfigVar :: TVar Config
   , dlHttpClient :: HttpClient
   , dlProgressMap :: TVar (Map Int64 (Double, Text))
+  , dlClock :: Clock
   }
 
 -- | Dependencies for the Image service.
@@ -102,6 +106,7 @@ data ImporterDeps = ImporterDeps
   , impDbPool :: ConnectionPool
   , impConfigVar :: TVar Config
   , impMBClient :: MBClientEnv
+  , impClock :: Clock
   }
 
 -- | Dependencies for the DiffGenerator service.
@@ -139,6 +144,7 @@ data CatalogDeps = CatalogDeps
   , catMBClient :: MBClientEnv
   , catHttpClient :: HttpClient
   , catCacheDir :: FilePath
+  , catClock :: Clock
   }
 
 -- | Dependencies for the Acquisition service.
@@ -149,6 +155,7 @@ data AcquisitionDeps = AcquisitionDeps
   , acqDbPool :: ConnectionPool
   , acqConfigVar :: TVar Config
   , acqMBClient :: MBClientEnv
+  , acqClock :: Clock
   }
 
 -- | Dependencies for the Thumbnailer service.
@@ -186,4 +193,5 @@ data NotificationDeps = NotificationDeps
   , notifHttpClient :: HttpClient
   , notifLogEnv :: LogEnv
   , notifDbPool :: ConnectionPool
+  , notifClock :: Clock
   }

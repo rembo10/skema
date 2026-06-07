@@ -24,7 +24,7 @@ import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Exception (try)
-import Data.Time (getCurrentTime)
+import Skema.Clock (getNow)
 import Katip
 
 -- | Start the grouper service.
@@ -124,7 +124,7 @@ handleMetadataReadComplete GrouperDeps{..} fileCount = do
     -- Reload clusters to get updated state
     allClusters <- liftIO $ withConnection pool getAllClusters
 
-    now <- liftIO getCurrentTime
+    now <- liftIO (getNow groupClock)
     config <- liftIO $ readTVarIO groupConfigVar
     let identifyConfig = mkIdentifyConfig (library config)
     let (alreadyMatched, needsId) = partitionClusters now identifyConfig allClusters

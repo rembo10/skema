@@ -47,7 +47,7 @@ import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Exception (try, throwIO)
-import Data.Time (getCurrentTime)
+import Skema.Clock (Clock, getNow)
 import Database.SQLite.Simple (Only(..))
 import System.OsPath ((</>))
 import qualified System.OsPath as OP
@@ -145,7 +145,7 @@ handleDownloadCompleted ImporterDeps{..} downloadId = do
 
               Just catalogAlbum -> do
                 -- Import the download
-                importResult <- liftIO $ try $ importDownload config le bus pool impMBClient downloadRec catalogAlbum
+                importResult <- liftIO $ try $ importDownload config impClock le bus pool impMBClient downloadRec catalogAlbum
                 case importResult of
                   Left (e :: SomeException) -> do
                     let errorMsg = case fromException e of
@@ -157,8 +157,8 @@ handleDownloadCompleted ImporterDeps{..} downloadId = do
                   Right () -> pure ()  -- Success already logged in importDownload
 
 -- | Import a download into the library.
-importDownload :: Config -> LogEnv -> EventBus -> ConnectionPool -> MBClientEnv -> DownloadRecord -> CatalogAlbumRecord -> IO ()
-importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
+importDownload :: Config -> Clock -> LogEnv -> EventBus -> ConnectionPool -> MBClientEnv -> DownloadRecord -> CatalogAlbumRecord -> IO ()
+importDownload config clock le bus pool mbClientEnv downloadRec catalogAlbum = do
   let downloadPathText = fromMaybe "" (DB.downloadPath downloadRec)
 
   runKatipContextT le () "importer" $ do
@@ -535,7 +535,7 @@ importDownload config le bus pool mbClientEnv downloadRec catalogAlbum = do
                     (catalogAlbumId, clusterId)
 
                 -- 15. Mark download as imported
-                now <- liftIO getCurrentTime
+                now <- liftIO (getNow clock)
                 liftIO $ withConnection pool $ \conn ->
                   executeQuery conn
                     "UPDATE downloads SET status = ?, imported_at = ? WHERE id = ?"

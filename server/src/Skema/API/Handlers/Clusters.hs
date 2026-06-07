@@ -32,7 +32,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BSL
 import Data.Aeson (eitherDecode, toJSON, object, (.=))
-import Data.Time (getCurrentTime)
+import Skema.Clock (getNow)
 import Database.SQLite.Simple (Only(..))
 import Control.Concurrent.Async (async)
 import Servant
@@ -470,7 +470,7 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
               -- Move all tracks and update counts
               liftIO $ withConnection connPool $ \conn -> do
                 DB.updateTrackCluster conn targetClusterId trackIds
-                now <- getCurrentTime
+                now <- getNow (srClock registry)
                 executeQuery conn
                   "UPDATE clusters SET track_count = track_count + ?, updated_at = ? WHERE id = ?"
                   (length trackIds, now, targetClusterId)

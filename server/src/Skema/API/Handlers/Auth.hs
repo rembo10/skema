@@ -9,12 +9,13 @@ import Skema.API.Types.Auth (AuthAPI, AuthStatusResponse(..))
 import Skema.API.Handlers.Utils (throw401, throw500, readConfig)
 import Skema.Auth
 import Skema.Auth.JWT (JWTSecret, generateJWT)
+import Skema.Clock (Clock)
 import qualified Skema.Config.Types as Cfg
 import Servant
 
 -- | Auth API handlers.
-authServer :: AuthStore -> JWTSecret -> TVar Cfg.Config -> Server AuthAPI
-authServer _authStore jwtSecret configVar =
+authServer :: AuthStore -> JWTSecret -> TVar Cfg.Config -> Clock -> Server AuthAPI
+authServer _authStore jwtSecret configVar clock =
   statusHandler :<|> credentialsHandler
   where
     statusHandler :: Handler AuthStatusResponse
@@ -40,7 +41,7 @@ authServer _authStore jwtSecret configVar =
         Right () -> do
           -- Generate JWT for the authenticated user
           let expHours = Cfg.serverJwtExpirationHours serverCfg
-          jwtResult <- liftIO $ generateJWT jwtSecret (credUsername req) expHours
+          jwtResult <- liftIO $ generateJWT jwtSecret clock (credUsername req) expHours
           case jwtResult of
             Left _jwtErr -> throw500 "Failed to generate JWT"
             Right (jwt, expiresAt) -> pure $ AuthResponse

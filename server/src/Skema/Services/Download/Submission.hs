@@ -20,7 +20,7 @@ import Skema.Indexer.Types
 import Skema.Config.Types (DownloadClient(..), DownloadConfig(..), SlskdConfig(..), downloadClientTypeName)
 import Skema.DownloadClient.Types (DownloadClientAPI(..), AddDownloadRequest(..), AddDownloadResult(..))
 import Skema.Domain.Quality (qualityToText)
-import Data.Time (getCurrentTime)
+import Skema.Clock (Clock, getNow)
 import Katip
 import Skema.HTTP.Client (HttpClient)
 import Skema.Slskd.Client (createSlskdClient, queueDownloads)
@@ -34,6 +34,7 @@ data DownloadSubmissionContext = DownloadSubmissionContext
   , dscHttpClient :: HttpClient
   , dscDownloadConfig :: DownloadConfig
   , dscIndexerName :: Text
+  , dscClock :: Clock
   }
 
 -- | Submit a release to the appropriate download client.
@@ -103,7 +104,7 @@ submitSlskdDownload DownloadSubmissionContext{..} release catalogAlbumId = do
                 $(logTM) ErrorS $ logStr $ ("Failed to queue slskd downloads: " <> err :: Text)
 
               -- Insert failed download record
-              now <- getCurrentTime
+              now <- getNow dscClock
               downloadId <- withConnection pool $ \conn ->
                 insertDownload conn
                   (Just catalogAlbumId)
@@ -135,7 +136,7 @@ submitSlskdDownload DownloadSubmissionContext{..} release catalogAlbumId = do
                 $(logTM) InfoS $ logStr $ ("Successfully queued " <> show (length files) <> " files with slskd" :: Text)
 
               -- Insert download record
-              now <- getCurrentTime
+              now <- getNow dscClock
               downloadId <- withConnection pool $ \conn ->
                 insertDownload conn
                   (Just catalogAlbumId)
@@ -240,7 +241,7 @@ submitTraditionalDownload DownloadSubmissionContext{..} release catalogAlbumId =
             $(logTM) ErrorS $ logStr $ ("Failed to add download to client: " <> err :: Text)
 
             -- Insert failed download record
-            now <- liftIO getCurrentTime
+            now <- liftIO (getNow dscClock)
             downloadId <- liftIO $ withConnection pool $ \conn ->
               insertDownload conn
                 (Just catalogAlbumId)
@@ -275,7 +276,7 @@ submitTraditionalDownload DownloadSubmissionContext{..} release catalogAlbumId =
             $(logTM) InfoS $ logStr $ ("Download added to client with ID: " <> adrClientId addResultData :: Text)
 
             -- Insert download record into database with client_id
-            now <- liftIO getCurrentTime
+            now <- liftIO (getNow dscClock)
             downloadId <- liftIO $ withConnection pool $ \conn ->
               insertDownload conn
                 (Just catalogAlbumId)

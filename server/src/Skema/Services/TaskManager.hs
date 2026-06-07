@@ -29,8 +29,9 @@ import qualified Skema.Events.Types as Events
 import qualified Control.Concurrent.STM as STM
 import qualified Data.Map.Strict as Map
 import Data.Aeson (Value)
-import Data.Time (UTCTime, getCurrentTime)
+import Data.Time (UTCTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
+import Skema.Clock (Clock, getNow)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
 import Katip (LogEnv)
@@ -60,13 +61,15 @@ data TaskManager = TaskManager
     -- ^ Event bus for broadcasting task updates
   , tmLogEnv :: LogEnv
     -- ^ Logging environment
+  , tmClock :: Clock
+    -- ^ Source of the current time (real in production, controllable in tests)
   }
 
 -- | Create a new task manager.
-newTaskManager :: EventBus -> LogEnv -> IO TaskManager
-newTaskManager bus le = do
+newTaskManager :: EventBus -> LogEnv -> Clock -> IO TaskManager
+newTaskManager bus le clock = do
   tasksVar <- STM.newTVarIO Map.empty
-  pure $ TaskManager tasksVar bus le
+  pure $ TaskManager tasksVar bus le clock
 
 -- | Create a new task and broadcast creation event.
 createTask
@@ -77,7 +80,7 @@ createTask
   -> IO TaskResponse
 createTask tm resource resourceId typ = do
   taskId' <- UUID.nextRandom
-  now <- getCurrentTime
+  now <- getNow (tmClock tm)
 
   let task = Task
         { taskId = UUID.toText taskId'
@@ -125,7 +128,7 @@ getAllTasks tm maybeResource maybeStatus = do
 -- | Update task progress and broadcast progress event.
 updateTaskProgress :: TaskManager -> Text -> Double -> Maybe Text -> IO ()
 updateTaskProgress tm tid progress msg = do
-  now <- getCurrentTime
+  now <- getNow (tmClock tm)
   STM.atomically $ STM.modifyTVar' (tmTasks tm) $ Map.adjust
     (\t -> t
       { taskStatus = if taskStatus t == TaskQueued then TaskRunning else taskStatus t
@@ -146,7 +149,7 @@ updateTaskProgress tm tid progress msg = do
 -- | Mark task as completed and broadcast completion event.
 completeTask :: TaskManager -> Text -> Maybe Value -> IO ()
 completeTask tm tid result = do
-  now <- getCurrentTime
+  now <- getNow (tmClock tm)
   STM.atomically $ STM.modifyTVar' (tmTasks tm) $ Map.adjust
     (\t -> t
       { taskStatus = TaskCompleted
@@ -166,7 +169,7 @@ completeTask tm tid result = do
 -- | Mark task as failed and broadcast failure event.
 failTask :: TaskManager -> Text -> Text -> IO ()
 failTask tm tid errorMsg = do
-  now <- getCurrentTime
+  now <- getNow (tmClock tm)
   STM.atomically $ STM.modifyTVar' (tmTasks tm) $ Map.adjust
     (\t -> t
       { taskStatus = TaskFailed
@@ -185,7 +188,7 @@ failTask tm tid errorMsg = do
 -- | Cancel a running task.
 cancelTask :: TaskManager -> Text -> IO Bool
 cancelTask tm tid = do
-  now <- getCurrentTime
+  now <- getNow (tmClock tm)
   result <- STM.atomically $ do
     tasks <- STM.readTVar (tmTasks tm)
     case Map.lookup tid tasks of

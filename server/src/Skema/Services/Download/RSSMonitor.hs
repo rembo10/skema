@@ -31,6 +31,7 @@ import Skema.Database.Connection (ConnectionPool, withConnection, queryRows, exe
 import Skema.Events.Bus (EventBus, publishAndLog)
 import Skema.Events.Types (Event(..))
 import Skema.HTTP.Client (HttpClient)
+import Skema.Clock (Clock, getNow)
 import Skema.Indexer.Types (IndexerResult(..), IndexerError(..), SearchQuery(..), ReleaseInfo(..))
 import qualified Skema.Indexer.Client as IndexerClient
 import qualified Database.SQLite.Simple as SQLite
@@ -289,8 +290,8 @@ processRSSReleases _pool releases wantedAlbums = do
       pure (bestRelease, album)
 
 -- | Run the RSS monitoring service
-runRSSMonitor :: LogEnv -> EventBus -> ConnectionPool -> HttpClient -> Config -> IO ()
-runRSSMonitor le bus pool httpClient config = do
+runRSSMonitor :: LogEnv -> EventBus -> ConnectionPool -> HttpClient -> Clock -> Config -> IO ()
+runRSSMonitor le bus pool httpClient clock config = do
   let initialContext = ()
   let initialNamespace = "rss-monitor"
 
@@ -339,7 +340,7 @@ runRSSMonitor le bus pool httpClient config = do
                     then do
                       $(logTM) InfoS $ logStr $ "Detecting capabilities for: " <> indexerName indexer
                       supportsPagination <- liftIO $ detectIndexerCapabilities httpClient indexer
-                      now <- liftIO getCurrentTime
+                      now <- liftIO (getNow clock)
                       let newState = indexerState
                             { irsSupportsRSSPagination = supportsPagination
                             , irsCapabilitiesDetectedAt = Just now
@@ -367,7 +368,7 @@ runRSSMonitor le bus pool httpClient config = do
                           }
 
                       -- Reset RSS state so subsequent cycles work normally
-                      now <- liftIO getCurrentTime
+                      now <- liftIO (getNow clock)
                       liftIO $ updateIndexerState pool $ updatedState
                         { irsLastCheckAt = Just now
                         , irsLastSeenGuid = Nothing
@@ -404,6 +405,7 @@ runRSSMonitor le bus pool httpClient config = do
                               , dscHttpClient = httpClient
                               , dscDownloadConfig = downloadConfig
                               , dscIndexerName = indexerName indexer
+                              , dscClock = clock
                               }
 
                         downloadIdMaybe <- liftIO $ submitDownload submissionCtx release (waiAlbumId album)
@@ -413,7 +415,7 @@ runRSSMonitor le bus pool httpClient config = do
                           Nothing -> $(logTM) WarningS $ logStr $ ("Failed to submit download for: " <> riTitle release :: Text)
 
                       -- Update state with last GUID and reset failures
-                      now <- liftIO getCurrentTime
+                      now <- liftIO (getNow clock)
                       let newLastGuid = listToMaybe releases >>= riGuid
                       liftIO $ updateIndexerState pool $ updatedState
                         { irsLastSeenGuid = newLastGuid

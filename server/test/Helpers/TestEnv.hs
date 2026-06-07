@@ -30,6 +30,7 @@ import Skema.HTTP.Client
   , defaultUserAgentData
   )
 import Skema.MusicBrainz.Client (MBClientEnv, newMBClientEnv)
+import Skema.Clock (Clock, systemClock)
 import Skema.Config.Types (Config, musicbrainz, defaultConfig)
 import Helpers.MockHttp (RequestMatcher, mockTransport)
 import Control.Exception (bracket)
@@ -53,6 +54,11 @@ data TestEnv = TestEnv
     -- ^ MusicBrainz client environment
   , teCacheDir :: FilePath
     -- ^ Temporary cache directory
+  , teClock :: Clock
+    -- ^ Source of the current time. Defaults to the real system clock;
+    -- override per test (e.g. with 'Skema.Clock.fixedClock') for determinism.
+  , teProgressMap :: TVar (Map Int64 (Double, Text))
+    -- ^ In-memory download progress map (real TVar, safe to read/write in tests)
   }
 
 -- | Create a test environment with a strict mock HTTP transport.
@@ -94,6 +100,9 @@ withTestEnvMock matchers action = do
           -- Create default config
           configVar <- STM.newTVarIO defaultConfig
 
+          -- Create in-memory download progress map
+          progressMap <- STM.newTVarIO mempty
+
           -- Create HTTP client with a mock transport
           let transport = mockTransport matchers
           httpClient <- newHttpClientWithTransport le defaultHttpConfig defaultUserAgentData transport
@@ -111,6 +120,8 @@ withTestEnvMock matchers action = do
                 , teHttpClient = httpClient
                 , teMBClientEnv = mbClientEnv
                 , teCacheDir = cacheDir
+                , teClock = systemClock
+                , teProgressMap = progressMap
                 }
 
           action env
@@ -125,5 +136,6 @@ mkTestServiceContext TestEnv{..} = ServiceContext
   , scHttpClient = teHttpClient
   , scMBClientEnv = teMBClientEnv
   , scCacheDir = teCacheDir
-  , scDownloadProgressMap = error "Download progress map not initialized in test context - create one with newTVarIO Map.empty if needed"
+  , scDownloadProgressMap = teProgressMap
+  , scClock = teClock
   }

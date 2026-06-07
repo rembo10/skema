@@ -19,7 +19,7 @@ module Skema.Services.Slskd
 
 import Control.Concurrent (threadDelay)
 import qualified Control.Concurrent.STM as STM
-import Data.Time (getCurrentTime)
+import Skema.Clock (Clock, getNow)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Katip
@@ -45,6 +45,7 @@ data SlskdDeps = SlskdDeps
   , slskdConfigVar :: TVar Config
   , slskdHttpClient :: HttpClient
   , slskdProgressMap :: TVar (Map.Map Int64 (Double, Text))
+  , slskdClock :: Clock
   }
 
 -- | Convert Indexer.SlskdFile to Slskd.SlskdFile for API calls.
@@ -124,7 +125,7 @@ submitSlskdDownload SlskdDeps {..} release catalogAlbumId = do
                     ("Failed to queue downloads: " <> err :: Text)
 
               -- Insert failed download record
-              now <- getCurrentTime
+              now <- getNow slskdClock
               downloadId <-
                 withConnection pool $ \conn ->
                   insertDownload
@@ -161,7 +162,7 @@ submitSlskdDownload SlskdDeps {..} release catalogAlbumId = do
                     ("Successfully queued " <> show (length files) <> " files" :: Text)
 
               -- Insert download record
-              now <- getCurrentTime
+              now <- getNow slskdClock
               downloadId <-
                 withConnection pool $ \conn ->
                   insertDownload

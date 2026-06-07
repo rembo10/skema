@@ -25,7 +25,8 @@ import Crypto.JOSE (JWK, runJOSE, makeJWSHeader, fromOctets)
 import Crypto.JWT (SignedJWT, JWTError(..), NumericDate(..), signClaims, defaultJWTValidationSettings, emptyClaimsSet, verifyClaims, string, claimIat, claimExp, claimSub, decodeCompact, encodeCompact)
 import Control.Monad.Except (throwError)
 import Control.Lens ((?~), (^.), preview, _Just, review)
-import Data.Time (UTCTime, getCurrentTime, addUTCTime)
+import Data.Time (UTCTime, addUTCTime)
+import Skema.Clock (Clock, getNow)
 import Skema.Config.Types (ServerConfig(..))
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString as BS
@@ -69,9 +70,9 @@ generateJWTSecretString = do
   pure $ decodeUtf8 $ Base16.encode randomBytes
 
 -- | Generate a JWT for a user with configurable expiration.
-generateJWT :: JWTSecret -> Text -> Int -> IO (Either JWTError (Text, UTCTime))
-generateJWT (JWTSecret jwk) username expirationHours = do
-  now <- getCurrentTime
+generateJWT :: JWTSecret -> Clock -> Text -> Int -> IO (Either JWTError (Text, UTCTime))
+generateJWT (JWTSecret jwk) clock username expirationHours = do
+  now <- getNow clock
   let expiresAt = addUTCTime (fromIntegral expirationHours * 60 * 60) now
       iat = NumericDate now
       exp' = NumericDate expiresAt

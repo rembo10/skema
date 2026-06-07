@@ -87,6 +87,7 @@ testScanAndGroupWorkflow = withTestEnv $ \env -> do
       , groupLogEnv = teLogEnv env
       , groupDbPool = tePool env
       , groupConfigVar = teConfigVar env
+      , groupClock = teClock env
       }
 
     -- Trigger library scan
