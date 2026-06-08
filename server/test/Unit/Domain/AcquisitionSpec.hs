@@ -18,6 +18,7 @@ tests = testGroup "Unit.Domain.Acquisition"
   [ metacriticFiltersTests
   , pitchforkFiltersTests
   , libraryArtistsFiltersTests
+  , sourceEvaluatorHelperTests
   ]
 
 -- =============================================================================
@@ -168,3 +169,54 @@ libraryArtistsFiltersTests = testGroup "evaluateLibraryArtistsAlbumFilters"
     noDate = Nothing
     album date = mkAlbum Nothing date
     typed t date = mkAlbum (Just t) date
+
+-- =============================================================================
+-- SourceEvaluator pure helpers
+-- =============================================================================
+
+sourceEvaluatorHelperTests :: TestTree
+sourceEvaluatorHelperTests = testGroup "source evaluator helpers"
+  [ testGroup "takeNewEntries"
+    [ testCase "no last-seen key returns all entries" $
+        takeNewEntries Nothing identity entries @?= entries
+
+    , testCase "stops at the last-seen key (exclusive)" $
+        takeNewEntries (Just "b") identity entries @?= ["a"]
+
+    , testCase "last-seen key as the first entry yields nothing new" $
+        takeNewEntries (Just "a") identity entries @?= []
+
+    , testCase "unknown last-seen key returns all entries" $
+        takeNewEntries (Just "z") identity entries @?= entries
+    ]
+
+  , testGroup "metacriticGenresToScrape"
+    [ testCase "no configured genres falls back to a default set" $ do
+        let genres = metacriticGenresToScrape Nothing
+        length genres @?= 10
+        assertBool "default set contains Pop" (MCPop `elem` genres)
+
+    , testCase "configured genres are used as-is" $
+        metacriticGenresToScrape (Just [MCJazz, MCMetal]) @?= [MCJazz, MCMetal]
+
+    , testCase "an explicit empty list scrapes nothing" $
+        metacriticGenresToScrape (Just []) @?= []
+    ]
+
+  , testGroup "matchesGenreFilter"
+    [ testCase "empty filter matches everything" $ do
+        matchesGenreFilter ([] :: [Int]) [1, 2] @?= True
+        matchesGenreFilter ([] :: [Int]) [] @?= True
+
+    , testCase "passes when any item genre is wanted" $
+        matchesGenreFilter [1, 2 :: Int] [2, 3] @?= True
+
+    , testCase "fails when no item genre is wanted" $
+        matchesGenreFilter [1, 2 :: Int] [3, 4] @?= False
+
+    , testCase "an item with no genres fails a non-empty filter" $
+        matchesGenreFilter [1 :: Int] [] @?= False
+    ]
+  ]
+  where
+    entries = ["a", "b", "c"] :: [Text]

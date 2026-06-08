@@ -26,11 +26,13 @@ import Skema.Domain.Acquisition
   ( SourceFilters(..)
   , MetacriticFilters(..)
   , PitchforkFilters(..)
-  , MetacriticGenre(..)
   , parseSourceFilters
   , metacriticGenreToUrl
   , matchesMetacriticFilters
   , matchesPitchforkFilters
+  , takeNewEntries
+  , metacriticGenresToScrape
+  , matchesGenreFilter
   )
 import Skema.Scraper.Metacritic (MetacriticAlbum(..), scrapeGenreUrl)
 import Skema.Scraper.Pitchfork (PitchforkAlbum(..), scrapeUrl, fetchReviewScore)
@@ -136,10 +138,8 @@ evaluateMetacriticSource pool bus le mbClient httpClient source = do
 
   case filters of
     Just (MetacriticSourceFilters (MetacriticFilters genresFilter minCriticScore minUserScore)) -> do
-      -- Get genres to scrape (or all if none specified)
-      let genresToScrape = case genresFilter of
-            Just gs -> gs
-            Nothing -> [MCPop, MCRock, MCAlternative, MCRap, MCCountry, MCElectronic, MCRB, MCJazz, MCFolk, MCMetal]
+      -- Get genres to scrape (or a default set if none specified)
+      let genresToScrape = metacriticGenresToScrape genresFilter
 
       let mcFilters = MetacriticFilters genresFilter minCriticScore minUserScore
 
@@ -215,10 +215,8 @@ evaluatePitchforkSource pool bus le mbClient httpClient source = do
         Right allAlbums -> do
           logEval le $ "Scraped " <> show (length allAlbums) <> " album(s) from Pitchfork"
 
-          -- Apply genre filter
-          let albums = if null genresToFilter
-                then allAlbums
-                else filter (\a -> any (`elem` genresToFilter) (PF.pfGenres a)) allAlbums
+          -- Apply genre filter (an empty filter matches everything)
+          let albums = filter (matchesGenreFilter genresToFilter . PF.pfGenres) allAlbums
           unless (null genresToFilter) $
             logEval le $ "Genre filter: " <> show (length albums) <> " of "
               <> show (length allAlbums) <> " match genres " <> show genresToFilter
@@ -280,13 +278,6 @@ evaluatePitchforkSource pool bus le mbClient httpClient source = do
     _ -> do
       logEval le "Could not parse Pitchfork filters"
       pure 0
-
--- | Take entries from the front of a list until reaching the last-seen entry.
--- If lastSeenUrl is Nothing (first run), returns all entries.
-takeNewEntries :: Maybe Text -> (a -> Text) -> [a] -> [a]
-takeNewEntries Nothing _ entries = entries
-takeNewEntries (Just lastUrl) getUrl entries =
-  takeWhile (\e -> getUrl e /= lastUrl) entries
 
 -- | Match an album to MusicBrainz and add it to the wanted list.
 -- Returns True if successfully added, False otherwise.

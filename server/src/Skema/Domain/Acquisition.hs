@@ -38,6 +38,9 @@ module Skema.Domain.Acquisition
   , matchesMetacriticFilters
   , matchesPitchforkFilters
   , evaluateLibraryArtistsAlbumFilters
+  , takeNewEntries
+  , metacriticGenresToScrape
+  , matchesGenreFilter
   ) where
 
 import Data.Aeson (FromJSON(..), ToJSON(..), withObject, withText, (.:), (.:?), (.!=), eitherDecode)
@@ -550,3 +553,26 @@ evaluateLibraryArtistsAlbumFilters filters now album =
 
   -- Combine all checks (AND by default for album criteria)
   in albumTypeMatch && releaseStatusMatch
+
+-- | Take entries from the front of a list until reaching the last-seen
+-- entry (compared by key). 'Nothing' (first run) returns all entries.
+-- Used to process only feed items newer than the last one we handled.
+takeNewEntries :: Eq k => Maybe k -> (a -> k) -> [a] -> [a]
+takeNewEntries Nothing _ entries = entries
+takeNewEntries (Just lastKey) key entries = takeWhile (\e -> key e /= lastKey) entries
+
+-- | The Metacritic genres to scrape for a source: the configured list when
+-- present (including an explicit empty list), or a default set spanning the
+-- main genres when none is configured.
+metacriticGenresToScrape :: Maybe [MetacriticGenre] -> [MetacriticGenre]
+metacriticGenresToScrape = fromMaybe defaultMetacriticGenres
+
+defaultMetacriticGenres :: [MetacriticGenre]
+defaultMetacriticGenres =
+  [MCPop, MCRock, MCAlternative, MCRap, MCCountry, MCElectronic, MCRB, MCJazz, MCFolk, MCMetal]
+
+-- | Does an item's genres satisfy a genre filter? An empty filter matches
+-- everything; otherwise at least one of the item's genres must be wanted.
+matchesGenreFilter :: Eq g => [g] -> [g] -> Bool
+matchesGenreFilter [] _ = True
+matchesGenreFilter wanted itemGenres = any (`elem` wanted) itemGenres
