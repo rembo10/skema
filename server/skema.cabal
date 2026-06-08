@@ -293,6 +293,7 @@ test-suite skema-test
     Integration.ScanGroupIdentifySpec
     Integration.EndToEndSpec
     Integration.SubmissionSpec
+    Integration.QualityProfilesHandlerSpec
     Unit.ConfigSpec
     Unit.IndexerSpec
     Unit.MatchingSpec
@@ -332,3 +333,5 @@ test-suite skema-test
     , http-types >= 0.12 && < 0.13
     , text >= 2.0 && < 2.2
     , sqlite-simple >= 0.4 && < 0.5
+    , servant >= 0.20 && < 0.21
+    , servant-server >= 0.20 && < 0.21

@@ -7,6 +7,7 @@ import qualified Integration.GrouperSpec
 import qualified Integration.ScanGroupIdentifySpec
 import qualified Integration.EndToEndSpec
 import qualified Integration.SubmissionSpec
+import qualified Integration.QualityProfilesHandlerSpec
 import qualified Unit.ConfigSpec
 import qualified Unit.IndexerSpec
 import qualified Unit.MatchingSpec
@@ -43,4 +44,5 @@ tests = testGroup "Skema Tests"
   , Integration.ScanGroupIdentifySpec.tests
   , Integration.EndToEndSpec.tests
   , Integration.SubmissionSpec.tests
+  , Integration.QualityProfilesHandlerSpec.tests
   ]
