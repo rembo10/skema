@@ -329,3 +329,4 @@ test-suite skema-test
     , http-client >= 0.7 && < 0.8
     , http-types >= 0.12 && < 0.13
     , text >= 2.0 && < 2.2
+    , sqlite-simple >= 0.4 && < 0.5

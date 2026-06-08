@@ -13,10 +13,14 @@ module Helpers.Builders
   , mkTestMBRelease
   , mkTestMBTrack
   , mkTestMBReleaseSearch
+    -- * Catalog Builders
+  , seedCatalogAlbum
   ) where
 
 import Skema.Database.Types
 import Skema.MusicBrainz.Types
+import Skema.Database.Repository (upsertCatalogArtist, upsertCatalogAlbum)
+import qualified Database.SQLite.Simple as SQLite
 
 -- | Create test metadata with sensible defaults.
 mkTestMetadataRecord
@@ -78,6 +82,8 @@ mkTestMBReleaseGroup mbid title albumType firstReleaseDate = MBReleaseGroup
   , mbrgType = albumType
   , mbrgFirstReleaseDate = firstReleaseDate
   , mbrgSecondaryTypes = []
+  , mbrgArtistName = Nothing
+  , mbrgArtistId = Nothing
   }
 
 -- | Create a test MusicBrainz release with sensible defaults.
@@ -134,3 +140,22 @@ mkTestMBReleaseSearch releases = MBReleaseSearch
   { mbSearchReleases = releases
   , mbSearchCount = length releases
   }
+
+-- | Insert a catalog artist and album, returning the album id.
+--
+-- Several tables (downloads, clusters) reference @catalog_albums@ via a
+-- NOT NULL foreign key, so tests that create those rows need a real album
+-- to point at. MBIDs are derived from the names, making the call
+-- idempotent for a given artist/album and unique across distinct ones.
+seedCatalogAlbum
+  :: SQLite.Connection
+  -> Text  -- ^ Artist name
+  -> Text  -- ^ Album title
+  -> IO Int64
+seedCatalogAlbum conn artistName albumTitle = do
+  artistId <- upsertCatalogArtist conn artistMbid artistName
+    Nothing Nothing Nothing True Nothing Nothing Nothing
+  upsertCatalogAlbum conn rgMbid albumTitle artistId artistMbid artistName Nothing Nothing
+  where
+    artistMbid = "mbid-artist-" <> artistName
+    rgMbid = "mbid-rg-" <> albumTitle

@@ -19,10 +19,11 @@ import qualified Control.Concurrent.STM as STM
 import Helpers.TestEnv (TestEnv(..), withTestEnvMock)
 import Helpers.MockHttp (RequestMatcher, respond, methodIs, pathIs, textResponse, (.&.))
 import Helpers.EventAssertions (waitForEventWithTimeout)
+import Helpers.Builders (seedCatalogAlbum)
 
 import Skema.Clock (fixedClock)
 import Skema.Database.Connection (withConnection)
-import Skema.Database.Repository (getDownloadById, upsertCatalogArtist, upsertCatalogAlbum)
+import Skema.Database.Repository (getDownloadById)
 import Skema.Database.Types (DownloadRecord(..), DownloadStatus(..))
 import Skema.Events.Bus (subscribe)
 import Skema.Events.Types (Event(..))
@@ -100,12 +101,9 @@ mkContext env = DownloadSubmissionContext
 
 -- | Insert an artist + album so the download has a valid catalog_album_id
 -- (the downloads table has a NOT NULL FK to catalog_albums).
-seedCatalogAlbum :: TestEnv -> IO Int64
-seedCatalogAlbum env = withConnection (tePool env) $ \conn -> do
-  artistId <- upsertCatalogArtist conn "artist-mbid" "Test Artist"
-                Nothing Nothing Nothing True Nothing Nothing Nothing
-  upsertCatalogAlbum conn "rg-mbid" "Test Album" artistId
-    "artist-mbid" "Test Artist" Nothing Nothing
+seedAlbum :: TestEnv -> IO Int64
+seedAlbum env = withConnection (tePool env) $ \conn ->
+  seedCatalogAlbum conn "Test Artist" "Test Album"
 
 isDownloadStarted :: Event -> Bool
 isDownloadStarted = \case
@@ -114,7 +112,7 @@ isDownloadStarted = \case
 
 testSlskdSubmitStampsClock :: IO ()
 testSlskdSubmitStampsClock = withTestEnvMock [slskdQueueMatcher] $ \env -> do
-  albumId <- seedCatalogAlbum env
+  albumId <- seedAlbum env
   eventChan <- STM.atomically $ subscribe (teEventBus env)
 
   result <- submitDownload (mkContext env) testRelease albumId
@@ -137,7 +135,7 @@ testSlskdSubmitStampsClock = withTestEnvMock [slskdQueueMatcher] $ \env -> do
 
 testDuplicatePrevention :: IO ()
 testDuplicatePrevention = withTestEnvMock [slskdQueueMatcher] $ \env -> do
-  albumId <- seedCatalogAlbum env
+  albumId <- seedAlbum env
   let ctx = mkContext env
 
   -- First submission succeeds and leaves an active ("downloading") download.
