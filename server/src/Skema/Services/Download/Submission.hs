@@ -1,11 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- | Shared download submission logic.
 --
--- This module contains the common logic for submitting releases to download clients.
--- Used by both the Search orchestrator and RSS monitor.
+-- This module wires the pure decisions in "Skema.Domain.Download" to IO:
+-- it routes a release via 'planSubmission', performs the HTTP call, then
+-- persists the resulting row and emits the corresponding events. Used by
+-- both the Search orchestrator and the RSS monitor.
 module Skema.Services.Download.Submission
   ( submitDownload
   , DownloadSubmissionContext(..)
@@ -17,9 +20,9 @@ import Skema.Events.Types
 import Skema.Database.Connection
 import Skema.Database.Repository
 import Skema.Indexer.Types
-import Skema.Config.Types (DownloadClient(..), DownloadConfig(..), SlskdConfig(..), downloadClientTypeName)
+import Skema.Config.Types (DownloadConfig, DownloadClient(..), downloadClientTypeName)
 import Skema.DownloadClient.Types (DownloadClientAPI(..), AddDownloadRequest(..), AddDownloadResult(..))
-import Skema.Domain.Quality (qualityToText)
+import Skema.Domain.Download
 import Skema.Clock (Clock, getNow)
 import Katip
 import Skema.HTTP.Client (HttpClient)
@@ -39,271 +42,124 @@ data DownloadSubmissionContext = DownloadSubmissionContext
 
 -- | Submit a release to the appropriate download client.
 --
--- This function:
--- 1. Selects the appropriate download client based on download type
--- 2. Submits the download to the client
--- 3. Records the download in the database
--- 4. Emits appropriate events (DownloadStarted or DownloadFailed)
---
--- Returns the download ID if successful, Nothing otherwise.
+-- Selects the client (or rejects), submits to it, records the download in
+-- the database, and emits the appropriate events. Returns the download ID
+-- on success, 'Nothing' otherwise (including when a failed-download row is
+-- still recorded for visibility).
 submitDownload
   :: DownloadSubmissionContext
   -> ReleaseInfo
   -> Int64  -- ^ Catalog album ID
   -> IO (Maybe Int64)
-submitDownload ctx@DownloadSubmissionContext{..} release catalogAlbumId = do
-  -- Check for existing active download to prevent duplicates
+submitDownload DownloadSubmissionContext{..} release catalogAlbumId = do
+  -- Check for an existing active download to prevent duplicates.
   alreadyExists <- withConnection dscDbPool $ \conn ->
     hasActiveDownloadForAlbum conn catalogAlbumId
   if alreadyExists
     then do
-      runKatipContextT dscLogEnv () "download.submission" $
-        $(logTM) InfoS $ logStr $ ("Skipping download for album " <> show catalogAlbumId <> ": active download already exists" :: Text)
+      logLine InfoS $ "Skipping download for album " <> show catalogAlbumId <> ": active download already exists"
       pure Nothing
-    else do
-      -- Handle slskd downloads separately
-      case riDownloadType release of
-        Slskd -> submitSlskdDownload ctx release catalogAlbumId
-        _ -> submitTraditionalDownload ctx release catalogAlbumId
-
--- | Submit a slskd download.
-submitSlskdDownload
-  :: DownloadSubmissionContext
-  -> ReleaseInfo
-  -> Int64  -- ^ Catalog album ID
-  -> IO (Maybe Int64)
-submitSlskdDownload DownloadSubmissionContext{..} release catalogAlbumId = do
-  let le = dscLogEnv
-  let pool = dscDbPool
-  let bus = dscEventBus
-  let httpClient = dscHttpClient
-  let downloadConfig = dscDownloadConfig
-
-  case downloadSlskdClient downloadConfig of
-    Nothing -> do
-      runKatipContextT le () "download.submission" $ do
-        $(logTM) ErrorS $ logStr ("No slskd client configured, cannot submit download" :: Text)
-      pure Nothing
-    Just slskdConfig | not (slskdEnabled slskdConfig) -> do
-      runKatipContextT le () "download.submission" $ do
-        $(logTM) ErrorS $ logStr ("slskd client is disabled" :: Text)
-      pure Nothing
-    Just slskdConfig -> do
-      case (riSlskdUsername release, riSlskdFiles release) of
-        (Just username, Just files) | not (null files) -> do
-          runKatipContextT le () "download.submission" $ do
-            $(logTM) InfoS $ logStr $ ("Submitting " <> show (length files) <> " files to slskd from user: " <> username :: Text)
-
-          let client = createSlskdClient slskdConfig httpClient
-              slskdFiles = map convertToSlskdFile files
-
-          result <- queueDownloads client username slskdFiles
-          case result of
-            Left err -> do
-              runKatipContextT le () "download.submission" $ do
-                $(logTM) ErrorS $ logStr $ ("Failed to queue slskd downloads: " <> err :: Text)
-
-              -- Insert failed download record
-              now <- getNow dscClock
-              downloadId <- withConnection pool $ \conn ->
-                insertDownload conn
-                  (Just catalogAlbumId)
-                  "slskd"
-                  (username <> ":" <> riTitle release)
-                  "slskd"
-                  Nothing
-                  "failed"
-                  Nothing
-                  (riTitle release)
-                  (riSize release)
-                  (Just $ qualityToText $ riQuality release)
-                  (Just "Slskd")
-                  (riSeeders release)
-                  0.0
-                  (Just err)
-                  now
-
-              publishAndLog bus le "download" $ DownloadFailed
-                { downloadId = downloadId
-                , downloadTitle = riTitle release
-                , downloadError = Just err
-                }
-
-              pure Nothing
-
-            Right () -> do
-              runKatipContextT le () "download.submission" $ do
-                $(logTM) InfoS $ logStr $ ("Successfully queued " <> show (length files) <> " files with slskd" :: Text)
-
-              -- Insert download record
-              now <- getNow dscClock
-              downloadId <- withConnection pool $ \conn ->
-                insertDownload conn
-                  (Just catalogAlbumId)
-                  "slskd"
-                  (username <> ":" <> riTitle release)
-                  "slskd"
-                  (Just $ username <> ":" <> riTitle release)
-                  "downloading"
-                  Nothing
-                  (riTitle release)
-                  (riSize release)
-                  (Just $ qualityToText $ riQuality release)
-                  (Just "Slskd")
-                  (riSeeders release)
-                  0.0
-                  Nothing
-                  now
-
-              publishAndLog bus le "download" $ DownloadStarted
-                { downloadId = downloadId
-                , downloadTitle = riTitle release
-                }
-
-              publishAndLog bus le "download" $ SlskdFilesQueued
-                { slskdQueuedDownloadId = downloadId
-                , slskdQueuedUsername = username
-                , slskdQueuedFileCount = length files
-                , slskdQueuedTotalSize = sum $ map sfSize files
-                }
-
-              pure $ Just downloadId
-
-        _ -> do
-          runKatipContextT le () "download.submission" $ do
-            $(logTM) ErrorS $ logStr ("Release missing slskd username or files" :: Text)
-          pure Nothing
-  where
-    -- Convert from Indexer.Types.SlskdFile to Slskd.Types.SlskdFile
-    convertToSlskdFile :: SlskdFile -> Slskd.SlskdFile
-    convertToSlskdFile f = Slskd.SlskdFile
-      { Slskd.sfFilename = sfFilename f
-      , Slskd.sfSize = sfSize f
-      , Slskd.sfBitRate = sfBitRate f
-      , Slskd.sfSampleRate = sfSampleRate f
-      , Slskd.sfBitDepth = sfBitDepth f
-      , Slskd.sfLength = sfLength f
-      , Slskd.sfIsLocked = sfIsLocked f
-      }
-
--- | Submit a traditional (NZB/Torrent) download.
-submitTraditionalDownload
-  :: DownloadSubmissionContext
-  -> ReleaseInfo
-  -> Int64  -- ^ Catalog album ID
-  -> IO (Maybe Int64)
-submitTraditionalDownload DownloadSubmissionContext{..} release catalogAlbumId = do
-  let le = dscLogEnv
-  let pool = dscDbPool
-  let bus = dscEventBus
-  let httpClient = dscHttpClient
-  let downloadConfig = dscDownloadConfig
-  let indexerName = dscIndexerName
-
-  runKatipContextT le () "download.submission" $ do
-    -- Pick appropriate download client based on download type
-    let maybeClient = case riDownloadType release of
-          NZB -> downloadNzbClient downloadConfig
-          Torrent -> downloadTorrentClient downloadConfig
-          Slskd -> Nothing  -- Handled separately
-
-    case maybeClient of
-      Nothing -> do
-        let clientType = case riDownloadType release of
-              NZB -> "NZB" :: Text
-              Torrent -> "Torrent"
-              Slskd -> "Slskd"
-        $(logTM) ErrorS $ logStr $ ("No " <> clientType <> " download client configured, cannot queue download" :: Text)
+    else case planSubmission dscDownloadConfig release of
+      PlanReject reason -> do
+        logLine ErrorS (rejectionMessage reason)
         pure Nothing
 
-      Just client | not (dcEnabled client) -> do
-        $(logTM) ErrorS $ logStr $ ("Download client " <> downloadClientTypeName (dcType client) <> " is disabled" :: Text)
-        pure Nothing
+      PlanSlskd slskdConfig username files -> do
+        logLine InfoS $ "Submitting " <> show (length files) <> " files to slskd from user: " <> username
+        let client = createSlskdClient slskdConfig dscHttpClient
+        result <- queueDownloads client username (map convertToSlskdFile files)
+        persist (slskdSubmission catalogAlbumId release username files result)
 
-      Just client -> do
-        $(logTM) InfoS $ logStr $ ("Submitting download to client: " <> downloadClientTypeName (dcType client) :: Text)
-        $(logTM) InfoS $ logStr $ ("Release: " <> riTitle release :: Text)
-        $(logTM) InfoS $ logStr $ ("Category: " <> fromMaybe "<none>" (dcCategory client) :: Text)
-
-        -- Create download client instance
-        clientInstance <- liftIO $ createClientInstance httpClient client
-
-        -- Submit to download client
-        addResult <- liftIO $ addDownload clientInstance (AddDownloadRequest
+      PlanTraditional client -> do
+        logLine InfoS $ "Submitting download to client: " <> downloadClientTypeName (dcType client)
+        clientInstance <- createClientInstance dscHttpClient client
+        addResult <- addDownload clientInstance AddDownloadRequest
           { adrUrl = riDownloadUrl release
           , adrTitle = riTitle release
-          , adrCategory = dcCategory client  -- Use category from config
+          , adrCategory = dcCategory client
           , adrPriority = Nothing
-          })
+          }
+        persist (traditionalSubmission catalogAlbumId dscIndexerName release client (second adrClientId addResult))
+  where
+    -- Persist the planned row, emit its events, and report the outcome.
+    persist (DownloadInsert{..}, outcome) = do
+      now <- getNow dscClock
+      downloadDbId <- withConnection dscDbPool $ \conn ->
+        insertDownload conn
+          (Just diCatalogAlbumId)
+          diIndexerName
+          diDownloadUrl
+          diDownloadClient
+          diClientId
+          diStatus
+          Nothing  -- download_path
+          diTitle
+          diSize
+          diQuality
+          diFormat
+          diSeeders
+          0.0      -- progress
+          diError
+          now
+      forM_ (outcomeEvents downloadDbId diTitle outcome) $
+        publishAndLog dscEventBus dscLogEnv "download"
+      runKatipContextT dscLogEnv () "download.submission" (logOutcome downloadDbId outcome)
+      pure $ case outcome of
+        SubmissionFailed _ -> Nothing
+        _ -> Just downloadDbId
 
-        case addResult of
-          Left err -> do
-            $(logTM) ErrorS $ logStr $ ("Failed to add download to client: " <> err :: Text)
+    logLine sev msg =
+      runKatipContextT dscLogEnv () "download.submission" $
+        $(logTM) sev (logStr (msg :: Text))
 
-            -- Insert failed download record
-            now <- liftIO (getNow dscClock)
-            downloadId <- liftIO $ withConnection pool $ \conn ->
-              insertDownload conn
-                (Just catalogAlbumId)
-                indexerName
-                (riDownloadUrl release)
-                (downloadClientTypeName (dcType client))
-                Nothing  -- no client_id since it failed
-                "failed"
-                Nothing  -- download_path
-                (riTitle release)
-                (riSize release)
-                (Just $ qualityToText $ riQuality release)  -- Store parsed quality
-                (case riDownloadType release of
-                   NZB -> Just "NZB"
-                   Torrent -> Just "Torrent"
-                   Slskd -> Just "Slskd")
-                (riSeeders release)
-                0.0  -- progress
-                (Just err)  -- error_message
-                now
+    logOutcome downloadDbId = \case
+      SubmissionFailed err ->
+        $(logTM) ErrorS $ logStr ("Download submission failed: " <> err :: Text)
+      SubmissionStarted ->
+        $(logTM) InfoS $ logStr ("Download started with DB ID: " <> show downloadDbId :: Text)
+      SubmissionSlskdStarted _ fileCount _ ->
+        $(logTM) InfoS $ logStr ("Successfully queued " <> show fileCount <> " files with slskd" :: Text)
 
-            -- Emit download failed event
-            liftIO $ publishAndLog bus le "download" $ DownloadFailed
-              { downloadId = downloadId
-              , downloadTitle = riTitle release
-              , downloadError = Just err
-              }
+-- | Map a submission outcome to the events to publish once the row exists.
+outcomeEvents :: Int64 -> Text -> SubmissionOutcome -> [Event]
+outcomeEvents dlId title = \case
+  SubmissionFailed err ->
+    [ DownloadFailed { downloadId = dlId, downloadTitle = title, downloadError = Just err } ]
+  SubmissionStarted ->
+    [ DownloadStarted { downloadId = dlId, downloadTitle = title } ]
+  SubmissionSlskdStarted username fileCount totalSize ->
+    [ DownloadStarted { downloadId = dlId, downloadTitle = title }
+    , SlskdFilesQueued
+        { slskdQueuedDownloadId = dlId
+        , slskdQueuedUsername = username
+        , slskdQueuedFileCount = fileCount
+        , slskdQueuedTotalSize = totalSize
+        }
+    ]
 
-            pure Nothing
+-- | Human-readable log message for a rejected submission.
+rejectionMessage :: SubmissionRejection -> Text
+rejectionMessage = \case
+  NoSlskdClient -> "No slskd client configured, cannot submit download"
+  SlskdDisabled -> "slskd client is disabled"
+  MissingSlskdDetails -> "Release missing slskd username or files"
+  NoDownloadClient downloadType ->
+    "No " <> downloadTypeLabel downloadType <> " download client configured, cannot queue download"
+  DownloadClientDisabled name -> "Download client " <> name <> " is disabled"
 
-          Right addResultData -> do
-            $(logTM) InfoS $ logStr $ ("Download added to client with ID: " <> adrClientId addResultData :: Text)
+downloadTypeLabel :: DownloadType -> Text
+downloadTypeLabel NZB = "NZB"
+downloadTypeLabel Torrent = "Torrent"
+downloadTypeLabel Slskd = "Slskd"
 
-            -- Insert download record into database with client_id
-            now <- liftIO (getNow dscClock)
-            downloadId <- liftIO $ withConnection pool $ \conn ->
-              insertDownload conn
-                (Just catalogAlbumId)
-                indexerName
-                (riDownloadUrl release)
-                (downloadClientTypeName (dcType client))
-                (Just $ adrClientId addResultData)
-                "downloading"
-                Nothing  -- download_path
-                (riTitle release)
-                (riSize release)
-                (Just $ qualityToText $ riQuality release)  -- Store parsed quality
-                (case riDownloadType release of
-                   NZB -> Just "NZB"
-                   Torrent -> Just "Torrent"
-                   Slskd -> Just "Slskd")
-                (riSeeders release)
-                0.0  -- progress
-                Nothing  -- error_message
-                now
-
-            -- Emit download started event
-            liftIO $ publishAndLog bus le "download" $ DownloadStarted
-              { downloadId = downloadId
-              , downloadTitle = riTitle release
-              }
-
-            $(logTM) InfoS $ logStr $ ("Download started with DB ID: " <> show downloadId :: Text)
-
-            pure $ Just downloadId
+-- | Convert from Indexer.Types.SlskdFile to Slskd.Types.SlskdFile.
+convertToSlskdFile :: SlskdFile -> Slskd.SlskdFile
+convertToSlskdFile f = Slskd.SlskdFile
+  { Slskd.sfFilename = sfFilename f
+  , Slskd.sfSize = sfSize f
+  , Slskd.sfBitRate = sfBitRate f
+  , Slskd.sfSampleRate = sfSampleRate f
+  , Slskd.sfBitDepth = sfBitDepth f
+  , Slskd.sfLength = sfLength f
+  , Slskd.sfIsLocked = sfIsLocked f
+  }

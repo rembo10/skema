@@ -43,6 +43,7 @@ library
   exposed-modules:
     Skema.Clock
     Skema.Domain.Catalog
+    Skema.Domain.Download
     Skema.Domain.Library
     Skema.FileSystem.Scanner
     Skema.FileSystem.Watcher
@@ -304,6 +305,7 @@ test-suite skema-test
     Unit.Domain.ScoringSpec
     Unit.Domain.AcquisitionSpec
     Unit.Domain.IdentificationSpec
+    Unit.Domain.DownloadSpec
     Helpers.TestEnv
     Helpers.Builders
     Helpers.EventAssertions
