@@ -40,7 +40,15 @@ import Skema.MusicBrainz.Identify (identifyFileGroup)
 import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), IdentificationResult(..), MBRelease(..), MBID(..), unMBID, mbSearchReleases, TrackMatch(..), MBTrack(..), mbReleaseTracks)
 import Skema.MusicBrainz.Client (MBClientEnv, searchReleases)
 import Skema.Domain.Identification (IdentifyConfig(..), mkIdentifyConfig, buildSearchQuery)
-import Skema.Domain.Import (ReleaseMetadata(..), extractReleaseMetadata, extractYear)
+import Skema.Domain.Import
+  ( ReleaseMetadata(..)
+  , extractReleaseMetadata
+  , extractYear
+  , validateDownloadPath
+  , MatchDecision(..)
+  , confidenceDecision
+  , noMatchMessage
+  )
 import Skema.Config.Types (Config(..), LibraryConfig(..), DownloadConfig(..), download)
 import qualified Monatone.Metadata as M
 import Control.Concurrent.Async (Async, async)
@@ -54,7 +62,6 @@ import qualified System.OsPath as OP
 import qualified System.Directory as Dir
 import System.FilePath (takeExtension)
 import qualified Data.Map.Strict as Map
-import qualified Data.Text as T
 import Katip
 
 -- | Exception type for import failures.
@@ -121,16 +128,12 @@ handleDownloadCompleted ImporterDeps{..} downloadId = do
         $(logTM) ErrorS $ logStr $ ("Download not found: " <> show downloadId :: Text)
 
       Just downloadRec -> do
-        case DB.downloadPath downloadRec of
-          Nothing -> do
-            $(logTM) ErrorS $ logStr $ ("Completed download has no path: " <> DB.downloadTitle downloadRec :: Text)
-            liftIO $ markDownloadAsFailed pool downloadId "No download path"
+        case validateDownloadPath (DB.downloadPath downloadRec) of
+          Left reason -> do
+            $(logTM) ErrorS $ logStr $ (reason <> ": " <> DB.downloadTitle downloadRec :: Text)
+            liftIO $ markDownloadAsFailed pool downloadId reason
 
-          Just downloadPathText | T.null (T.strip downloadPathText) -> do
-            $(logTM) ErrorS $ logStr $ ("Download has empty path: " <> DB.downloadTitle downloadRec :: Text)
-            liftIO $ markDownloadAsFailed pool downloadId "Download path is empty"
-
-          Just _downloadPathText -> do
+          Right _downloadPathText -> do
             $(logTM) InfoS $ logStr $ ("Importing download: " <> DB.downloadTitle downloadRec :: Text)
 
             -- Get catalog album
@@ -295,7 +298,7 @@ importDownload config clock le bus pool mbClientEnv downloadRec catalogAlbum = d
                                         " by " <> artistName :: Text)
             $(logTM) InfoS $ logStr $ ("MusicBrainz returned " <> show candidateCount <> " search results" :: Text)
             $(logTM) ErrorS $ logStr ("Album not found in MusicBrainz database or no candidates could be fetched" :: Text)
-            let errorMsg = "No MusicBrainz match found (" <> show candidateCount <> " candidates searched). The release may not be in MusicBrainz database, or no candidate details could be fetched."
+            let errorMsg = noMatchMessage candidateCount
             liftIO $ markDownloadAsIdentificationFailure pool (fromMaybe 0 (DB.downloadId downloadRec)) errorMsg
             $(logTM) InfoS $ logStr ("Download marked as identification_failure - can be retried later" :: Text)
 
@@ -347,16 +350,14 @@ importDownload config clock le bus pool mbClientEnv downloadRec catalogAlbum = d
             $(logTM) InfoS $ logStr ("==============================" :: Text)
 
             -- Check if confidence meets threshold
-            if confidence < minConfidence
-              then do
+            case confidenceDecision confidence minConfidence of
+              RejectLowConfidence errorMsg -> do
                 $(logTM) ErrorS $ logStr $ ("Confidence too low: " <> show (round (confidence * 100) :: Integer) <>
                                             "% < " <> show (round (minConfidence * 100) :: Integer) <> "% threshold" :: Text)
                 $(logTM) InfoS $ logStr ("Suggestion: Lower the confidence threshold in config or check if track titles/counts match" :: Text)
-                let errorMsg = "Best match confidence (" <> show (round (confidence * 100) :: Integer) <>
-                               "%) is below threshold (" <> show (round (minConfidence * 100) :: Integer) <> "%)."
                 liftIO $ markDownloadAsIdentificationFailure pool (fromMaybe 0 (DB.downloadId downloadRec)) errorMsg
                 $(logTM) InfoS $ logStr ("Download marked as identification_failure - can be retried later" :: Text)
-              else do
+              AcceptMatch -> do
                 -- Confidence meets threshold, proceed with import
                 $(logTM) InfoS $ logStr $ ("✓ Identified as: " <> mbReleaseTitle release <>
                                            " (confidence: " <> show (round (confidence * 100) :: Integer) <> "%)" :: Text)
