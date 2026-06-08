@@ -37,6 +37,7 @@ module Skema.Domain.Acquisition
   , mbReleaseGroupIsUpcoming
   , matchesMetacriticFilters
   , matchesPitchforkFilters
+  , evaluateLibraryArtistsAlbumFilters
   ) where
 
 import Data.Aeson (FromJSON(..), ToJSON(..), withObject, withText, (.:), (.:?), (.!=), eitherDecode)
@@ -44,7 +45,7 @@ import qualified Data.Text as T
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text.Encoding as TE
 import Data.Int ()
-import Skema.Database.Types (AcquisitionSourceRecord(..), SourceType(..))
+import Skema.Database.Types (AcquisitionSourceRecord(..), SourceType(..), CatalogAlbumRecord(..))
 import Skema.MusicBrainz.Types (MBReleaseGroup(..))
 import Data.Time (UTCTime)
 
@@ -518,3 +519,34 @@ mbReleaseGroupIsUpcoming _now rg = case mbrgFirstReleaseDate rg of
     -- For simplicity, compare as strings (works for ISO 8601 dates)
     let today = T.take 10 (show _now)  -- Get YYYY-MM-DD part
     in dateStr > today
+
+-- | Evaluate LibraryArtists filters against a catalog album to decide
+-- whether it should be wanted. Combines an album-type check with a
+-- release-status check (upcoming vs released), both derived purely from
+-- the album record and the current time.
+evaluateLibraryArtistsAlbumFilters :: LibraryArtistsFilters -> UTCTime -> CatalogAlbumRecord -> Bool
+evaluateLibraryArtistsAlbumFilters filters now album =
+  -- Check if album type matches filter
+  let albumTypeMatch = case lafAlbumTypes filters of
+        Nothing -> True  -- No album type filter specified, accept all types
+        Just [] -> True  -- Empty list means include all types
+        Just types -> case catalogAlbumType album of
+          Just albumType -> albumType `elem` types
+          Nothing -> True  -- If no type, include by default
+
+      -- Check if release status matches filter
+      isUpcoming = case catalogAlbumFirstReleaseDate album of
+        Nothing -> False  -- No release date, not upcoming
+        Just dateStr ->
+          -- Compare ISO 8601 date strings (YYYY-MM-DD format)
+          let today = T.take 10 (show now)
+          in dateStr > today
+
+      releaseStatusMatch = case lafReleaseStatus filters of
+        Nothing -> isUpcoming  -- Default: only upcoming albums (backward compatible)
+        Just UpcomingOnly -> isUpcoming
+        Just ReleasedOnly -> not isUpcoming
+        Just UpcomingAndReleased -> True  -- Accept both
+
+  -- Combine all checks (AND by default for album criteria)
+  in albumTypeMatch && releaseStatusMatch

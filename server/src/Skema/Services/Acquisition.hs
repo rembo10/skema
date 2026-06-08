@@ -15,19 +15,18 @@ module Skema.Services.Acquisition
   ) where
 
 import Skema.Services.Dependencies (AcquisitionDeps(..))
-import Skema.Domain.Acquisition (shouldProcessArtistById, parseSourceFilters, LibraryArtistsFilters(..), ReleaseStatusFilter(..), SourceFilters(..))
+import Skema.Domain.Acquisition (shouldProcessArtistById, parseSourceFilters, SourceFilters(..), evaluateLibraryArtistsAlbumFilters)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
 import Skema.Database.Repository
-import Skema.Database.Types (CatalogAlbumRecord(..), AcquisitionSourceRecord(..), SourceType(..))
+import Skema.Database.Types (AcquisitionSourceRecord(..), SourceType(..))
 import qualified Skema.Database.Types as DB
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Monad ()
 import Control.Exception (try)
-import Data.Time (UTCTime)
 import Skema.Clock (getNow)
 import qualified Data.Text as T
 import Katip
@@ -250,32 +249,3 @@ handleCatalogAlbumAdded AcquisitionDeps{..} releaseGroupMBID albumTitle artistMB
                                       _ -> pure ()
                                   Nothing -> do
                                     $(logTM) WarningS $ logStr $ ("Album has no ID, cannot emit event: " <> albumTitle :: Text)
-
--- | Evaluate LibraryArtistsFilters against a catalog album to determine if it should be wanted.
--- This is the new ID-based filter evaluation for LibraryArtists sources.
-evaluateLibraryArtistsAlbumFilters :: LibraryArtistsFilters -> UTCTime -> CatalogAlbumRecord -> Bool
-evaluateLibraryArtistsAlbumFilters filters now album =
-  -- Check if album type matches filter
-  let albumTypeMatch = case lafAlbumTypes filters of
-        Nothing -> True  -- No album type filter specified, accept all types
-        Just [] -> True  -- Empty list means include all types
-        Just types -> case DB.catalogAlbumType album of
-          Just albumType -> albumType `elem` types
-          Nothing -> True  -- If no type, include by default
-
-      -- Check if release status matches filter
-      isUpcoming = case DB.catalogAlbumFirstReleaseDate album of
-        Nothing -> False  -- No release date, not upcoming
-        Just dateStr ->
-          -- Compare ISO 8601 date strings (YYYY-MM-DD format)
-          let today = T.take 10 (T.pack (show now))
-          in dateStr > today
-
-      releaseStatusMatch = case lafReleaseStatus filters of
-        Nothing -> isUpcoming  -- Default: only upcoming albums (backward compatible)
-        Just UpcomingOnly -> isUpcoming
-        Just ReleasedOnly -> not isUpcoming
-        Just UpcomingAndReleased -> True  -- Accept both
-
-  -- Combine all checks (AND by default for album criteria)
-  in albumTypeMatch && releaseStatusMatch
