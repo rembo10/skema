@@ -15,18 +15,16 @@ module Integration.QualityProfilesHandlerSpec (tests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import qualified Data.Text as T
-import Servant (Handler, NoContent, ServerError(..), (:<|>)(..))
-import Servant.Server (runHandler)
+import Servant (Handler, NoContent, (:<|>)(..))
 
 import Helpers.TestEnv (TestEnv(..), withTestEnv)
+import Helpers.Handler (dummyJWTSecret, runOk, runStatus)
 
 import Skema.API.Handlers.QualityProfiles (qualityProfilesServer)
 import Skema.API.Types.QualityProfiles
   ( CreateQualityProfileRequest(..)
   , UpdateQualityProfileRequest(..)
   )
-import Skema.Auth.JWT (JWTSecret, getJWTSecret)
 import Skema.Domain.Quality
   ( QualityProfile(..)
   , QualityPreference(..)
@@ -57,13 +55,6 @@ data Handlers = Handlers
   , hSetDefault :: Int64 -> Handler NoContent
   }
 
--- | Build a real 'JWTSecret'. Its value is never inspected because auth is
--- disabled in tests, but the handler signature requires one.
-dummyJWTSecret :: IO JWTSecret
-dummyJWTSecret = do
-  let cfg = (Cfg.server Cfg.defaultConfig) { Cfg.serverJwtSecret = Just (T.replicate 64 "0") }
-  maybe (assertFailure "could not build test JWT secret") pure =<< getJWTSecret cfg
-
 -- | Wire the handlers to a test env (auth disabled → no auth header needed).
 mkHandlers :: TestEnv -> IO Handlers
 mkHandlers env = do
@@ -82,18 +73,6 @@ mkHandlers env = do
     }
 
 -- Helpers -------------------------------------------------------------------
-
--- | Run a handler expecting success.
-runOk :: Handler a -> IO a
-runOk h = either (assertFailure . ("unexpected error response: " <>) . show) pure =<< runHandler h
-
--- | Run a handler expecting a failure, returning the HTTP status code.
-runStatus :: Handler a -> IO Int
-runStatus h = do
-  result <- runHandler h
-  case result of
-    Left err -> pure (errHTTPCode err)
-    Right _ -> assertFailure "expected an error response, got success"
 
 profileId :: QualityProfile -> IO Int64
 profileId p = maybe (assertFailure "created profile has no id") pure (qfId p)

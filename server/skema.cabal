@@ -312,6 +312,7 @@ test-suite skema-test
     Helpers.EventAssertions
     Helpers.TempLibrary
     Helpers.MockHttp
+    Helpers.Handler
 
   build-depends:
     base >= 4.17 && < 5
