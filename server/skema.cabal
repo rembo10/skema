@@ -294,6 +294,7 @@ test-suite skema-test
     Integration.EndToEndSpec
     Integration.SubmissionSpec
     Integration.QualityProfilesHandlerSpec
+    Integration.DownloadsRepoSpec
     Unit.ConfigSpec
     Unit.IndexerSpec
     Unit.MatchingSpec
