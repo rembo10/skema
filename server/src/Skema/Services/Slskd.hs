@@ -15,6 +15,8 @@ module Skema.Services.Slskd
   , submitSlskdDownload
     -- * Progress Monitoring
   , runSlskdMonitor
+    -- * Path Resolution
+  , albumDirectoryCandidates
   ) where
 
 import Control.Concurrent (threadDelay)
@@ -36,6 +38,7 @@ import Skema.Indexer.Types (ReleaseInfo (..))
 import Skema.Slskd.Client
 import qualified Skema.Slskd.Types as Slskd
 import Skema.Slskd.Types (SlskdTransfer (..), SlskdTransferState (..))
+import qualified System.Directory as Dir
 
 -- | Dependencies for the slskd service.
 data SlskdDeps = SlskdDeps
@@ -340,9 +343,8 @@ runSlskdMonitor SlskdDeps {..} = forever $ do
 
                 -- If all completed, mark download as completed
                 when (completedFiles == totalFiles && totalFiles > 0 && null erroredFiles) $ do
-                  -- Extract the album directory from the transfer filenames
-                  -- We find the common parent directory and use the full path
-                  let albumDir = extractAlbumDirectory slskdConfig username userTransfers
+                  -- Resolve where slskd actually placed the downloaded files on disk
+                  albumDir <- resolveAlbumDirectory slskdConfig userTransfers
 
                   runKatipContextT slskdLogEnv () "slskd.monitor" $ do
                     $(logTM) InfoS $
@@ -395,36 +397,72 @@ runSlskdMonitor SlskdDeps {..} = forever $ do
       let filename = T.takeWhileEnd (/= '\\') $ T.takeWhileEnd (/= '/') $ stFilename t
       in filename <> ": " <> fromMaybe "unknown error" (stException t)
 
-    -- Extract the album directory from transfer filenames
-    -- slskd preserves the full remote directory structure when downloading
-    -- Remote paths may look like: @@username\Plex music\Artist\Album\track.flac
-    -- or just: Plex music\Artist\Album\track.flac
-    -- The on-disk path is: <download_dir>/Plex music/Artist/Album/track.flac
-    extractAlbumDirectory :: SlskdConfig -> Text -> [SlskdTransfer] -> Text
-    extractAlbumDirectory config _username transfers =
-      let baseDir = slskdDownloadDirectory config
-          -- Get all directories from filenames (strip the filename, keep directory)
-          directories = map (getDirectory . stFilename) transfers
-          -- Find the common prefix among all directories
-          commonDir = case directories of
-            [] -> ""
-            (d:ds) -> foldl' commonPrefix d ds
-          -- Strip @@username prefix if present (first path component starting with @@)
-          parts = T.splitOn "/" commonDir
-          strippedParts = case parts of
-            (p:rest) | "@@" `T.isPrefixOf` p -> rest
-            ps -> ps
-          albumPath = T.intercalate "/" strippedParts
-      in if T.null albumPath
-         then baseDir
-         else baseDir <> "/" <> albumPath
+    -- Resolve the on-disk album directory for a completed transfer group.
+    --
+    -- slskd's layout depends on its @transfers.download.destination.subdirectory@
+    -- setting, so we cannot assume a single scheme:
+    --   * default config    -> only the leaf remote directory is recreated,
+    --                          i.e. @<download_dir>/Album@
+    --   * @${SOURCE_PATH}@   -> the uploader's full directory tree is mirrored,
+    --                          i.e. @<download_dir>/Music/Artist/Album@
+    -- We build candidate paths from most- to least-specific and pick the first
+    -- that actually exists on disk, falling back to the most-specific candidate
+    -- (for a useful "directory does not exist" error) when none do.
+    resolveAlbumDirectory :: SlskdConfig -> [SlskdTransfer] -> IO Text
+    resolveAlbumDirectory config transfers = do
+      let candidates = albumDirectoryCandidates config transfers
+      existing <- filterM (Dir.doesDirectoryExist . toString) candidates
+      pure $ case existing <> candidates of
+        (d:_) -> d
+        []    -> slskdDownloadDirectory config
 
+-- | Candidate on-disk album directories for a completed transfer group,
+-- ordered most specific first.
+--
+-- slskd's on-disk layout depends on its
+-- @transfers.download.destination.subdirectory@ setting, so we cannot assume a
+-- single scheme. Given remote paths like @\@\@username\\Music\\Artist\\Album\\track.flac@
+-- (or just @Music\\Artist\\Album\\track.flac@) and a configured download
+-- directory @\/data\/downloads@, the candidates are:
+--
+--   1. @\/data\/downloads\/Music\/Artist\/Album@ — slskd with @subdirectory: ${SOURCE_PATH}@
+--      (the uploader's full directory tree is mirrored)
+--   2. @\/data\/downloads\/Album@               — slskd's default layout
+--      (only the leaf remote directory is recreated)
+--   3. @\/data\/downloads@                       — flat layout (no subdirectory)
+--
+-- The caller picks the first candidate that actually exists on disk.
+albumDirectoryCandidates :: SlskdConfig -> [SlskdTransfer] -> [Text]
+albumDirectoryCandidates config transfers =
+  let baseDir = slskdDownloadDirectory config
+      -- Get all directories from filenames (strip the filename, keep directory)
+      directories = map (getDirectory . stFilename) transfers
+      -- Find the common prefix among all directories
+      commonDir = case directories of
+        [] -> ""
+        (d:ds) -> foldl' commonPrefix d ds
+      -- Strip @@username prefix if present (first path component starting with @@)
+      parts = T.splitOn "/" commonDir
+      strippedParts = case parts of
+        (p:rest) | "@@" `T.isPrefixOf` p -> rest
+        ps -> ps
+      cleanParts = filter (not . T.null) strippedParts
+      fullPath = T.intercalate "/" cleanParts
+      leaf = case reverse cleanParts of
+        (l:_) -> l
+        []    -> ""
+      under p = baseDir <> "/" <> p
+  in ordNub $
+       [ under fullPath | not (T.null fullPath) ] -- ${SOURCE_PATH} layout
+    <> [ under leaf     | not (T.null leaf) ]      -- default slskd layout
+    <> [ baseDir ]                                 -- flat layout
+  where
     -- Get directory part of a path (works with both / and \ separators)
     getDirectory :: Text -> Text
     getDirectory path =
       let normalized = T.replace "\\" "/" path
-          parts = T.splitOn "/" normalized
-      in T.intercalate "/" (init' parts)
+          ps = T.splitOn "/" normalized
+      in T.intercalate "/" (init' ps)
 
     init' :: [a] -> [a]
     init' [] = []

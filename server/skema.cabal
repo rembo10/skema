@@ -313,6 +313,7 @@ test-suite skema-test
     Unit.Domain.AcquisitionSpec
     Unit.Domain.IdentificationSpec
     Unit.Domain.DownloadSpec
+    Unit.SlskdSpec
     Helpers.TestEnv
     Helpers.Builders
     Helpers.EventAssertions

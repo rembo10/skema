@@ -27,6 +27,7 @@ import qualified Unit.Domain.ScoringSpec
 import qualified Unit.Domain.AcquisitionSpec
 import qualified Unit.Domain.IdentificationSpec
 import qualified Unit.Domain.DownloadSpec
+import qualified Unit.SlskdSpec
 
 main :: IO ()
 main = defaultMain tests
@@ -46,6 +47,7 @@ tests = testGroup "Skema Tests"
   , Unit.Domain.AcquisitionSpec.tests
   , Unit.Domain.IdentificationSpec.tests
   , Unit.Domain.DownloadSpec.tests
+  , Unit.SlskdSpec.tests
   , Integration.GrouperSpec.tests
   , Integration.ScanGroupIdentifySpec.tests
   , Integration.EndToEndSpec.tests
