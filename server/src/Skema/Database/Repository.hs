@@ -18,8 +18,6 @@ module Skema.Database.Repository
     , upsertTrackWithMetadata
     , applyMetadataChange
     -- * MusicBrainz operations
-  , updateMusicBrainzIds
-  , getMusicBrainzIdsByPath
   , updateMatchInDatabase
     -- * Metadata diff operations
   , insertMetadataDiff
@@ -120,8 +118,6 @@ import Skema.Database.Repository.Tracks
   , updateTrackMetadata
   , getMetadataForTrack
   , upsertTrackWithMetadata
-  , updateMusicBrainzIds
-  , getMusicBrainzIdsByPath
   , insertScanHistory
   , updateScanHistory
   , getRecentScans

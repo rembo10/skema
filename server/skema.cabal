@@ -298,6 +298,8 @@ test-suite skema-test
     Integration.CatalogAlbumRepoSpec
     Integration.CatalogArtistRepoSpec
     Integration.QualityRepoSpec
+    Integration.ClustersRepoSpec
+    Integration.TracksRepoSpec
     Unit.ConfigSpec
     Unit.IndexerSpec
     Unit.MatchingSpec

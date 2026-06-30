@@ -16,9 +16,6 @@ module Skema.Database.Repository.Tracks
   , updateTrackMetadata
   , getMetadataForTrack
   , upsertTrackWithMetadata
-    -- * MusicBrainz operations
-  , updateMusicBrainzIds
-  , getMusicBrainzIdsByPath
     -- * Scan history
   , insertScanHistory
   , updateScanHistory
@@ -312,48 +309,6 @@ upsertTrackWithMetadata conn path meta = do
     metadataInsert
 
   pure tid
-
--- * MusicBrainz operations
-
--- | Update MusicBrainz IDs for a track.
--- Note: MB IDs are now stored on library_tracks table, not library_track_metadata.
-updateMusicBrainzIds :: SQLite.Connection
-                     -> OsPath
-                     -> Maybe Text  -- Recording ID
-                     -> Maybe Text  -- Track ID
-                     -> Maybe Text  -- Release ID
-                     -> Maybe Text  -- Release Group ID
-                     -> Maybe Text  -- Artist ID
-                     -> Maybe Double  -- Confidence
-                     -> IO ()
-updateMusicBrainzIds conn path mbRecordingId mbTrackId mbReleaseId mbReleaseGroupId mbArtistId confidence = do
-  pathStr <- osPathToString path
-  executeQuery conn
-    "UPDATE library_tracks SET \
-    \mb_recording_id = ?, mb_track_id = ?, mb_release_id = ?, \
-    \mb_release_group_id = ?, mb_artist_id = ?, mb_confidence = ?, \
-    \updated_at = CURRENT_TIMESTAMP \
-    \WHERE path = ?"
-    ( mbRecordingId
-    , mbTrackId
-    , mbReleaseId
-    , mbReleaseGroupId
-    , mbArtistId
-    , confidence
-    , pathStr :: String
-    )
-
--- | Get MusicBrainz IDs for a track by path.
--- Note: MB IDs are now stored on library_tracks table, not library_track_metadata.
-getMusicBrainzIdsByPath :: SQLite.Connection -> OsPath -> IO (Maybe (Maybe Text, Maybe Text, Maybe Text, Maybe Text, Maybe Text, Maybe Double))
-getMusicBrainzIdsByPath conn path = do
-  pathStr <- osPathToString path
-  results <- queryRows conn
-    "SELECT mb_recording_id, mb_track_id, mb_release_id, mb_release_group_id, mb_artist_id, mb_confidence \
-    \FROM library_tracks \
-    \WHERE path = ?"
-    (Only (pathStr :: String))
-  pure $ viaNonEmpty head results
 
 -- * Scan history
 

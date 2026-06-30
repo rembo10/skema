@@ -12,6 +12,8 @@ import qualified Integration.DownloadsRepoSpec
 import qualified Integration.CatalogAlbumRepoSpec
 import qualified Integration.CatalogArtistRepoSpec
 import qualified Integration.QualityRepoSpec
+import qualified Integration.ClustersRepoSpec
+import qualified Integration.TracksRepoSpec
 import qualified Unit.ConfigSpec
 import qualified Unit.IndexerSpec
 import qualified Unit.MatchingSpec
@@ -53,4 +55,6 @@ tests = testGroup "Skema Tests"
   , Integration.CatalogAlbumRepoSpec.tests
   , Integration.CatalogArtistRepoSpec.tests
   , Integration.QualityRepoSpec.tests
+  , Integration.ClustersRepoSpec.tests
+  , Integration.TracksRepoSpec.tests
   ]
