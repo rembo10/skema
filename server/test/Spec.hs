@@ -9,6 +9,7 @@ import qualified Integration.EndToEndSpec
 import qualified Integration.SubmissionSpec
 import qualified Integration.QualityProfilesHandlerSpec
 import qualified Integration.DownloadsRepoSpec
+import qualified Integration.CatalogAlbumRepoSpec
 import qualified Unit.ConfigSpec
 import qualified Unit.IndexerSpec
 import qualified Unit.MatchingSpec
@@ -47,4 +48,5 @@ tests = testGroup "Skema Tests"
   , Integration.SubmissionSpec.tests
   , Integration.QualityProfilesHandlerSpec.tests
   , Integration.DownloadsRepoSpec.tests
+  , Integration.CatalogAlbumRepoSpec.tests
   ]
