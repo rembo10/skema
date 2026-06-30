@@ -47,3 +47,40 @@ jobs:
     - name: Build and run tests
       working-directory: server
       run: cabal test --test-show-details=direct
+
+  coverage:
+    name: Coverage Gate
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libsqlite3-dev libpq-dev zlib1g-dev
+
+    - name: Setup Haskell
+      uses: haskell-actions/setup@v2
+      with:
+        ghc-version: '9.10.3'
+        cabal-version: 'latest'
+
+    # Coverage uses a separate (instrumented) build plan, so it gets its own
+    # cache key to avoid contending with the Test Suite job's cache.
+    - name: Cache Cabal dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cabal/packages
+          ~/.cabal/store
+          server/dist-newstyle
+        key: ${{ runner.os }}-cabal-coverage-${{ hashFiles('server/skema.cabal', 'server/cabal.project') }}
+        restore-keys: |
+          ${{ runner.os }}-cabal-coverage-
+
+    - name: Run coverage gate
+      working-directory: server
+      run: |
+        cabal update
+        ./scripts/coverage.sh
