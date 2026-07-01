@@ -43,22 +43,10 @@ import Katip
 -- CONSTANTS
 -- ============================================================================
 
--- | Timeout for multi-indexer search (30 seconds in microseconds)
-searchTimeoutMicros :: Int
-searchTimeoutMicros = 30 * 1000000
-
 -- | Newznab categories for audio content
 -- 3000 = Audio, 3010 = MP3, 3020 = FLAC
 audioCategories :: [Int]
 audioCategories = [3000, 3010, 3020]
-
--- | Maximum number of results per indexer search
-maxResultsPerIndexer :: Int
-maxResultsPerIndexer = 50
-
--- | Maximum number of automatic retries per album before giving up
-maxAutoRetries :: Int
-maxAutoRetries = 5
 
 -- ============================================================================
 -- SEARCH ORCHESTRATOR
@@ -103,6 +91,10 @@ handleDownloadFailed :: DownloadDeps -> Int64 -> IO ()
 handleDownloadFailed deps@DownloadDeps{..} failedDownloadId = do
   let le = dlLogEnv
   let pool = dlDbPool
+
+  -- Read the configured retry limit from current config
+  config <- STM.atomically $ STM.readTVar dlConfigVar
+  let maxAutoRetries = downloadMaxSearchRetries (download config)
 
   -- Look up the failed download record
   maybeDownload <- withConnection pool $ \conn ->
@@ -179,9 +171,10 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
 
           $(logTM) InfoS $ logStr $ ("Searching " <> show indexerCount <> " indexers for: " <> albumTitle :: Text)
 
-          -- Start concurrent search with timeout
+          -- Start concurrent search with timeout (from indexer config)
           startTime <- liftIO getCurrentTime
 
+          let searchTimeoutMicros = indexerSearchTimeout indexerConfig * 1000000
           let slskdConfig = downloadSlskdClient downloadConfig
           searchResult <- liftIO $ race
             (threadDelay searchTimeoutMicros)
@@ -303,10 +296,11 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
 searchAllIndexersWithTracking :: EventBus -> LogEnv -> HttpClient -> IndexerConfig -> Maybe SlskdConfig -> Text -> Text -> IO SearchResult
 searchAllIndexersWithTracking bus le httpClient indexerConfig maybeSlskdConfig albumTitle artistName = do
   let enabledIndexers = filter indexerEnabled (indexerList indexerConfig)
+      maxResults = indexerMaxResultsPerIndexer indexerConfig
 
   -- Search indexers and slskd in parallel
   (indexerResults, slskdResults) <- concurrently
-    (searchIndexersParallel bus le httpClient enabledIndexers albumTitle artistName)
+    (searchIndexersParallel bus le httpClient enabledIndexers maxResults albumTitle artistName)
     (searchSlskdIfEnabled bus le httpClient maybeSlskdConfig albumTitle artistName)
 
   -- Partition indexer results into successes and failures
@@ -322,11 +316,11 @@ searchAllIndexersWithTracking bus le httpClient indexerConfig maybeSlskdConfig a
     }
 
 -- | Search all indexers in parallel.
-searchIndexersParallel :: EventBus -> LogEnv -> HttpClient -> [Indexer] -> Text -> Text -> IO [Either IndexerError IndexerResult]
-searchIndexersParallel bus le httpClient enabledIndexers albumTitle artistName = do
+searchIndexersParallel :: EventBus -> LogEnv -> HttpClient -> [Indexer] -> Int -> Text -> Text -> IO [Either IndexerError IndexerResult]
+searchIndexersParallel bus le httpClient enabledIndexers maxResults albumTitle artistName = do
   mapConcurrently (\indexer -> do
     startTime <- getCurrentTime
-    result <- searchIndexer httpClient indexer (buildSearchQuery albumTitle artistName)
+    result <- searchIndexer httpClient indexer (buildSearchQuery maxResults albumTitle artistName)
     endTime <- getCurrentTime
     let duration = realToFrac $ diffUTCTime endTime startTime :: Double
 
@@ -362,7 +356,7 @@ searchSlskdIfEnabled bus le httpClient maybeSlskdConfig artistName albumTitle = 
     Just config -> do
       startTime <- getCurrentTime
       let client = createSlskdClient config httpClient
-      result <- searchSlskd le client artistName albumTitle
+      result <- searchSlskd le client artistName albumTitle (slskdMinTrackCount config)
       endTime <- getCurrentTime
       let duration = realToFrac $ diffUTCTime endTime startTime :: Double
 
@@ -390,13 +384,13 @@ searchSlskdIfEnabled bus le httpClient maybeSlskdConfig artistName albumTitle = 
           pure releases
 
 -- | Build a search query from album and artist name.
-buildSearchQuery :: Text -> Text -> SearchQuery
-buildSearchQuery albumTitle artistName = SearchQuery
+buildSearchQuery :: Int -> Text -> Text -> SearchQuery
+buildSearchQuery maxResults albumTitle artistName = SearchQuery
   { sqArtist = Just artistName
   , sqAlbum = Just albumTitle
   , sqYear = Nothing
   , sqQuery = Nothing
   , sqCategories = audioCategories
-  , sqLimit = maxResultsPerIndexer
+  , sqLimit = maxResults
   , sqOffset = 0
   }

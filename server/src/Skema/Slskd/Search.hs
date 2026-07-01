@@ -53,10 +53,11 @@ searchSlskd ::
   SlskdClient ->
   Text -> -- Artist name
   Text -> -- Album title
+  Int -> -- Minimum track count for a candidate to be considered
   IO (Either Text [SlskdAlbumCandidate])
-searchSlskd le client artistName albumTitle = do
+searchSlskd le client artistName albumTitle minTrackCount = do
   -- Default 60 second timeout
-  searchSlskdWithTimeout le client artistName albumTitle 60
+  searchSlskdWithTimeout le client artistName albumTitle 60 minTrackCount
 
 -- | Search slskd with configurable timeout.
 searchSlskdWithTimeout ::
@@ -65,8 +66,9 @@ searchSlskdWithTimeout ::
   Text -> -- Artist name
   Text -> -- Album title
   Int -> -- Timeout in seconds
+  Int -> -- Minimum track count for a candidate to be considered
   IO (Either Text [SlskdAlbumCandidate])
-searchSlskdWithTimeout le client artistName albumTitle timeoutSecs = do
+searchSlskdWithTimeout le client artistName albumTitle timeoutSecs minTrackCount = do
   let searchQuery = artistName <> " " <> albumTitle
 
   runKatipContextT le () "slskd.search" $ do
@@ -130,7 +132,7 @@ searchSlskdWithTimeout le client artistName albumTitle timeoutSecs = do
             Right responses -> do
               -- Create a response with the actual file data
               let responseWithFiles = response { ssResponses = responses }
-              let candidates = groupResultsByAlbum responseWithFiles
+              let candidates = groupResultsByAlbum minTrackCount responseWithFiles
               runKatipContextT le () "slskd.search" $ do
                 $(logTM) InfoS $
                   logStr $
@@ -154,9 +156,10 @@ searchSlskdStreaming ::
   Text -> -- Artist name
   Text -> -- Album title
   Int -> -- Timeout in seconds
+  Int -> -- Minimum track count for a candidate to be considered
   (SlskdAlbumCandidate -> IO ()) -> -- Callback for each new candidate
   IO (Either Text [SlskdAlbumCandidate])
-searchSlskdStreaming le client artistName albumTitle timeoutSecs onCandidate = do
+searchSlskdStreaming le client artistName albumTitle timeoutSecs minTrackCount onCandidate = do
   let searchQuery = artistName <> " " <> albumTitle
 
   runKatipContextT le () "slskd.search" $ do
@@ -182,7 +185,7 @@ searchSlskdStreaming le client artistName albumTitle timeoutSecs onCandidate = d
       result <-
         race
           (threadDelay timeoutMicros)
-          (pollAndEmit le client searchId emittedRef allCandidatesRef onCandidate)
+          (pollAndEmit le client searchId emittedRef allCandidatesRef minTrackCount onCandidate)
 
       -- Clean up search
       _ <- deleteSearch client searchId
@@ -216,9 +219,10 @@ pollAndEmit ::
   Text -> -- Search ID
   IORef (Set.Set (Text, Text)) -> -- Emitted candidates (username, directory)
   IORef [SlskdAlbumCandidate] -> -- All candidates found
+  Int -> -- Minimum track count for a candidate to be considered
   (SlskdAlbumCandidate -> IO ()) -> -- Callback
   IO (Either Text ())
-pollAndEmit le client searchId emittedRef allCandidatesRef onCandidate = go 0
+pollAndEmit le client searchId emittedRef allCandidatesRef minTrackCount onCandidate = go 0
   where
     -- Poll interval: 1.5 seconds
     pollIntervalMicros = 1500000
@@ -268,7 +272,7 @@ pollAndEmit le client searchId emittedRef allCandidatesRef onCandidate = go 0
                         , ssLockedFileCount = 0
                         , ssResponses = responses
                         }
-                  let candidates = groupResultsByAlbum dummyResponse
+                  let candidates = groupResultsByAlbum minTrackCount dummyResponse
 
                   -- Emit new candidates
                   emitted <- IORef.readIORef emittedRef
@@ -349,16 +353,16 @@ pollSearchCompletion le client searchId = go 0
 --
 -- Files from the same user in the same directory are considered
 -- to be part of the same album.
-groupResultsByAlbum :: SlskdSearchResponse -> [SlskdAlbumCandidate]
-groupResultsByAlbum response =
+groupResultsByAlbum :: Int -> SlskdSearchResponse -> [SlskdAlbumCandidate]
+groupResultsByAlbum minTrackCount response =
   let allUserResults = ssResponses response
 
       -- For each user, group their files by directory
       userCandidates = concatMap groupUserFiles allUserResults
 
-      -- Filter out candidates with too few tracks (< 3)
+      -- Filter out candidates with too few tracks (below the configured minimum)
       -- and sort by quality score
-      validCandidates = filter (\c -> sacTrackCount c >= 3) userCandidates
+      validCandidates = filter (\c -> sacTrackCount c >= minTrackCount) userCandidates
    in sortBy compareCandidates validCandidates
 
 -- | Group a single user's files by directory.

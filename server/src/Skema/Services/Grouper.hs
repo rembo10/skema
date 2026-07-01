@@ -126,7 +126,7 @@ handleMetadataReadComplete GrouperDeps{..} fileCount = do
 
     now <- liftIO (getNow groupClock)
     config <- liftIO $ readTVarIO groupConfigVar
-    let identifyConfig = mkIdentifyConfig (library config)
+    let identifyConfig = mkIdentifyConfig (library config) (musicbrainz config)
     let (alreadyMatched, needsId) = partitionClusters now identifyConfig allClusters
     let totalGroups = length allClusters
 

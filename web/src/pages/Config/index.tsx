@@ -8,6 +8,7 @@ import { ServerTab } from './tabs/ServerTab';
 import { DownloadTab } from './tabs/DownloadTab';
 import { IndexersTab } from './tabs/IndexersTab';
 import { MusicbrainzTab } from './tabs/MusicbrainzTab';
+import { MediaTab } from './tabs/MediaTab';
 import { NotificationsTab } from './tabs/NotificationsTab';
 import { DownloadClientModal } from './modals/DownloadClientModal';
 import { SlskdClientModal } from './modals/SlskdClientModal';
@@ -104,6 +105,14 @@ export default function Config() {
 
         {state.activeTab === 'musicbrainz' && (
           <MusicbrainzTab
+            formData={state.formData}
+            showAdvanced={state.showAdvanced}
+            onChange={actions.handleChange}
+          />
+        )}
+
+        {state.activeTab === 'media' && (
+          <MediaTab
             formData={state.formData}
             showAdvanced={state.showAdvanced}
             onChange={actions.handleChange}

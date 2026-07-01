@@ -62,6 +62,20 @@ export function SlskdClientModal({
         description="Directory where slskd stores completed downloads"
       />
 
+      <div>
+        <label className="block text-sm font-medium text-dark-text mb-2">Minimum Track Count</label>
+        <input
+          type="number"
+          value={client.min_track_count ?? 3}
+          onChange={(e) => onUpdate('min_track_count', e.target.value ? parseInt(e.target.value) : 3)}
+          min="1"
+          className="input w-full"
+        />
+        <p className="mt-1 text-sm text-dark-text-secondary">
+          Minimum number of tracks for a search result to be considered an album. Lower this to allow EPs and singles.
+        </p>
+      </div>
+
       <div className="flex items-start">
         <div className="flex items-center h-5">
           <input

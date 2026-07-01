@@ -46,6 +46,7 @@ module Skema.Config.Schema
   , sensitive
   , required
   , advanced
+  , inGroup
   , dependsOn
   , dependsOnValue
   , fieldType
@@ -84,7 +85,7 @@ module Skema.Config.Schema
 
 import GHC.Generics
 import qualified Data.Text as T
-import Data.Char (toUpper)
+import Data.Char (toUpper, isAlphaNum)
 import Data.Aeson (ToJSON(..), object, (.=), Value)
 import qualified Data.Aeson.Key as Key
 
@@ -126,6 +127,7 @@ data FieldMeta = FieldMeta
   , fmSensitive :: Bool      -- ^ Hide in logs/output
   , fmRequired :: Bool       -- ^ Is this field required?
   , fmAdvanced :: Bool       -- ^ Hidden unless "Show Advanced" is toggled
+  , fmGroup :: Maybe Text    -- ^ Subsection group heading (Nothing = ungrouped, rendered first)
   , fmDependsOn :: Maybe Text -- ^ Only show if this field is truthy
   , fmDependsOnValue :: Maybe (Text, [Text]) -- ^ Only show if field has one of these values (field, [values])
   } deriving (Show, Eq)
@@ -159,6 +161,7 @@ name .:: helpText = FieldMeta
   , fmSensitive = False
   , fmRequired = False
   , fmAdvanced = False
+  , fmGroup = Nothing
   , fmDependsOn = Nothing
   , fmDependsOnValue = Nothing
   }
@@ -192,6 +195,10 @@ required fm = fm { fmRequired = True }
 -- | Mark as advanced (hidden by default)
 advanced :: FieldMeta -> FieldMeta
 advanced fm = fm { fmAdvanced = True }
+
+-- | Assign the field to a named subsection group (rendered under a heading)
+inGroup :: Text -> FieldMeta -> FieldMeta
+inGroup name fm = fm { fmGroup = Just name }
 
 -- | Field depends on another field being truthy
 dependsOn :: Text -> FieldMeta -> FieldMeta
@@ -416,7 +423,7 @@ generateTypeScriptTypes = T.unlines $
   , "// Schema Metadata (for dynamic form generation)"
   , "// ==================================================================="
   , ""
-  , "export type FieldType = 'string' | 'path' | 'integer' | 'boolean' | 'enum' | 'list' | 'object';"
+  , "export type FieldType = 'string' | 'path' | 'url' | 'integer' | 'boolean' | 'enum' | 'list' | 'object';"
   , ""
   , "export interface FieldMeta {"
   , "  name: string;"
@@ -559,13 +566,31 @@ generateReactComponents = T.unlines $
   , "  sectionValues?: any;"
   , "}"
   , ""
+  , "// Shared visibility rule for a field, reused by group headers so an empty"
+  , "// group (all fields hidden) does not render a dangling heading."
+  , "interface VisibilityMeta {"
+  , "  advanced?: boolean;"
+  , "  dependsOn?: string;"
+  , "  dependsOnValue?: { field: string; values: string[] };"
+  , "}"
+  , ""
+  , "function isFieldVisible(meta: VisibilityMeta, sectionValues: any, showAdvanced?: boolean): boolean {"
+  , "  if (meta.advanced && !showAdvanced) return false;"
+  , "  if (meta.dependsOn && sectionValues && !sectionValues[meta.dependsOn]) return false;"
+  , "  if (meta.dependsOnValue && sectionValues && !meta.dependsOnValue.values.includes(sectionValues[meta.dependsOnValue.field])) return false;"
+  , "  return true;"
+  , "}"
+  , ""
+  , "function GroupHeader({ title }: { title: string }) {"
+  , "  return ("
+  , "    <div className=\"border-b border-dark-border pb-2 pt-2\">"
+  , "      <h3 className=\"text-xs font-semibold uppercase tracking-wide text-dark-text-tertiary\">{title}</h3>"
+  , "    </div>"
+  , "  );"
+  , "}"
+  , ""
   , "function ConfigField({ section, field, value, onChange, type, description, options, sensitive, advanced, dependsOn, dependsOnValue, showAdvanced, sectionValues }: FieldProps) {"
-  , "  // Hide advanced fields unless showAdvanced is true"
-  , "  if (advanced && !showAdvanced) return null;"
-  , "  // Hide fields that depend on another field being truthy"
-  , "  if (dependsOn && sectionValues && !sectionValues[dependsOn]) return null;"
-  , "  // Hide fields that depend on another field having specific values"
-  , "  if (dependsOnValue && sectionValues && !dependsOnValue.values.includes(sectionValues[dependsOnValue.field])) return null;"
+  , "  if (!isFieldVisible({ advanced, dependsOn, dependsOnValue }, sectionValues, showAdvanced)) return null;"
   , ""
   , "  const id = `${section}_${field}`;"
   , "  const label = field.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');"
@@ -669,8 +694,8 @@ generateReactComponents = T.unlines $
   , "// ==================================================================="
   , ""
   ] ++ concatMap genSectionComponent (filter (not . isComplexSection) allSchemas) ++
-  [ "// ConfigField is not exported with 'export function', so export it here"
-  , "export { ConfigField };"
+  [ "// ConfigField/GroupHeader are not exported with 'export function', so export them here"
+  , "export { ConfigField, GroupHeader };"
   ]
   where
     -- Sections with complex nested types that need manual handling
@@ -679,6 +704,9 @@ generateReactComponents = T.unlines $
 
     genSectionComponent :: Schema -> [Text]
     genSectionComponent s =
+      let includedFields = filter (shouldIncludeField s) (schemaFields s)
+          grouped = groupContiguous includedFields
+      in
       [ "interface " <> capitalize (schemaSection s) <> "Props {"
       , "  config: Config;"
       , "  onChange: (section: keyof Config, field: string, value: any) => void;"
@@ -687,14 +715,57 @@ generateReactComponents = T.unlines $
       , ""
       , "export function " <> capitalize (schemaSection s) <> "ConfigSection({ config, onChange, showAdvanced = false }: " <> capitalize (schemaSection s) <> "Props) {"
       , "  const section = config." <> schemaSection s <> ";"
-      , "  return ("
+      ] ++ concatMap genGroupVisibilityConst grouped ++
+      [ "  return ("
       , "    <div className=\"space-y-6\">"
-      ] ++ concatMap (genFieldCall s) (filter (shouldIncludeField s) (schemaFields s)) ++
+      ] ++ concatMap (genGroupBlock s) grouped ++
       [ "    </div>"
       , "  );"
       , "}"
       , ""
       ]
+
+    -- Group consecutive fields that share the same 'fmGroup'. Grouped fields must
+    -- be defined contiguously in the schema.
+    groupContiguous :: [FieldMeta] -> [[FieldMeta]]
+    groupContiguous [] = []
+    groupContiguous (x:xs) =
+      let (same, rest) = span (\y -> fmGroup y == fmGroup x) xs
+      in (x : same) : groupContiguous rest
+
+    -- Emit `const grp<Name>Visible = [...].some(Boolean);` for a named group; nothing for ungrouped.
+    genGroupVisibilityConst :: [FieldMeta] -> [Text]
+    genGroupVisibilityConst [] = []
+    genGroupVisibilityConst grp@(f:_) = case fmGroup f of
+      Nothing -> []
+      Just name ->
+        [ "  const " <> groupConstName name <> " = [" ]
+        ++ map (\fm -> "    isFieldVisible(" <> visibilityMetaArg fm <> ", section, showAdvanced),") grp
+        ++ [ "  ].some(Boolean);" ]
+
+    -- Emit a group's header (guarded by its visibility const) followed by its fields.
+    genGroupBlock :: Schema -> [FieldMeta] -> [Text]
+    genGroupBlock _ [] = []
+    genGroupBlock s grp@(f:_) =
+      let header = case fmGroup f of
+            Nothing -> []
+            Just name -> [ "      {" <> groupConstName name <> " && <GroupHeader title=\"" <> escapeJS name <> "\" />}" ]
+      in header ++ concatMap (genFieldCall s) grp
+
+    -- Build a VisibilityMeta object literal from a field's advanced/dependsOn metadata.
+    visibilityMetaArg :: FieldMeta -> Text
+    visibilityMetaArg fm =
+      let parts = catMaybes
+            [ if fmAdvanced fm then Just "advanced: true" else Nothing
+            , (\d -> "dependsOn: \"" <> d <> "\"") <$> fmDependsOn fm
+            , (\(field, values) -> "dependsOnValue: { field: \"" <> field <> "\", values: ["
+                <> T.intercalate ", " (map (\v -> "\"" <> v <> "\"") values) <> "] }") <$> fmDependsOnValue fm
+            ]
+      in "{ " <> T.intercalate ", " parts <> " }"
+
+    -- Stable JS identifier for a group's visibility const, e.g. "File Organization" -> "grpFileOrganizationVisible".
+    groupConstName :: Text -> Text
+    groupConstName name = "grp" <> T.filter isAlphaNum (T.toTitle name) <> "Visible"
 
     isSimpleField :: FieldMeta -> Bool
     isSimpleField fm = case fmType fm of
@@ -778,30 +849,47 @@ librarySchema = schema "library" "Music library configuration"
   [ "path" .:: "Path to music library directory"
       & pathField
       -- No example = null default
+  -- Scanning
   , "watch" .:: "Watch library directory for changes"
       & boolField
       & example "true"
+      & inGroup "Scanning"
   , "auto_scan" .:: "Automatically scan library on interval"
       & boolField
-      & example "false"
+      & example "true"
+      & inGroup "Scanning"
   , "auto_scan_interval_mins" .:: "Minutes between automatic scans"
       & intField
       & example "60"
+      & inGroup "Scanning"
   , "auto_scan_on_startup" .:: "Scan library when application starts"
       & boolField
       & example "true"
+      & inGroup "Scanning"
+  -- Importing
+  , "auto_upgrade_existing_albums" .:: "When an album already in your library is discovered, automatically monitor it for quality upgrades"
+      & boolField
+      & example "false"
+      & inGroup "Importing"
+  -- File Organization (advanced, setup-time details)
+  , "path_format" .:: "Directory structure format for organizing files"
+      & example "{album_artist}/{album} [{year}]"
+      & advanced
+      & inGroup "File Organization"
+  , "file_format" .:: "File naming format"
+      & example "{track:02} {artist} - {album} {year} - {title}.{ext}"
+      & advanced
+      & inGroup "File Organization"
   , "normalize_featuring" .:: "Normalize featuring artist format in track titles"
       & boolField
       & example "false"
+      & advanced
+      & inGroup "File Organization"
   , "normalize_featuring_to" .:: "Format to use for featuring artists"
       & example "feat."
+      & advanced
       & dependsOn "normalize_featuring"
-  , "path_format" .:: "Directory structure format for organizing files"
-      & example "{album_artist}/{year} - {album}/"
-      & advanced
-  , "file_format" .:: "File naming format"
-      & example "{if:multidisc|{disc:02}-}{track:02} - {title}.{ext}"
-      & advanced
+      & inGroup "File Organization"
   ]
 
 -- | System configuration schema
@@ -810,18 +898,25 @@ systemSchema = schema "system" "System and paths configuration"
   [ "watch_config_file" .:: "Watch config file for changes and reload automatically"
       & boolField
       & example "true"
-  , "database_path" .:: "SQLite database file path (default: skema.db in data directory)"
-      & pathField
-      -- No example = null, uses default location
-  , "data_dir" .:: "Data directory override (default: platform-specific)"
-      & pathField
-      -- No example = null, uses platform default
-  , "cache_dir" .:: "Cache directory override (default: platform-specific)"
-      & pathField
-      -- No example = null, uses platform default
   , "check_updates" .:: "Periodically check GitHub for new Skema releases"
       & boolField
       & example "true"
+  -- Paths (advanced, override platform defaults)
+  , "database_path" .:: "SQLite database file path (default: skema.db in data directory)"
+      & pathField
+      & advanced
+      & inGroup "Paths"
+      -- No example = null, uses default location
+  , "data_dir" .:: "Data directory override (default: platform-specific)"
+      & pathField
+      & advanced
+      & inGroup "Paths"
+      -- No example = null, uses platform default
+  , "cache_dir" .:: "Cache directory override (default: platform-specific)"
+      & pathField
+      & advanced
+      & inGroup "Paths"
+      -- No example = null, uses platform default
   ]
 
 -- | Server configuration schema
@@ -832,22 +927,32 @@ serverSchema = schema "server" "HTTP server configuration"
   , "port" .:: "Server port"
       & intField
       & example "8182"
-  , "web_root" .:: "Web root path for hosting at subpaths (e.g., /skema or /)"
-      & example "/"
-      & advanced
-  , "jwt_secret" .:: "JWT signing secret (auto-generated if not provided)"
-      & sensitive
-      & advanced
-      -- No example = null, auto-generated
-  , "jwt_expiration_hours" .:: "JWT token expiration time in hours"
-      & intField
-      & example "168"
-      & advanced
   , "username" .:: "Username for API authentication (required)"
       -- No example = null, must be set by user
   , "password" .:: "Password for API authentication (required, will be bcrypt hashed)"
       & sensitive
       -- No example = null, must be set by user
+  -- API Access (advanced)
+  , "api_key" .:: "API key for external access, sent via the X-API-Key header"
+      & sensitive
+      & advanced
+      & inGroup "API Access"
+      -- No example = null
+  -- Advanced
+  , "web_root" .:: "Web root path for hosting at subpaths (e.g., /skema or /)"
+      & example "/"
+      & advanced
+      & inGroup "Advanced"
+  , "jwt_secret" .:: "JWT signing secret (auto-generated if not provided)"
+      & sensitive
+      & advanced
+      & inGroup "Advanced"
+      -- No example = null, auto-generated
+  , "jwt_expiration_hours" .:: "JWT token expiration time in hours"
+      & intField
+      & example "24"
+      & advanced
+      & inGroup "Advanced"
   ]
 
 -- | Download configuration schema
@@ -867,22 +972,32 @@ downloadSchema = schema "download" "Download client configuration"
           , "    api_key: your-api-key"
           , "    enabled: false"
           , "    download_directory: /downloads/slskd"
+          , "    min_track_count: 3"
           ])
-  , "directory" .:: "Directory for completed downloads (before import)"
-      & pathField
-      & example "./downloads"
-  , "check_interval" .:: "How often to check for completed downloads (in seconds)"
-      & intField
-      & example "60"
   , "auto_import" .:: "Automatically import completed downloads"
       & boolField
       & example "true"
+  , "replace_library_files" .:: "Delete old library files when upgrading to better quality"
+      & boolField
+      & example "false"
   , "min_seeders" .:: "Minimum seeders for torrents (null = no minimum)"
       & intField
-      & example "5"
-  , "max_size" .:: "Maximum download size in MB (null = no limit)"
+      & example "1"
+  , "max_size_mb" .:: "Maximum download size in MB (null = no limit)"
       & intField
-      & example "1000"
+      -- No example = null, no limit
+  , "max_search_retries" .:: "Maximum automatic re-search attempts per album after a failed grab"
+      & intField
+      & example "5"
+  , "use_trash" .:: "Move deleted files to trash instead of permanently deleting them"
+      & boolField
+      & example "true"
+  , "trash_retention_days" .:: "Days to keep files in trash before permanent deletion"
+      & intField
+      & example "7"
+  , "check_interval" .:: "How often to check download clients for status updates (in seconds)"
+      & intField
+      & example "5"
   ]
 
 -- | Indexer configuration schema
@@ -902,6 +1017,9 @@ indexerSchema = schema "indexers" "Usenet/torrent indexer configuration"
   , "search_timeout" .:: "Search timeout per indexer in seconds"
       & intField
       & example "30"
+  , "max_results_per_indexer" .:: "Maximum number of results to request per indexer search"
+      & intField
+      & example "50"
   ]
 
 -- | MusicBrainz configuration schema
@@ -927,6 +1045,22 @@ musicbrainzSchema = schema "musicbrainz" "MusicBrainz metadata provider configur
   , "exclude_secondary_types" .:: "Secondary types to exclude (e.g., Live, Compilation)"
       & fieldType FTList
       & example "[\"Live\", \"Compilation\"]"
+  -- Matching (advanced, tuning knobs)
+  , "match_min_confidence" .:: "Minimum match confidence (%) required to auto-accept a MusicBrainz match"
+      & intField
+      & example "35"
+      & advanced
+      & inGroup "Matching"
+  , "max_candidates" .:: "Maximum number of release candidates to consider per album"
+      & intField
+      & example "5"
+      & advanced
+      & inGroup "Matching"
+  , "search_limit" .:: "Maximum number of releases to fetch from MusicBrainz search"
+      & intField
+      & example "20"
+      & advanced
+      & inGroup "Matching"
   ]
 
 -- | Media (artwork/metadata) configuration schema

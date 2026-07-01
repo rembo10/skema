@@ -56,6 +56,7 @@ testSlskdConfig = SlskdConfig
   , slskdApiKey = "test-api-key"
   , slskdEnabled = True
   , slskdDownloadDirectory = "/downloads/slskd"
+  , slskdMinTrackCount = 3
   }
 
 -- | A release describing a single-file slskd download.

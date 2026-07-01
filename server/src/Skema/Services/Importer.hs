@@ -251,7 +251,7 @@ importDownload config clock le bus pool mbClientEnv downloadRec catalogAlbum = d
 
         -- 5. Identify against MusicBrainz (reuse identifier)
         let libConfig = library config
-        let identifyConfig = mkIdentifyConfig libConfig
+        let identifyConfig = mkIdentifyConfig libConfig (musicbrainz config)
 
         -- Log the search query that will be used
         let searchQuery = buildSearchQuery fileGroup

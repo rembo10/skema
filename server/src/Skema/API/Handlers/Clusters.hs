@@ -92,7 +92,7 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
                 let libConfig = Cfg.library config
 
                 -- Build identify config
-                let identifyConfig = mkIdentifyConfig libConfig
+                let identifyConfig = mkIdentifyConfig libConfig (Cfg.musicbrainz config)
 
                 -- Remove current match to unlock
                 when (isJust $ DBTypes.clusterMBReleaseId cluster) $ do

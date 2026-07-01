@@ -5,7 +5,7 @@ import { handleApiError } from '../../lib/errors';
 import { useSSEEvent } from '../../hooks/useSSEEvent';
 import type { Config, DownloadClient, Indexer, NotificationProvider, SlskdConfig, DownloadClientType } from '../../types/api';
 
-export type TabId = 'library' | 'system' | 'server' | 'download' | 'indexers' | 'musicbrainz' | 'notifications';
+export type TabId = 'library' | 'system' | 'server' | 'download' | 'indexers' | 'musicbrainz' | 'media' | 'notifications';
 
 export interface ConfigState {
   loading: boolean;
@@ -281,6 +281,7 @@ export function useConfigState(): [ConfigState, ConfigActions] {
         api_key: '',
         enabled: true,
         download_directory: '/downloads/slskd',
+        min_track_count: 3,
       });
     }
 

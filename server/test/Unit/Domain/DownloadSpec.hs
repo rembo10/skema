@@ -54,6 +54,7 @@ mkSlskdConfig enabled = SlskdConfig
   , slskdApiKey = "key"
   , slskdEnabled = enabled
   , slskdDownloadDirectory = "/downloads"
+  , slskdMinTrackCount = 3
   }
 
 mkClient :: DownloadClientType -> Bool -> DownloadClient

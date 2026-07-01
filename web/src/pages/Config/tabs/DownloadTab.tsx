@@ -1,6 +1,7 @@
 import { Plus, Edit2, Trash2, Download } from 'lucide-react';
 import type { Config, DownloadClient, SlskdConfig } from '../../../types/api';
 import { getClientTypeName } from '../useConfigState';
+import { GroupHeader } from '../../../components/ConfigFields.generated';
 
 interface DownloadTabProps {
   formData: Config;
@@ -115,22 +116,7 @@ export function DownloadTab({
           </p>
         </div>
         <div className="px-6 py-5 space-y-6">
-          <div>
-            <label htmlFor="download_check_interval" className="block text-sm font-medium text-dark-text mb-2">
-              Check Interval (seconds)
-            </label>
-            <input
-              type="number"
-              id="download_check_interval"
-              value={formData.download.check_interval ?? 60}
-              onChange={(e) => onChange('download', 'check_interval', parseInt(e.target.value))}
-              min="10"
-              className="input w-48"
-            />
-            <p className="mt-2 text-sm text-dark-text-secondary">
-              How often to check download clients for status updates
-            </p>
-          </div>
+          <GroupHeader title="Importing" />
 
           <div className="flex items-start gap-3">
             <input
@@ -149,6 +135,26 @@ export function DownloadTab({
               </p>
             </div>
           </div>
+
+          <div className="flex items-start gap-3">
+            <input
+              id="download_replace_library_files"
+              type="checkbox"
+              checked={formData.download.replace_library_files ?? false}
+              onChange={(e) => onChange('download', 'replace_library_files', e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
+            />
+            <div>
+              <label htmlFor="download_replace_library_files" className="text-sm font-medium text-dark-text">
+                Replace Library Files on Upgrade
+              </label>
+              <p className="text-sm text-dark-text-secondary mt-0.5">
+                Delete old library files when upgrading to better quality
+              </p>
+            </div>
+          </div>
+
+          <GroupHeader title="Search" />
 
           <div>
             <label htmlFor="download_min_seeders" className="block text-sm font-medium text-dark-text mb-2">
@@ -169,20 +175,95 @@ export function DownloadTab({
           </div>
 
           <div>
-            <label htmlFor="download_max_size" className="block text-sm font-medium text-dark-text mb-2">
+            <label htmlFor="download_max_size_mb" className="block text-sm font-medium text-dark-text mb-2">
               Maximum Size (MB, Optional)
             </label>
             <input
               type="number"
-              id="download_max_size"
-              value={formData.download.max_size ?? ''}
-              onChange={(e) => onChange('download', 'max_size', e.target.value ? parseInt(e.target.value) : null)}
+              id="download_max_size_mb"
+              value={formData.download.max_size_mb ?? ''}
+              onChange={(e) => onChange('download', 'max_size_mb', e.target.value ? parseInt(e.target.value) : null)}
               min="1"
               className="input w-48"
               placeholder="No maximum"
             />
             <p className="mt-2 text-sm text-dark-text-secondary">
               Maximum download size to accept
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="download_max_search_retries" className="block text-sm font-medium text-dark-text mb-2">
+              Max Search Retries
+            </label>
+            <input
+              type="number"
+              id="download_max_search_retries"
+              value={formData.download.max_search_retries ?? 5}
+              onChange={(e) => onChange('download', 'max_search_retries', parseInt(e.target.value))}
+              min="0"
+              className="input w-48"
+            />
+            <p className="mt-2 text-sm text-dark-text-secondary">
+              Maximum automatic re-search attempts per album after a failed grab
+            </p>
+          </div>
+
+          <GroupHeader title="Trash" />
+
+          <div className="flex items-start gap-3">
+            <input
+              id="download_use_trash"
+              type="checkbox"
+              checked={formData.download.use_trash ?? true}
+              onChange={(e) => onChange('download', 'use_trash', e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
+            />
+            <div>
+              <label htmlFor="download_use_trash" className="text-sm font-medium text-dark-text">
+                Use Trash
+              </label>
+              <p className="text-sm text-dark-text-secondary mt-0.5">
+                Move deleted files to trash instead of permanently deleting them
+              </p>
+            </div>
+          </div>
+
+          {formData.download.use_trash && (
+            <div>
+              <label htmlFor="download_trash_retention_days" className="block text-sm font-medium text-dark-text mb-2">
+                Trash Retention (days)
+              </label>
+              <input
+                type="number"
+                id="download_trash_retention_days"
+                value={formData.download.trash_retention_days ?? 7}
+                onChange={(e) => onChange('download', 'trash_retention_days', parseInt(e.target.value))}
+                min="1"
+                className="input w-48"
+              />
+              <p className="mt-2 text-sm text-dark-text-secondary">
+                Days to keep files in trash before permanent deletion
+              </p>
+            </div>
+          )}
+
+          <GroupHeader title="Advanced" />
+
+          <div>
+            <label htmlFor="download_check_interval" className="block text-sm font-medium text-dark-text mb-2">
+              Check Interval (seconds)
+            </label>
+            <input
+              type="number"
+              id="download_check_interval"
+              value={formData.download.check_interval ?? 5}
+              onChange={(e) => onChange('download', 'check_interval', parseInt(e.target.value))}
+              min="1"
+              className="input w-48"
+            />
+            <p className="mt-2 text-sm text-dark-text-secondary">
+              How often to check download clients for status updates
             </p>
           </div>
         </div>
@@ -278,7 +359,7 @@ export function DownloadTab({
           <button
             type="button"
             onClick={onEditSlskdClient}
-            className="btn-secondary text-sm"
+            className="btn-primary text-sm"
           >
             {formData.download.slskd_client ? (
               <>

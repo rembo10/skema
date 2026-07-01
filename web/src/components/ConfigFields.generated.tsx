@@ -26,13 +26,31 @@ interface FieldProps {
   sectionValues?: any;
 }
 
+// Shared visibility rule for a field, reused by group headers so an empty
+// group (all fields hidden) does not render a dangling heading.
+interface VisibilityMeta {
+  advanced?: boolean;
+  dependsOn?: string;
+  dependsOnValue?: { field: string; values: string[] };
+}
+
+function isFieldVisible(meta: VisibilityMeta, sectionValues: any, showAdvanced?: boolean): boolean {
+  if (meta.advanced && !showAdvanced) return false;
+  if (meta.dependsOn && sectionValues && !sectionValues[meta.dependsOn]) return false;
+  if (meta.dependsOnValue && sectionValues && !meta.dependsOnValue.values.includes(sectionValues[meta.dependsOnValue.field])) return false;
+  return true;
+}
+
+function GroupHeader({ title }: { title: string }) {
+  return (
+    <div className="border-b border-dark-border pb-2 pt-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-dark-text-tertiary">{title}</h3>
+    </div>
+  );
+}
+
 function ConfigField({ section, field, value, onChange, type, description, options, sensitive, advanced, dependsOn, dependsOnValue, showAdvanced, sectionValues }: FieldProps) {
-  // Hide advanced fields unless showAdvanced is true
-  if (advanced && !showAdvanced) return null;
-  // Hide fields that depend on another field being truthy
-  if (dependsOn && sectionValues && !sectionValues[dependsOn]) return null;
-  // Hide fields that depend on another field having specific values
-  if (dependsOnValue && sectionValues && !dependsOnValue.values.includes(sectionValues[dependsOnValue.field])) return null;
+  if (!isFieldVisible({ advanced, dependsOn, dependsOnValue }, sectionValues, showAdvanced)) return null;
 
   const id = `${section}_${field}`;
   const label = field.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
@@ -143,6 +161,21 @@ interface LibraryProps {
 
 export function LibraryConfigSection({ config, onChange, showAdvanced = false }: LibraryProps) {
   const section = config.library;
+  const grpScanningVisible = [
+    isFieldVisible({  }, section, showAdvanced),
+    isFieldVisible({  }, section, showAdvanced),
+    isFieldVisible({  }, section, showAdvanced),
+    isFieldVisible({  }, section, showAdvanced),
+  ].some(Boolean);
+  const grpImportingVisible = [
+    isFieldVisible({  }, section, showAdvanced),
+  ].some(Boolean);
+  const grpFileOrganizationVisible = [
+    isFieldVisible({ advanced: true }, section, showAdvanced),
+    isFieldVisible({ advanced: true }, section, showAdvanced),
+    isFieldVisible({ advanced: true }, section, showAdvanced),
+    isFieldVisible({ advanced: true, dependsOn: "normalize_featuring" }, section, showAdvanced),
+  ].some(Boolean);
   return (
     <div className="space-y-6">
       <ConfigField
@@ -155,6 +188,7 @@ export function LibraryConfigSection({ config, onChange, showAdvanced = false }:
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
+      {grpScanningVisible && <GroupHeader title="Scanning" />}
       <ConfigField
         section="library"
         field="watch"
@@ -195,27 +229,18 @@ export function LibraryConfigSection({ config, onChange, showAdvanced = false }:
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
+      {grpImportingVisible && <GroupHeader title="Importing" />}
       <ConfigField
         section="library"
-        field="normalize_featuring"
-        value={section.normalize_featuring}
+        field="auto_upgrade_existing_albums"
+        value={section.auto_upgrade_existing_albums}
         onChange={onChange}
         type="boolean"
-        description="Normalize featuring artist format in track titles"
+        description="When an album already in your library is discovered, automatically monitor it for quality upgrades"
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
-      <ConfigField
-        section="library"
-        field="normalize_featuring_to"
-        value={section.normalize_featuring_to}
-        onChange={onChange}
-        type="string"
-        description="Format to use for featuring artists"
-        dependsOn="normalize_featuring"
-        showAdvanced={showAdvanced}
-        sectionValues={section}
-      />
+      {grpFileOrganizationVisible && <GroupHeader title="File Organization" />}
       <ConfigField
         section="library"
         field="path_format"
@@ -238,6 +263,29 @@ export function LibraryConfigSection({ config, onChange, showAdvanced = false }:
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
+      <ConfigField
+        section="library"
+        field="normalize_featuring"
+        value={section.normalize_featuring}
+        onChange={onChange}
+        type="boolean"
+        description="Normalize featuring artist format in track titles"
+        advanced
+        showAdvanced={showAdvanced}
+        sectionValues={section}
+      />
+      <ConfigField
+        section="library"
+        field="normalize_featuring_to"
+        value={section.normalize_featuring_to}
+        onChange={onChange}
+        type="string"
+        description="Format to use for featuring artists"
+        advanced
+        dependsOn="normalize_featuring"
+        showAdvanced={showAdvanced}
+        sectionValues={section}
+      />
     </div>
   );
 }
@@ -250,6 +298,11 @@ interface SystemProps {
 
 export function SystemConfigSection({ config, onChange, showAdvanced = false }: SystemProps) {
   const section = config.system;
+  const grpPathsVisible = [
+    isFieldVisible({ advanced: true }, section, showAdvanced),
+    isFieldVisible({ advanced: true }, section, showAdvanced),
+    isFieldVisible({ advanced: true }, section, showAdvanced),
+  ].some(Boolean);
   return (
     <div className="space-y-6">
       <ConfigField
@@ -264,11 +317,23 @@ export function SystemConfigSection({ config, onChange, showAdvanced = false }: 
       />
       <ConfigField
         section="system"
+        field="check_updates"
+        value={section.check_updates}
+        onChange={onChange}
+        type="boolean"
+        description="Periodically check GitHub for new Skema releases"
+        showAdvanced={showAdvanced}
+        sectionValues={section}
+      />
+      {grpPathsVisible && <GroupHeader title="Paths" />}
+      <ConfigField
+        section="system"
         field="database_path"
         value={section.database_path}
         onChange={onChange}
         type="path"
         description="SQLite database file path (default: skema.db in data directory)"
+        advanced
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
@@ -279,6 +344,7 @@ export function SystemConfigSection({ config, onChange, showAdvanced = false }: 
         onChange={onChange}
         type="path"
         description="Data directory override (default: platform-specific)"
+        advanced
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
@@ -289,16 +355,7 @@ export function SystemConfigSection({ config, onChange, showAdvanced = false }: 
         onChange={onChange}
         type="path"
         description="Cache directory override (default: platform-specific)"
-        showAdvanced={showAdvanced}
-        sectionValues={section}
-      />
-      <ConfigField
-        section="system"
-        field="check_updates"
-        value={section.check_updates}
-        onChange={onChange}
-        type="boolean"
-        description="Periodically check GitHub for new Skema releases"
+        advanced
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
@@ -314,6 +371,14 @@ interface ServerProps {
 
 export function ServerConfigSection({ config, onChange, showAdvanced = false }: ServerProps) {
   const section = config.server;
+  const grpApiAccessVisible = [
+    isFieldVisible({ advanced: true }, section, showAdvanced),
+  ].some(Boolean);
+  const grpAdvancedVisible = [
+    isFieldVisible({ advanced: true }, section, showAdvanced),
+    isFieldVisible({ advanced: true }, section, showAdvanced),
+    isFieldVisible({ advanced: true }, section, showAdvanced),
+  ].some(Boolean);
   return (
     <div className="space-y-6">
       <ConfigField
@@ -336,6 +401,30 @@ export function ServerConfigSection({ config, onChange, showAdvanced = false }: 
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
+      <ConfigField
+        section="server"
+        field="username"
+        value={section.username}
+        onChange={onChange}
+        type="string"
+        description="Username for API authentication (required)"
+        showAdvanced={showAdvanced}
+        sectionValues={section}
+      />
+      {grpApiAccessVisible && <GroupHeader title="API Access" />}
+      <ConfigField
+        section="server"
+        field="api_key"
+        value={section.api_key}
+        onChange={onChange}
+        type="string"
+        description="API key for external access, sent via the X-API-Key header"
+        sensitive
+        advanced
+        showAdvanced={showAdvanced}
+        sectionValues={section}
+      />
+      {grpAdvancedVisible && <GroupHeader title="Advanced" />}
       <ConfigField
         section="server"
         field="web_root"
@@ -370,16 +459,6 @@ export function ServerConfigSection({ config, onChange, showAdvanced = false }: 
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
-      <ConfigField
-        section="server"
-        field="username"
-        value={section.username}
-        onChange={onChange}
-        type="string"
-        description="Username for API authentication (required)"
-        showAdvanced={showAdvanced}
-        sectionValues={section}
-      />
     </div>
   );
 }
@@ -392,6 +471,11 @@ interface MusicbrainzProps {
 
 export function MusicbrainzConfigSection({ config, onChange, showAdvanced = false }: MusicbrainzProps) {
   const section = config.musicbrainz;
+  const grpMatchingVisible = [
+    isFieldVisible({ advanced: true }, section, showAdvanced),
+    isFieldVisible({ advanced: true }, section, showAdvanced),
+    isFieldVisible({ advanced: true }, section, showAdvanced),
+  ].some(Boolean);
   return (
     <div className="space-y-6">
       <ConfigField
@@ -439,6 +523,40 @@ export function MusicbrainzConfigSection({ config, onChange, showAdvanced = fals
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
+      {grpMatchingVisible && <GroupHeader title="Matching" />}
+      <ConfigField
+        section="musicbrainz"
+        field="match_min_confidence"
+        value={section.match_min_confidence}
+        onChange={onChange}
+        type="integer"
+        description="Minimum match confidence (%) required to auto-accept a MusicBrainz match"
+        advanced
+        showAdvanced={showAdvanced}
+        sectionValues={section}
+      />
+      <ConfigField
+        section="musicbrainz"
+        field="max_candidates"
+        value={section.max_candidates}
+        onChange={onChange}
+        type="integer"
+        description="Maximum number of release candidates to consider per album"
+        advanced
+        showAdvanced={showAdvanced}
+        sectionValues={section}
+      />
+      <ConfigField
+        section="musicbrainz"
+        field="search_limit"
+        value={section.search_limit}
+        onChange={onChange}
+        type="integer"
+        description="Maximum number of releases to fetch from MusicBrainz search"
+        advanced
+        showAdvanced={showAdvanced}
+        sectionValues={section}
+      />
     </div>
   );
 }
@@ -468,5 +586,5 @@ export function MediaConfigSection({ config, onChange, showAdvanced = false }: M
   );
 }
 
-// ConfigField is not exported with 'export function', so export it here
-export { ConfigField };
+// ConfigField/GroupHeader are not exported with 'export function', so export them here
+export { ConfigField, GroupHeader };

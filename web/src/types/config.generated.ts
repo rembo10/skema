@@ -12,44 +12,50 @@ export interface LibraryConfig {
   auto_scan: boolean;
   auto_scan_interval_mins: number;
   auto_scan_on_startup: boolean;
-  normalize_featuring: boolean;
-  normalize_featuring_to: string;
+  auto_upgrade_existing_albums: boolean;
   path_format: string;
   file_format: string;
+  normalize_featuring: boolean;
+  normalize_featuring_to: string;
 }
 
 export interface SystemConfig {
   watch_config_file: boolean;
+  check_updates: boolean;
   database_path: string | null;
   data_dir: string | null;
   cache_dir: string | null;
-  check_updates: boolean;
 }
 
 export interface ServerConfig {
   host: string;
   port: number;
+  username: string;
+  password: string;
+  api_key: string;
   web_root: string;
   jwt_secret: string;
   jwt_expiration_hours: number;
-  username: string;
-  password: string;
 }
 
 export interface DownloadConfig {
   nzb_client?: any;
   torrent_client?: any;
   slskd_client?: any;
-  directory: string | null;
-  check_interval: number;
   auto_import: boolean;
+  replace_library_files: boolean;
   min_seeders: number;
-  max_size: number;
+  max_size_mb: number;
+  max_search_retries: number;
+  use_trash: boolean;
+  trash_retention_days: number;
+  check_interval: number;
 }
 
 export interface IndexersConfig {
   list: any[];
   search_timeout: number;
+  max_results_per_indexer: number;
 }
 
 export interface MusicbrainzConfig {
@@ -59,6 +65,9 @@ export interface MusicbrainzConfig {
   password: string;
   album_types: any[];
   exclude_secondary_types: any[];
+  match_min_confidence: number;
+  max_candidates: number;
+  search_limit: number;
 }
 
 export interface MediaConfig {
@@ -90,7 +99,7 @@ export interface Config {
 // Schema Metadata (for dynamic form generation)
 // ===================================================================
 
-export type FieldType = 'string' | 'path' | 'integer' | 'boolean' | 'enum' | 'list' | 'object';
+export type FieldType = 'string' | 'path' | 'url' | 'integer' | 'boolean' | 'enum' | 'list' | 'object';
 
 export interface FieldMeta {
   name: string;
@@ -148,16 +157,9 @@ export const librarySchema: SectionMeta = {
 
 ,
     {
-      name: 'normalize_featuring',
-      description: 'Normalize featuring artist format in track titles',
+      name: 'auto_upgrade_existing_albums',
+      description: 'When an album already in your library is discovered, automatically monitor it for quality upgrades',
       type: 'boolean'
-    }
-
-,
-    {
-      name: 'normalize_featuring_to',
-      description: 'Format to use for featuring artists',
-      type: 'string'
     }
 
 ,
@@ -174,6 +176,20 @@ export const librarySchema: SectionMeta = {
       type: 'string'
     }
 
+,
+    {
+      name: 'normalize_featuring',
+      description: 'Normalize featuring artist format in track titles',
+      type: 'boolean'
+    }
+
+,
+    {
+      name: 'normalize_featuring_to',
+      description: 'Format to use for featuring artists',
+      type: 'string'
+    }
+
   ],
 };
 
@@ -184,6 +200,13 @@ export const systemSchema: SectionMeta = {
     {
       name: 'watch_config_file',
       description: 'Watch config file for changes and reload automatically',
+      type: 'boolean'
+    }
+
+,
+    {
+      name: 'check_updates',
+      description: 'Periodically check GitHub for new Skema releases',
       type: 'boolean'
     }
 
@@ -208,13 +231,6 @@ export const systemSchema: SectionMeta = {
       type: 'path'
     }
 
-,
-    {
-      name: 'check_updates',
-      description: 'Periodically check GitHub for new Skema releases',
-      type: 'boolean'
-    }
-
   ],
 };
 
@@ -237,6 +253,29 @@ export const serverSchema: SectionMeta = {
 
 ,
     {
+      name: 'username',
+      description: 'Username for API authentication (required)',
+      type: 'string'
+    }
+
+,
+    {
+      name: 'password',
+      description: 'Password for API authentication (required, will be bcrypt hashed)',
+      type: 'string',
+      sensitive: true
+    }
+
+,
+    {
+      name: 'api_key',
+      description: 'API key for external access, sent via the X-API-Key header',
+      type: 'string',
+      sensitive: true
+    }
+
+,
+    {
       name: 'web_root',
       description: 'Web root path for hosting at subpaths (e.g., /skema or /)',
       type: 'string'
@@ -255,21 +294,6 @@ export const serverSchema: SectionMeta = {
       name: 'jwt_expiration_hours',
       description: 'JWT token expiration time in hours',
       type: 'integer'
-    }
-
-,
-    {
-      name: 'username',
-      description: 'Username for API authentication (required)',
-      type: 'string'
-    }
-
-,
-    {
-      name: 'password',
-      description: 'Password for API authentication (required, will be bcrypt hashed)',
-      type: 'string',
-      sensitive: true
     }
 
   ],
@@ -301,22 +325,15 @@ export const downloadSchema: SectionMeta = {
 
 ,
     {
-      name: 'directory',
-      description: 'Directory for completed downloads (before import)',
-      type: 'path'
-    }
-
-,
-    {
-      name: 'check_interval',
-      description: 'How often to check for completed downloads (in seconds)',
-      type: 'integer'
-    }
-
-,
-    {
       name: 'auto_import',
       description: 'Automatically import completed downloads',
+      type: 'boolean'
+    }
+
+,
+    {
+      name: 'replace_library_files',
+      description: 'Delete old library files when upgrading to better quality',
       type: 'boolean'
     }
 
@@ -329,8 +346,36 @@ export const downloadSchema: SectionMeta = {
 
 ,
     {
-      name: 'max_size',
+      name: 'max_size_mb',
       description: 'Maximum download size in MB (null = no limit)',
+      type: 'integer'
+    }
+
+,
+    {
+      name: 'max_search_retries',
+      description: 'Maximum automatic re-search attempts per album after a failed grab',
+      type: 'integer'
+    }
+
+,
+    {
+      name: 'use_trash',
+      description: 'Move deleted files to trash instead of permanently deleting them',
+      type: 'boolean'
+    }
+
+,
+    {
+      name: 'trash_retention_days',
+      description: 'Days to keep files in trash before permanent deletion',
+      type: 'integer'
+    }
+
+,
+    {
+      name: 'check_interval',
+      description: 'How often to check download clients for status updates (in seconds)',
       type: 'integer'
     }
 
@@ -351,6 +396,13 @@ export const indexersSchema: SectionMeta = {
     {
       name: 'search_timeout',
       description: 'Search timeout per indexer in seconds',
+      type: 'integer'
+    }
+
+,
+    {
+      name: 'max_results_per_indexer',
+      description: 'Maximum number of results to request per indexer search',
       type: 'integer'
     }
 
@@ -402,6 +454,27 @@ export const musicbrainzSchema: SectionMeta = {
       name: 'exclude_secondary_types',
       description: 'Secondary types to exclude (e.g., Live, Compilation)',
       type: 'list'
+    }
+
+,
+    {
+      name: 'match_min_confidence',
+      description: 'Minimum match confidence (%) required to auto-accept a MusicBrainz match',
+      type: 'integer'
+    }
+
+,
+    {
+      name: 'max_candidates',
+      description: 'Maximum number of release candidates to consider per album',
+      type: 'integer'
+    }
+
+,
+    {
+      name: 'search_limit',
+      description: 'Maximum number of releases to fetch from MusicBrainz search',
+      type: 'integer'
     }
 
   ],

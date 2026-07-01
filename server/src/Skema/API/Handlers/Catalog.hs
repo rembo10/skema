@@ -1047,8 +1047,9 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             let albumName = fromMaybe "" (sqAlbum query)
 
             -- Use streaming search - emit each candidate as it's found
+            let minTrackCount = Cfg.slskdMinTrackCount slskdConfig
             resultCountRef <- IORef.newIORef (0 :: Int)
-            result <- searchSlskdStreaming logEnv client artistName albumName 60 $ \candidate -> do
+            result <- searchSlskdStreaming logEnv client artistName albumName 60 minTrackCount $ \candidate -> do
               let release = slskdCandidateToReleaseInfo candidate
               let response = releaseInfoToResponse indexerName release
               STM.atomically $ writeTChan chan (ReleaseFound response indexerName)
@@ -1099,7 +1100,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
               let client = createSlskdClient slskdConfig httpClient
               let artistName = fromMaybe "" (sqArtist query)
               let albumName = fromMaybe "" (sqAlbum query)
-              result <- searchSlskd le client artistName albumName
+              let minTrackCount = Cfg.slskdMinTrackCount slskdConfig
+              result <- searchSlskd le client artistName albumName minTrackCount
               case result of
                 Left err -> do
                   runKatipContextT le () "catalog.search" $ do

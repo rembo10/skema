@@ -345,6 +345,8 @@ data SlskdConfig = SlskdConfig
     -- ^ Whether slskd is enabled
   , slskdDownloadDirectory :: Text
     -- ^ Directory where slskd stores completed downloads
+  , slskdMinTrackCount :: Int
+    -- ^ Minimum track count for a slskd album candidate to be considered (default: 3)
   } deriving (Show, Eq, Generic)
 
 instance FromJSON SlskdConfig where
@@ -353,14 +355,16 @@ instance FromJSON SlskdConfig where
     apiKey <- o .: "api_key"
     enabled <- o .:? "enabled" .!= True
     downloadDir <- o .:? "download_directory" .!= "/downloads/slskd"
-    pure $ SlskdConfig url apiKey enabled downloadDir
+    minTrackCount <- o .:? "min_track_count" .!= 3
+    pure $ SlskdConfig url apiKey enabled downloadDir minTrackCount
 
 instance ToJSON SlskdConfig where
-  toJSON (SlskdConfig url apiKey enabled downloadDir) = object
+  toJSON (SlskdConfig url apiKey enabled downloadDir minTrackCount) = object
     [ "url" .= url
     , "api_key" .= apiKey
     , "enabled" .= enabled
     , "download_directory" .= downloadDir
+    , "min_track_count" .= minTrackCount
     ]
 
 -- | Download configuration.
@@ -385,6 +389,8 @@ data DownloadConfig = DownloadConfig
     -- ^ Move deleted files to trash instead of permanently deleting them
   , downloadTrashRetentionDays :: Int
     -- ^ Number of days to keep files in trash before permanent deletion (default: 30)
+  , downloadMaxSearchRetries :: Int
+    -- ^ Maximum automatic re-search attempts per album after a failed grab (default: 5)
   } deriving (Show, Eq, Generic)
 
 instance FromJSON DownloadConfig where
@@ -399,10 +405,11 @@ instance FromJSON DownloadConfig where
     replaceFiles <- o .:? "replace_library_files" .!= False
     useTrash <- o .:? "use_trash" .!= True
     trashRetentionDays <- o .:? "trash_retention_days" .!= 30
-    pure $ DownloadConfig nzbClient torrentClient slskdClient checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays
+    maxSearchRetries <- o .:? "max_search_retries" .!= 5
+    pure $ DownloadConfig nzbClient torrentClient slskdClient checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays maxSearchRetries
 
 instance ToJSON DownloadConfig where
-  toJSON (DownloadConfig nzbClient torrentClient slskdClient checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays) = object
+  toJSON (DownloadConfig nzbClient torrentClient slskdClient checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays maxSearchRetries) = object
     [ "nzb_client" .= nzbClient
     , "torrent_client" .= torrentClient
     , "slskd_client" .= slskdClient
@@ -413,6 +420,7 @@ instance ToJSON DownloadConfig where
     , "replace_library_files" .= replaceFiles
     , "use_trash" .= useTrash
     , "trash_retention_days" .= trashRetentionDays
+    , "max_search_retries" .= maxSearchRetries
     ]
 
 -- | MusicBrainz server selection.
@@ -452,6 +460,12 @@ data MusicBrainzConfig = MusicBrainzConfig
   , mbExcludeSecondaryTypes :: [Text]
     -- ^ Secondary types to exclude (e.g., ["Live", "Compilation"])
     -- Default: ["Live", "Compilation"] (no live or compilation albums)
+  , mbMatchMinConfidence :: Int
+    -- ^ Minimum match confidence percent (0-100) to auto-accept a MusicBrainz match (default: 35)
+  , mbMaxCandidates :: Int
+    -- ^ Maximum number of release candidates to consider during identification (default: 5)
+  , mbSearchLimit :: Int
+    -- ^ Maximum number of releases to fetch from MusicBrainz search (default: 20)
   } deriving (Show, Eq, Generic)
 
 instance FromJSON MusicBrainzConfig where
@@ -462,10 +476,13 @@ instance FromJSON MusicBrainzConfig where
     password <- o .:? "password"
     albumTypes <- o .:? "album_types" .!= []
     excludeSecondaryTypes <- o .:? "exclude_secondary_types" .!= ["Live", "Compilation"]
-    pure $ MusicBrainzConfig serverVal username password albumTypes excludeSecondaryTypes
+    matchMinConfidence <- o .:? "match_min_confidence" .!= 35
+    maxCandidates <- o .:? "max_candidates" .!= 5
+    searchLimit <- o .:? "search_limit" .!= 20
+    pure $ MusicBrainzConfig serverVal username password albumTypes excludeSecondaryTypes matchMinConfidence maxCandidates searchLimit
 
 instance ToJSON MusicBrainzConfig where
-  toJSON (MusicBrainzConfig serverVal username password albumTypes excludeSecondaryTypes) =
+  toJSON (MusicBrainzConfig serverVal username password albumTypes excludeSecondaryTypes matchMinConfidence maxCandidates searchLimit) =
     -- Use MusicBrainzServer's ToJSON instance to properly serialize all server types
     case toJSON serverVal of
       Object serverObj -> Object $ serverObj
@@ -473,11 +490,17 @@ instance ToJSON MusicBrainzConfig where
         & KM.insert "password" (toJSON password)
         & KM.insert "album_types" (toJSON albumTypes)
         & KM.insert "exclude_secondary_types" (toJSON excludeSecondaryTypes)
+        & KM.insert "match_min_confidence" (toJSON matchMinConfidence)
+        & KM.insert "max_candidates" (toJSON maxCandidates)
+        & KM.insert "search_limit" (toJSON searchLimit)
       _ -> object  -- Fallback (shouldn't happen)
         [ "username" .= username
         , "password" .= password
         , "album_types" .= albumTypes
         , "exclude_secondary_types" .= excludeSecondaryTypes
+        , "match_min_confidence" .= matchMinConfidence
+        , "max_candidates" .= maxCandidates
+        , "search_limit" .= searchLimit
         ]
 
 -- | Indexer configuration (Newznab/Torznab).
@@ -542,18 +565,22 @@ data IndexerConfig = IndexerConfig
     -- ^ Configured indexers
   , indexerSearchTimeout :: Int
     -- ^ Search timeout per indexer in seconds
+  , indexerMaxResultsPerIndexer :: Int
+    -- ^ Maximum number of results to request per indexer search (default: 50)
   } deriving (Show, Eq, Generic)
 
 instance FromJSON IndexerConfig where
   parseJSON = withObject "IndexerConfig" $ \o -> do
     idxList <- o .:? "list" .!= []
     timeout <- o .:? "search_timeout" .!= 30
-    pure $ IndexerConfig idxList timeout
+    maxResults <- o .:? "max_results_per_indexer" .!= 50
+    pure $ IndexerConfig idxList timeout maxResults
 
 instance ToJSON IndexerConfig where
-  toJSON (IndexerConfig idxList timeout) = object
+  toJSON (IndexerConfig idxList timeout maxResults) = object
     [ "list" .= idxList
     , "search_timeout" .= timeout
+    , "max_results_per_indexer" .= maxResults
     ]
 
 
@@ -738,6 +765,7 @@ defaultDownloadConfig = DownloadConfig
   , downloadReplaceLibraryFiles = False
   , downloadUseTrash = True
   , downloadTrashRetentionDays = 7
+  , downloadMaxSearchRetries = 5
   }
 
 -- | Default slskd configuration (disabled by default).
@@ -747,6 +775,7 @@ defaultSlskdConfig = SlskdConfig
   , slskdApiKey = ""
   , slskdEnabled = False
   , slskdDownloadDirectory = "/downloads/slskd"
+  , slskdMinTrackCount = 3
   }
 
 -- | Default indexer configuration with Bullet preconfigured.
@@ -767,6 +796,7 @@ defaultIndexerConfig = IndexerConfig
           }
       ]
   , indexerSearchTimeout = 30
+  , indexerMaxResultsPerIndexer = 50
   }
 
 -- | Default MusicBrainz configuration (official server).
@@ -777,6 +807,9 @@ defaultMusicBrainzConfig = MusicBrainzConfig
   , mbPassword = Nothing
   , mbAlbumTypes = ["Album"]  -- Studio albums only by default
   , mbExcludeSecondaryTypes = ["Live", "Compilation"]  -- Exclude live and compilation albums
+  , mbMatchMinConfidence = 35  -- 35% minimum confidence to auto-accept a match
+  , mbMaxCandidates = 5
+  , mbSearchLimit = 20
   }
 
 -- | Default media configuration.

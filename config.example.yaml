@@ -9,33 +9,35 @@ library:
   # Watch library directory for changes
   watch: true
   # Automatically scan library on interval
-  auto_scan: false
+  auto_scan: true
   # Minutes between automatic scans
   auto_scan_interval_mins: 60
   # Scan library when application starts
   auto_scan_on_startup: true
+  # When an album already in your library is discovered, automatically monitor it for quality upgrades
+  auto_upgrade_existing_albums: false
+  # Directory structure format for organizing files
+  path_format: {album_artist}/{album} [{year}]
+  # File naming format
+  file_format: {track:02} {artist} - {album} {year} - {title}.{ext}
   # Normalize featuring artist format in track titles
   normalize_featuring: false
   # Format to use for featuring artists
   normalize_featuring_to: feat.
-  # Directory structure format for organizing files
-  path_format: {album_artist}/{year} - {album}/
-  # File naming format
-  file_format: {if:multidisc|{disc:02}-}{track:02} - {title}.{ext}
 
 
 system:
   # System and paths configuration
   # Watch config file for changes and reload automatically
   watch_config_file: true
+  # Periodically check GitHub for new Skema releases
+  check_updates: true
   # SQLite database file path (default: skema.db in data directory)
   database_path: null
   # Data directory override (default: platform-specific)
   data_dir: null
   # Cache directory override (default: platform-specific)
   cache_dir: null
-  # Periodically check GitHub for new Skema releases
-  check_updates: true
 
 
 server:
@@ -44,16 +46,18 @@ server:
   host: 0.0.0.0
   # Server port
   port: 8182
+  # Username for API authentication (required)
+  username: null
+  # Password for API authentication (required, will be bcrypt hashed)
+  password: null
+  # API key for external access, sent via the X-API-Key header
+  api_key: null
   # Web root path for hosting at subpaths (e.g., /skema or /)
   web_root: /
   # JWT signing secret (auto-generated if not provided)
   jwt_secret: null
   # JWT token expiration time in hours
-  jwt_expiration_hours: 168
-  # Username for API authentication (required)
-  username: null
-  # Password for API authentication (required, will be bcrypt hashed)
-  password: null
+  jwt_expiration_hours: 24
 
 
 download:
@@ -68,17 +72,24 @@ download:
     api_key: your-api-key
     enabled: false
     download_directory: /downloads/slskd
+    min_track_count: 3
 
-  # Directory for completed downloads (before import)
-  directory: ./downloads
-  # How often to check for completed downloads (in seconds)
-  check_interval: 60
   # Automatically import completed downloads
   auto_import: true
+  # Delete old library files when upgrading to better quality
+  replace_library_files: false
   # Minimum seeders for torrents (null = no minimum)
-  min_seeders: 5
+  min_seeders: 1
   # Maximum download size in MB (null = no limit)
-  max_size: 1000
+  max_size_mb: null
+  # Maximum automatic re-search attempts per album after a failed grab
+  max_search_retries: 5
+  # Move deleted files to trash instead of permanently deleting them
+  use_trash: true
+  # Days to keep files in trash before permanent deletion
+  trash_retention_days: 7
+  # How often to check download clients for status updates (in seconds)
+  check_interval: 5
 
 
 indexers:
@@ -94,6 +105,8 @@ indexers:
 
   # Search timeout per indexer in seconds
   search_timeout: 30
+  # Maximum number of results to request per indexer search
+  max_results_per_indexer: 50
 
 
 musicbrainz:
@@ -110,6 +123,12 @@ musicbrainz:
   album_types: ["Album"]
   # Secondary types to exclude (e.g., Live, Compilation)
   exclude_secondary_types: ["Live", "Compilation"]
+  # Minimum match confidence (%) required to auto-accept a MusicBrainz match
+  match_min_confidence: 35
+  # Maximum number of release candidates to consider per album
+  max_candidates: 5
+  # Maximum number of releases to fetch from MusicBrainz search
+  search_limit: 20
 
 
 media:

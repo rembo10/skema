@@ -290,6 +290,7 @@ export interface LibraryConfig {
   auto_scan: boolean;
   auto_scan_interval_mins: number;
   auto_scan_on_startup: boolean;
+  auto_upgrade_existing_albums: boolean;
   normalize_featuring: boolean;
   normalize_featuring_to: string;
   path_format: string;
@@ -298,6 +299,7 @@ export interface LibraryConfig {
 
 export interface SystemConfig {
   watch_config_file: boolean;
+  check_updates: boolean;
   database_path: string | null;
   data_dir: string | null;
   cache_dir: string | null;
@@ -306,6 +308,7 @@ export interface SystemConfig {
 export interface ServerConfig {
   host: string;
   port: number;
+  web_root: string;
   username: string | null;
   password: string | null;
   jwt_secret: string | null;
@@ -321,6 +324,7 @@ export interface SlskdConfig {
   api_key: string;
   enabled: boolean;
   download_directory: string;
+  min_track_count: number;
 }
 
 export interface DownloadConfig {
@@ -329,21 +333,30 @@ export interface DownloadConfig {
   slskd_client: SlskdConfig | null;
   check_interval: number;
   auto_import: boolean;
+  replace_library_files: boolean;
   min_seeders: number | null;
-  max_size: number | null;
+  max_size_mb: number | null;
+  max_search_retries: number;
+  use_trash: boolean;
+  trash_retention_days: number;
 }
 
 export interface IndexersConfig {
   list: Indexer[];
   search_timeout: number;
+  max_results_per_indexer: number;
 }
 
 export interface MusicbrainzConfig {
   server: MusicBrainzServer;
+  custom_url?: string | null;
   username: string | null;
   password: string | null;
   album_types: string[];
   exclude_secondary_types: string[];
+  match_min_confidence: number;
+  max_candidates: number;
+  search_limit: number;
 }
 
 export interface MediaConfig {

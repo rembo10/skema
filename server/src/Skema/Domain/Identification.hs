@@ -29,7 +29,7 @@ module Skema.Domain.Identification
 import Skema.MusicBrainz.Types
 import Skema.Domain.Matching
 import Skema.Domain.Metadata (metadataRecordToMonatone)
-import Skema.Config.Types (LibraryConfig(..))
+import Skema.Config.Types (LibraryConfig(..), MusicBrainzConfig(..))
 import Skema.Database.Types (ClusterRecord(..), LibraryTrackMetadataRecord(..))
 import qualified Monatone.Metadata as M
 import Data.List (partition)
@@ -193,14 +193,16 @@ shouldRetryIdentification config now currentMbReleaseId lastIdentifiedAt =
         in lastTried <= retryThreshold  -- Retry if enough time has passed
       Nothing -> True  -- Never tried, should identify
 
--- | Build an IdentifyConfig from LibraryConfig.
+-- | Build an IdentifyConfig from the library and MusicBrainz config sections.
 --
--- Centralizes the config construction that was duplicated in 3 places.
-mkIdentifyConfig :: LibraryConfig -> IdentifyConfig
-mkIdentifyConfig libConfig = IdentifyConfig
-  { cfgMaxCandidates = 5
-  , cfgMinConfidence = 0.35
-  , cfgSearchLimit = 20
+-- Centralizes the config construction that was duplicated in 3 places. The
+-- matching knobs come from the MusicBrainz section; the featuring-normalization
+-- knobs come from the library section.
+mkIdentifyConfig :: LibraryConfig -> MusicBrainzConfig -> IdentifyConfig
+mkIdentifyConfig libConfig mbConfig = IdentifyConfig
+  { cfgMaxCandidates = mbMaxCandidates mbConfig
+  , cfgMinConfidence = fromIntegral (mbMatchMinConfidence mbConfig) / 100
+  , cfgSearchLimit = mbSearchLimit mbConfig
   , cfgNormalizeFeaturing = libraryNormalizeFeaturing libConfig
   , cfgNormalizeFeaturingTo = libraryNormalizeFeaturingTo libConfig
   , cfgRetryIntervalHours = 24

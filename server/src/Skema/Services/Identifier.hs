@@ -78,7 +78,7 @@ handleClustersGenerated IdentifierDeps{..} affectedIds = do
         $(logTM) InfoS $ logStr $ ("Identifying " <> show (length affectedIds) <> " albums with MusicBrainz" :: Text)
 
         -- Configure identification (before using it to filter clusters)
-        let identifyConfig = mkIdentifyConfig (library config)
+        let identifyConfig = mkIdentifyConfig (library config) (musicbrainz config)
 
         -- Emit IdentificationStarted
         liftIO $ publishAndLog bus le "identifier" $ IdentificationStarted

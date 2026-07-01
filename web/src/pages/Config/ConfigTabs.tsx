@@ -1,4 +1,4 @@
-import { Library, Settings, Server, Download, Search, Database, Bell } from 'lucide-react';
+import { Library, Settings, Server, Download, Search, Database, Image, Bell } from 'lucide-react';
 import type { TabId } from './useConfigState';
 
 interface Tab {
@@ -14,6 +14,7 @@ const tabs: Tab[] = [
   { id: 'download', label: 'Downloads', icon: Download },
   { id: 'indexers', label: 'Indexers', icon: Search },
   { id: 'musicbrainz', label: 'MusicBrainz', icon: Database },
+  { id: 'media', label: 'Media', icon: Image },
   { id: 'notifications', label: 'Notifications', icon: Bell },
 ];
 

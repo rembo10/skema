@@ -42,6 +42,23 @@ export function IndexersTab({
               Maximum time to wait for indexer search responses
             </p>
           </div>
+
+          <div>
+            <label htmlFor="indexers_max_results_per_indexer" className="block text-sm font-medium text-dark-text mb-2">
+              Max Results Per Indexer
+            </label>
+            <input
+              type="number"
+              id="indexers_max_results_per_indexer"
+              value={formData.indexers.max_results_per_indexer ?? 50}
+              onChange={(e) => onChange('indexers', 'max_results_per_indexer', parseInt(e.target.value))}
+              min="1"
+              className="input w-48"
+            />
+            <p className="mt-2 text-sm text-dark-text-secondary">
+              Maximum number of results to request from each indexer per search
+            </p>
+          </div>
         </div>
       </div>
 
