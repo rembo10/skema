@@ -28,9 +28,10 @@ import Skema.API.Handlers.Static (staticFileServer, frontendServer)
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import Skema.Auth (AuthStore, newAuthStore, checkAuthEnabled)
-import Skema.Auth.JWT (JWTSecret, getJWTSecret)
+import Skema.Auth.JWT (JWTSecret, getJWTSecret, validateJWT)
 import Skema.Database.Connection (ConnectionPool)
 import Skema.Config.Types (Config, ServerConfig)
+import qualified Skema.Config.Types as Cfg
 import qualified Skema.Config.Validation as CfgVal
 import Skema.Services.Registry (ServiceRegistry(..))
 import Skema.Events.Bus (EventBus)
@@ -38,12 +39,15 @@ import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
 import Servant
 import Network.Wai.Handler.Warp (runSettings, defaultSettings, setHost, setPort)
-import Network.Wai (Middleware, requestMethod, rawPathInfo, rawQueryString, responseStatus)
-import Network.HTTP.Types (statusCode)
+import Network.Wai (Middleware, Request, requestMethod, rawPathInfo, rawQueryString, responseStatus, requestHeaders, responseLBS)
+import Network.HTTP.Types (statusCode, status401)
+import Network.HTTP.Types.Header (hAuthorization)
+import qualified Data.ByteString as BS
+import qualified Data.Text.Encoding as TE
 import Katip
 import Control.Monad.Catch (catch)
 import qualified Control.Exception as E
-import Data.List (isInfixOf)
+import Data.List (isInfixOf, lookup)
 import Data.Time (getCurrentTime, diffUTCTime)
 import Skema.API.Handlers.Version (startUpdateChecker)
 import Control.Concurrent (threadDelay)
@@ -86,10 +90,67 @@ requestLoggingMiddleware le application req responseHandler = do
 
     responseHandler response
 
--- | WAI application with logging middleware.
+-- | Routes reachable without authentication.
+--
+-- These are either genuinely public (login, version, docs, config schema) or
+-- authenticated by a @?token=@ query parameter inside the handler, because
+-- @EventSource@ cannot send custom headers (the SSE streams).
+isPublicRequest :: Request -> Bool
+isPublicRequest req =
+  let path = rawPathInfo req
+      method = requestMethod req
+  in not ("/api/" `BS.isPrefixOf` path)                              -- static assets, images, SPA
+     || path `elem` publicApiPaths
+     || (method == "GET" && path == "/api/events")                   -- SSE (token-authed in handler)
+     || (method == "GET" && "/releases/stream" `BS.isSuffixOf` path) -- SSE (token-authed in handler)
+  where
+    publicApiPaths =
+      [ "/api/auth/status"
+      , "/api/auth/credentials"
+      , "/api/version"
+      , "/api/config/schema"
+      , "/api/docs"
+      , "/api/openapi.json"
+      ]
+
+-- | Central authentication middleware (default-deny for @/api@).
+--
+-- Authentication stays disabled until the user configures credentials, matching
+-- the first-run setup flow: while no credentials are set, every request passes
+-- through. Once credentials exist, any @/api@ request outside 'isPublicRequest'
+-- must present either a valid bearer JWT or the configured @X-API-Key@.
+--
+-- Enforcing auth here rather than per-handler means a route is closed by default
+-- — forgetting to wire auth into a new endpoint can no longer expose it.
+authMiddleware :: TVar Config -> JWTSecret -> Middleware
+authMiddleware configVar jwtSecret application req responseHandler = do
+  cfg <- Cfg.server <$> readTVarIO configVar
+  authEnabled <- checkAuthEnabled cfg
+  authorized <- if not authEnabled || isPublicRequest req
+    then pure True
+    else isAuthorized cfg
+  if authorized
+    then application req responseHandler
+    else responseHandler $ responseLBS status401 [] "Authorization header required"
+  where
+    isAuthorized cfg
+      | apiKeyMatches cfg = pure True
+      | otherwise = case bearerToken of
+          Nothing -> pure False
+          Just token -> either (const False) (const True) <$> validateJWT jwtSecret token
+
+    apiKeyMatches cfg = case (Cfg.serverApiKey cfg, lookup "X-API-Key" (requestHeaders req)) of
+      (Just expected, Just provided) -> TE.encodeUtf8 expected == provided
+      _ -> False
+
+    bearerToken =
+      decodeUtf8 <$> (lookup hAuthorization (requestHeaders req) >>= BS.stripPrefix "Bearer ")
+
+-- | WAI application with logging and central authentication middleware.
 app :: LogEnv -> EventBus -> AuthStore -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> FilePath -> TVar (Maybe LatestRelease) -> Application
 app le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir configPath latestVar =
   requestLoggingMiddleware le $
+  authMiddleware (srConfigVar registry) jwtSecret $
     serve (Proxy :: Proxy API) (server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir (srConfigVar registry) configPath latestVar)
 
 -- | Servant server.
