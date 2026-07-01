@@ -18,7 +18,7 @@ import Test.Tasty.HUnit
 import Servant (Handler, NoContent, (:<|>)(..))
 
 import Helpers.TestEnv (TestEnv(..), withTestEnv)
-import Helpers.Handler (dummyJWTSecret, runOk, runStatus)
+import Helpers.Handler (runOk, runStatus)
 
 import Skema.API.Handlers.QualityProfiles (qualityProfilesServer)
 import Skema.API.Types.QualityProfiles
@@ -58,10 +58,9 @@ data Handlers = Handlers
 -- | Wire the handlers to a test env (auth disabled → no auth header needed).
 mkHandlers :: TestEnv -> IO Handlers
 mkHandlers env = do
-  jwtSecret <- dummyJWTSecret
-  let server = qualityProfilesServer (Cfg.server Cfg.defaultConfig) jwtSecret (tePool env) (teConfigVar env)
+  let server = qualityProfilesServer (Cfg.server Cfg.defaultConfig) (tePool env)
       getAll :<|> getOne :<|> create :<|> update :<|> delete :<|> getDefault :<|> setDefault =
-        server Nothing
+        server
   pure Handlers
     { hGetAll = getAll
     , hGetOne = getOne
