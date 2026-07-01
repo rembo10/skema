@@ -23,7 +23,7 @@ import GHC.Generics ()
 import Servant
 
 -- | Acquisition API endpoints.
-type AcquisitionAPI = "acquisition" :> Header "Authorization" Text :>
+type AcquisitionAPI = "acquisition" :>
   ( "sources" :> Get '[JSON] [AcquisitionRuleResponse]
   :<|> "sources" :> ReqBody '[JSON] CreateRuleRequest :> PostCreated '[JSON] AcquisitionRuleResponse
   :<|> "sources" :> Capture "sourceId" Int64 :> ReqBody '[JSON] UpdateRuleRequest :> Put '[JSON] AcquisitionRuleResponse

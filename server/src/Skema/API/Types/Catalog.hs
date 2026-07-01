@@ -47,7 +47,7 @@ import Servant.API.EventStream (ServerSentEvents, ToServerEvent(..))
 import qualified Servant.API.EventStream as SSE
 
 -- | Catalog API endpoints.
-type CatalogAPI = "catalog" :> Header "Authorization" Text :>
+type CatalogAPI = "catalog" :>
   ( "tasks" :> ReqBody '[JSON] TaskRequest :> PostCreated '[JSON] TaskResponse
   :<|> "search" :> QueryParam' '[Required, Strict] "q" Text :> QueryParam "limit" Int :> Get '[JSON] CatalogQueryResponse
   :<|> "artists"

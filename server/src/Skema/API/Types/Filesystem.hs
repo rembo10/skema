@@ -17,7 +17,7 @@ import GHC.Generics ()
 import Servant
 
 -- | Filesystem browsing API endpoints.
-type FilesystemAPI = "filesystem" :> Header "Authorization" Text :>
+type FilesystemAPI = "filesystem" :>
   ( QueryParam "path" Text :> Get '[JSON] FilesystemBrowseResponse
   )
 

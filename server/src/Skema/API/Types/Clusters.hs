@@ -26,7 +26,7 @@ import GHC.Generics ()
 import Servant
 
 -- | Clusters API endpoints.
-type ClustersAPI = "clusters" :> Header "Authorization" Text :>
+type ClustersAPI = "clusters" :>
   ( "tasks" :> ReqBody '[JSON] TaskRequest :> PostCreated '[JSON] TaskResponse
   :<|> QueryParam "offset" Int
     :> QueryParam "limit" Int

@@ -157,19 +157,19 @@ app le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir c
 server :: LogEnv -> EventBus -> AuthStore -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> TVar Config -> FilePath -> TVar (Maybe LatestRelease) -> Server API
 server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir configVar configPath latestVar =
   ((authServer authStore jwtSecret configVar (srClock registry)
-   :<|> libraryServer le bus serverCfg jwtSecret registry tm connPool configVar
-   :<|> configServer le bus serverCfg jwtSecret connPool configVar configPath
+   :<|> libraryServer le bus serverCfg registry tm connPool configVar
+   :<|> configServer le bus serverCfg connPool configVar configPath
    :<|> configSchemaServer
-   :<|> diffsServer le bus serverCfg jwtSecret registry connPool configVar
-   :<|> clustersServer le bus serverCfg jwtSecret registry tm connPool configVar
-   :<|> statsServer serverCfg jwtSecret connPool configVar
-   :<|> acquisitionServer le bus serverCfg jwtSecret connPool configVar (srMBClientEnv registry) (srHttpClient registry) tm
+   :<|> diffsServer le bus serverCfg registry connPool
+   :<|> clustersServer le bus serverCfg registry tm connPool configVar
+   :<|> statsServer serverCfg connPool configVar
+   :<|> acquisitionServer le bus serverCfg connPool (srMBClientEnv registry) (srHttpClient registry) tm
    :<|> catalogServer le bus serverCfg jwtSecret registry tm connPool cacheDir configVar
-   :<|> downloadsServer le bus serverCfg jwtSecret registry tm connPool (srDownloadProgressMap registry) configVar
+   :<|> downloadsServer le bus serverCfg registry tm connPool (srDownloadProgressMap registry) configVar
    :<|> eventsServer le bus serverCfg jwtSecret connPool libPath configVar
-   :<|> filesystemServer serverCfg jwtSecret configVar
-   :<|> qualityProfilesServer serverCfg jwtSecret connPool configVar
-   :<|> tasksServer jwtSecret tm configVar)
+   :<|> filesystemServer serverCfg
+   :<|> qualityProfilesServer serverCfg connPool
+   :<|> tasksServer tm)
    :<|> versionServer latestVar
    :<|> (pure swaggerUiHtml :<|> pure openApiSpec))
   :<|> staticFileServer cacheDir

@@ -11,8 +11,6 @@ import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import Skema.API.Handlers.Utils (throw404, readConfig, parsePagination)
-import Skema.Auth (requireAuth)
-import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
 import Skema.Domain.Converters (downloadRecordToResponse)
 import qualified Skema.Database.Types as DBTypes
@@ -40,18 +38,16 @@ import qualified Control.Concurrent.STM as STM
 import qualified Data.Text as T
 
 -- | Downloads API handlers.
-downloadsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> STM.TVar (Map.Map Int64 (Double, Text)) -> TVar Cfg.Config -> Server DownloadsAPI
-downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap configVar = \maybeAuthHeader ->
-  taskHandler maybeAuthHeader
-  :<|> getAllDownloadsHandler maybeAuthHeader
-  :<|> getDownloadHandler maybeAuthHeader
-  :<|> queueDownloadHandler maybeAuthHeader
-  :<|> deleteDownloadHandler maybeAuthHeader
+downloadsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> ServiceRegistry -> TaskManager -> ConnectionPool -> STM.TVar (Map.Map Int64 (Double, Text)) -> TVar Cfg.Config -> Server DownloadsAPI
+downloadsServer le bus _serverCfg registry tm connPool progressMap configVar =
+  taskHandler
+  :<|> getAllDownloadsHandler
+  :<|> getDownloadHandler
+  :<|> queueDownloadHandler
+  :<|> deleteDownloadHandler
   where
-    taskHandler :: Maybe Text -> TaskRequest -> Handler TaskResponse
-    taskHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
-
+    taskHandler :: TaskRequest -> Handler TaskResponse
+    taskHandler req = do
       let downloadId = fromMaybe 0 (taskRequestResourceId req)
 
       -- Create task based on request type
@@ -152,10 +148,8 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
 
         _ -> throwError err400 { errBody = "Unknown task type" }
 
-    getAllDownloadsHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Handler DownloadsResponse
-    getAllDownloadsHandler authHeader maybeOffset maybeLimit = do
-      _ <- requireAuth configVar jwtSecret authHeader
-
+    getAllDownloadsHandler :: Maybe Int -> Maybe Int -> Handler DownloadsResponse
+    getAllDownloadsHandler maybeOffset maybeLimit = do
       let (offset, limit) = parsePagination maybeOffset maybeLimit
 
       (allDownloads, responses) <- liftIO $ withConnection connPool $ \conn -> do
@@ -194,9 +188,8 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
         , downloadsResponseDownloads = responses
         }
 
-    getDownloadHandler :: Maybe Text -> Int64 -> Handler DownloadResponse
-    getDownloadHandler authHeader downloadId = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    getDownloadHandler :: Int64 -> Handler DownloadResponse
+    getDownloadHandler downloadId = do
       maybeDownload <- liftIO $ withConnection connPool $ \conn ->
         DownloadsRepo.getDownloadById conn downloadId
       case maybeDownload of
@@ -214,10 +207,8 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
             Just displayStatus -> response { downloadResponseStatus = displayStatus }
             Nothing -> response
 
-    queueDownloadHandler :: Maybe Text -> QueueDownloadRequest -> Handler QueueDownloadResponse
-    queueDownloadHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
-
+    queueDownloadHandler :: QueueDownloadRequest -> Handler QueueDownloadResponse
+    queueDownloadHandler req = do
       -- Read current config from TVar
       config <- liftIO $ readConfig configVar
 
@@ -302,10 +293,8 @@ downloadsServer le bus _serverCfg jwtSecret registry tm connPool progressMap con
           , queueDownloadResponseMessage = Just "Failed to queue download - check logs for details"
           }
 
-    deleteDownloadHandler :: Maybe Text -> Int64 -> Handler NoContent
-    deleteDownloadHandler authHeader downloadId = do
-      _ <- requireAuth configVar jwtSecret authHeader
-
+    deleteDownloadHandler :: Int64 -> Handler NoContent
+    deleteDownloadHandler downloadId = do
       -- Look up the download to check if it's in progress
       maybeDownload <- liftIO $ withConnection connPool $ \conn ->
         DownloadsRepo.getDownloadById conn downloadId

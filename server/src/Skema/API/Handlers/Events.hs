@@ -14,7 +14,7 @@ import Skema.API.Types.Events (EventsAPI, ServerEvent(..), EventRequest(..), Eve
 import Skema.API.Types.Common (SourceIO)
 import Skema.API.Types.Library (LibraryStats(..))
 import Skema.API.Handlers.Utils (readConfig)
-import Skema.Auth (checkAuthEnabled, requireAuth)
+import Skema.Auth (checkAuthEnabled)
 import Skema.Auth.JWT (JWTSecret, validateJWT)
 import Skema.Database.Connection
 import Skema.Database.Repository (getLibraryStats)
@@ -58,10 +58,8 @@ eventsServer le bus _serverCfg jwtSecret connPool libPath configVar =
       pure $ streamEvents le bus connPool libPath
 
     -- POST /api/events - Submit events
-    postEventsHandler :: Maybe Text -> EventRequest -> Handler EventResponse
-    postEventsHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
-
+    postEventsHandler :: EventRequest -> Handler EventResponse
+    postEventsHandler req = do
       -- Parse and handle the event
       case eventRequestType req of
         "LibraryScanRequested" -> do

@@ -15,7 +15,6 @@ import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import qualified Skema.Domain.Catalog as Core
 import Skema.API.Handlers.Utils (throw400, throw404, throw500, readConfig, parsePagination)
-import Skema.Auth (requireAuth)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
@@ -50,25 +49,24 @@ import qualified Control.Concurrent.STM as STM
 
 -- | Catalog API handlers.
 catalogServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> FilePath -> TVar Cfg.Config -> Server CatalogAPI
-catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configVar = \maybeAuthHeader ->
-  taskHandler maybeAuthHeader
-  :<|> queryHandler maybeAuthHeader
-  :<|> getArtistsHandler maybeAuthHeader
-  :<|> getArtistHandler maybeAuthHeader
-  :<|> createArtistHandler maybeAuthHeader
-  :<|> updateArtistHandler maybeAuthHeader
-  :<|> deleteArtistHandler maybeAuthHeader
-  :<|> albumOverviewHandler maybeAuthHeader
-  :<|> createAlbumHandler maybeAuthHeader
-  :<|> updateAlbumHandler maybeAuthHeader
-  :<|> deleteAlbumHandler maybeAuthHeader
-  :<|> searchAlbumReleasesHandler maybeAuthHeader
+catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configVar =
+  taskHandler
+  :<|> queryHandler
+  :<|> getArtistsHandler
+  :<|> getArtistHandler
+  :<|> createArtistHandler
+  :<|> updateArtistHandler
+  :<|> deleteArtistHandler
+  :<|> albumOverviewHandler
+  :<|> createAlbumHandler
+  :<|> updateAlbumHandler
+  :<|> deleteAlbumHandler
+  :<|> searchAlbumReleasesHandler
   :<|> streamAlbumReleasesHandler
-  :<|> bulkActionHandler maybeAuthHeader
+  :<|> bulkActionHandler
   where
-    taskHandler :: Maybe Text -> TaskRequest -> Handler TaskResponse
-    taskHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    taskHandler :: TaskRequest -> Handler TaskResponse
+    taskHandler req = do
 
       -- Create task based on request type
       case taskRequestType req of
@@ -130,9 +128,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
         _ -> throwError err400 { errBody = "Unknown task type" }
     -- Universal search handler - searches both artists and albums
-    queryHandler :: Maybe Text -> Text -> Maybe Int -> Handler CatalogQueryResponse
-    queryHandler authHeader query maybeLimit = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    queryHandler :: Text -> Maybe Int -> Handler CatalogQueryResponse
+    queryHandler query maybeLimit = do
       let mbEnv = srMBClientEnv registry
       let limit = fromMaybe 10 maybeLimit
 
@@ -181,9 +178,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         }
 
     -- Get catalog artists
-    getArtistsHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Text -> Maybe Text -> Maybe Text -> Handler ArtistsResponse
-    getArtistsHandler authHeader maybeOffset maybeLimit maybeFollowed maybeSearch maybeSort maybeOrder = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    getArtistsHandler :: Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Text -> Maybe Text -> Maybe Text -> Handler ArtistsResponse
+    getArtistsHandler maybeOffset maybeLimit maybeFollowed maybeSearch maybeSort maybeOrder = do
 
       let (offset, limit) = parsePagination maybeOffset maybeLimit
 
@@ -230,9 +226,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         }
 
     -- Get single catalog artist by ID
-    getArtistHandler :: Maybe Text -> Int64 -> Handler CatalogArtistResponse
-    getArtistHandler authHeader artistId = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    getArtistHandler :: Int64 -> Handler CatalogArtistResponse
+    getArtistHandler artistId = do
 
       maybeArtist <- liftIO $ withConnection connPool $ \conn ->
         DB.getCatalogArtistById conn artistId
@@ -266,9 +261,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             }
 
     -- Create/upsert catalog artist
-    createArtistHandler :: Maybe Text -> CreateCatalogArtistRequest -> Handler CatalogArtistResponse
-    createArtistHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    createArtistHandler :: CreateCatalogArtistRequest -> Handler CatalogArtistResponse
+    createArtistHandler req = do
 
       -- Skip "Various Artists" - it's not a trackable artist
       when (DBTypes.isVariousArtists (createCatalogArtistMBID req)) $
@@ -331,9 +325,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           }
 
     -- Update catalog artist (followed status and quality profile)
-    updateArtistHandler :: Maybe Text -> Int64 -> UpdateCatalogArtistRequest -> Handler CatalogArtistResponse
-    updateArtistHandler authHeader artistId req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    updateArtistHandler :: Int64 -> UpdateCatalogArtistRequest -> Handler CatalogArtistResponse
+    updateArtistHandler artistId req = do
       liftIO $ withConnection connPool $ \conn ->
         DB.updateCatalogArtist conn artistId
           (updateCatalogArtistFollowed req)
@@ -363,17 +356,15 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           }
 
     -- Delete catalog artist
-    deleteArtistHandler :: Maybe Text -> Int64 -> Handler NoContent
-    deleteArtistHandler authHeader artistId = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    deleteArtistHandler :: Int64 -> Handler NoContent
+    deleteArtistHandler artistId = do
       liftIO $ withConnection connPool $ \conn ->
         DB.deleteCatalogArtist conn artistId
       pure NoContent
 
     -- Create/upsert catalog album
-    createAlbumHandler :: Maybe Text -> CreateCatalogAlbumRequest -> Handler CatalogAlbumResponse
-    createAlbumHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    createAlbumHandler :: CreateCatalogAlbumRequest -> Handler CatalogAlbumResponse
+    createAlbumHandler req = do
       let mbEnv = srMBClientEnv registry
 
       -- Resolve metadata: either from request fields or by looking up MusicBrainz
@@ -508,9 +499,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             }
 
     -- Update catalog album (wanted status and quality profile)
-    updateAlbumHandler :: Maybe Text -> Int64 -> UpdateCatalogAlbumRequest -> Handler CatalogAlbumResponse
-    updateAlbumHandler authHeader albumId req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    updateAlbumHandler :: Int64 -> UpdateCatalogAlbumRequest -> Handler CatalogAlbumResponse
+    updateAlbumHandler albumId req = do
 
       -- Fetch the album BEFORE updating to get current status
       maybeAlbumBefore <- liftIO $ withConnection connPool $ \conn ->
@@ -664,17 +654,15 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
                 }
 
     -- Delete catalog album
-    deleteAlbumHandler :: Maybe Text -> Int64 -> Handler NoContent
-    deleteAlbumHandler authHeader albumId = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    deleteAlbumHandler :: Int64 -> Handler NoContent
+    deleteAlbumHandler albumId = do
       liftIO $ withConnection connPool $ \conn ->
         DB.deleteCatalogAlbum conn albumId
       pure NoContent
 
     -- Get catalog albums with enhanced state information (replaces simple GET /albums)
-    albumOverviewHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler AlbumOverviewResponse
-    albumOverviewHandler authHeader maybeOffset maybeLimit _maybeWanted maybeArtistId maybeSearch maybeSort maybeOrder maybeStateFilter maybeQualityFilter maybeReleaseDateAfter maybeReleaseDateBefore maybeMBID = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    albumOverviewHandler :: Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler AlbumOverviewResponse
+    albumOverviewHandler maybeOffset maybeLimit _maybeWanted maybeArtistId maybeSearch maybeSort maybeOrder maybeStateFilter maybeQualityFilter maybeReleaseDateAfter maybeReleaseDateBefore maybeMBID = do
 
       let (offset, limit) = parsePagination maybeOffset maybeLimit
 
@@ -820,9 +808,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       _ -> Nothing
 
     -- Bulk operations on catalog albums
-    bulkActionHandler :: Maybe Text -> BulkAlbumActionRequest -> Handler NoContent
-    bulkActionHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    bulkActionHandler :: BulkAlbumActionRequest -> Handler NoContent
+    bulkActionHandler req = do
 
       let albumIds = bulkAlbumActionAlbumIds req
       let action = bulkAlbumActionAction req
@@ -881,9 +868,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       pure NoContent
 
     -- Search for available releases from indexers for a specific album
-    searchAlbumReleasesHandler :: Maybe Text -> Int64 -> Handler AlbumReleasesResponse
-    searchAlbumReleasesHandler authHeader albumId = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    searchAlbumReleasesHandler :: Int64 -> Handler AlbumReleasesResponse
+    searchAlbumReleasesHandler albumId = do
 
       -- Get the album from the database
       maybeAlbum <- liftIO $ withConnection connPool $ \conn ->

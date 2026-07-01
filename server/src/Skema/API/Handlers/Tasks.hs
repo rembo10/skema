@@ -6,33 +6,31 @@ module Skema.API.Handlers.Tasks
   ) where
 
 import Skema.API.Types.Tasks (TasksAPI)
+import Skema.API.Types.Tasks (TaskResponse)
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
-import Skema.Auth (requireAuth)
-import Skema.Auth.JWT (JWTSecret)
-import Skema.Config.Types (Config)
 import Servant
 
 -- | Global tasks API handlers.
-tasksServer :: JWTSecret -> TaskManager -> TVar Config -> Server TasksAPI
-tasksServer jwtSecret tm configVar = \maybeAuthHeader ->
-  listTasksHandler maybeAuthHeader
-  :<|> getTaskHandler maybeAuthHeader
-  :<|> cancelTaskHandler maybeAuthHeader
+tasksServer :: TaskManager -> Server TasksAPI
+tasksServer tm =
+  listTasksHandler
+  :<|> getTaskHandler
+  :<|> cancelTaskHandler
   where
-    listTasksHandler authHeader = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    listTasksHandler :: Handler [TaskResponse]
+    listTasksHandler =
       liftIO $ TM.getAllTasks tm Nothing Nothing
 
-    getTaskHandler authHeader taskId = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    getTaskHandler :: Text -> Handler TaskResponse
+    getTaskHandler taskId = do
       maybeTask <- liftIO $ TM.getTask tm taskId
       case maybeTask of
         Nothing -> throwError err404 { errBody = "Task not found" }
         Just task -> pure task
 
-    cancelTaskHandler authHeader taskId = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    cancelTaskHandler :: Text -> Handler NoContent
+    cancelTaskHandler taskId = do
       success <- liftIO $ TM.cancelTask tm taskId
       if success
         then pure NoContent

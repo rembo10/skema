@@ -22,14 +22,14 @@ import GHC.Generics ()
 import Servant
 
 -- | Metadata diffs API endpoints.
-type DiffsAPI = "diffs" :> Header "Authorization" Text :>
+type DiffsAPI = "diffs" :>
   ( Get '[JSON] [MetadataDiffResponse]
   :<|> "grouped"
     :> QueryParam "offset" Int
     :> QueryParam "limit" Int
     :> Get '[JSON] GroupedDiffsResponse
   )
-  :<|> "metadata-changes" :> Header "Authorization" Text :>
+  :<|> "metadata-changes" :>
   ( ReqBody '[JSON] ApplyChangesRequest :> PostCreated '[JSON] [MetadataChangeResponse]
   :<|> QueryParam "offset" Int
     :> QueryParam "limit" Int

@@ -12,8 +12,6 @@ import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import Skema.API.Handlers.Utils (throw404, throw500, readConfig, parsePagination)
-import Skema.Auth (requireAuth)
-import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
@@ -54,23 +52,22 @@ mbReleaseToCandidateRelease release = CandidateRelease
   }
 
 -- | Clusters API handlers.
-clustersServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> TVar Cfg.Config -> Server ClustersAPI
-clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \maybeAuthHeader ->
-  taskHandler maybeAuthHeader
-  :<|> getAllClustersHandler maybeAuthHeader
-  :<|> getClusterHandler maybeAuthHeader
-  :<|> getCandidatesHandler maybeAuthHeader
-  :<|> assignReleaseHandler maybeAuthHeader
-  :<|> removeReleaseHandler maybeAuthHeader
-  :<|> updateTrackRecordingHandler maybeAuthHeader
-  :<|> searchReleasesHandler maybeAuthHeader
-  :<|> searchRecordingsHandler maybeAuthHeader
-  :<|> createClusterHandler maybeAuthHeader
-  :<|> deleteClusterHandler maybeAuthHeader
+clustersServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> ServiceRegistry -> TaskManager -> ConnectionPool -> TVar Cfg.Config -> Server ClustersAPI
+clustersServer le bus _serverCfg registry tm connPool configVar =
+  taskHandler
+  :<|> getAllClustersHandler
+  :<|> getClusterHandler
+  :<|> getCandidatesHandler
+  :<|> assignReleaseHandler
+  :<|> removeReleaseHandler
+  :<|> updateTrackRecordingHandler
+  :<|> searchReleasesHandler
+  :<|> searchRecordingsHandler
+  :<|> createClusterHandler
+  :<|> deleteClusterHandler
   where
-    taskHandler :: Maybe Text -> TaskRequest -> Handler TaskResponse
-    taskHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    taskHandler :: TaskRequest -> Handler TaskResponse
+    taskHandler req = do
       config <- liftIO $ readConfig configVar
 
       let clusterId = fromMaybe 0 (taskRequestResourceId req)
@@ -167,9 +164,8 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
 
           pure taskResp
         _ -> throwError err400 { errBody = "Unknown task type" }
-    getAllClustersHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler ClustersResponse
-    getAllClustersHandler authHeader maybeOffset maybeLimit maybeSearch maybeFilter maybeSortField maybeOrder = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    getAllClustersHandler :: Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler ClustersResponse
+    getAllClustersHandler maybeOffset maybeLimit maybeSearch maybeFilter maybeSortField maybeOrder = do
       let (offset, limit) = parsePagination maybeOffset maybeLimit
       let searchQuery = maybeSearch
       let filterStatus = maybeFilter  -- "all", "matched", "unmatched", or "locked"
@@ -245,9 +241,8 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
                 _ -> EQ
           in if order == "desc" then case cmp of { LT -> GT; GT -> LT; EQ -> EQ } else cmp
 
-    getClusterHandler :: Maybe Text -> Int64 -> Handler ClusterWithTracksResponse
-    getClusterHandler authHeader clusterId = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    getClusterHandler :: Int64 -> Handler ClusterWithTracksResponse
+    getClusterHandler clusterId = do
       maybeResult <- liftIO $ withConnection connPool $ \conn ->
         DB.getClusterWithTracks conn clusterId
       case maybeResult of
@@ -296,9 +291,8 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
             , clusterWithTracksMBTracks = mbTracks
             }
 
-    getCandidatesHandler :: Maybe Text -> Int64 -> Handler [CandidateRelease]
-    getCandidatesHandler authHeader clusterId = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    getCandidatesHandler :: Int64 -> Handler [CandidateRelease]
+    getCandidatesHandler clusterId = do
       maybeCluster <- liftIO $ withConnection connPool $ \conn ->
         DB.getClusterById conn clusterId
       case maybeCluster of
@@ -315,9 +309,8 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
               -- Convert MBRelease to CandidateRelease format
               pure $ map mbReleaseToCandidateRelease releases
 
-    assignReleaseHandler :: Maybe Text -> Int64 -> AssignReleaseRequest -> Handler ClusterResponse
-    assignReleaseHandler authHeader clusterId req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    assignReleaseHandler :: Int64 -> AssignReleaseRequest -> Handler ClusterResponse
+    assignReleaseHandler clusterId req = do
       let mbEnv = srMBClientEnv registry
       let idText = assignReleaseId req
 
@@ -350,16 +343,14 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
                 Just (_, _, metadata, _, _) -> Just metadata
           pure $ clusterToResponse cluster firstTrackMeta
 
-    removeReleaseHandler :: Maybe Text -> Int64 -> Handler NoContent
-    removeReleaseHandler authHeader clusterId = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    removeReleaseHandler :: Int64 -> Handler NoContent
+    removeReleaseHandler clusterId = do
       liftIO $ withConnection connPool $ \conn ->
         DB.clearClusterRelease conn clusterId False
       pure NoContent
 
-    updateTrackRecordingHandler :: Maybe Text -> Int64 -> Int64 -> UpdateTrackRecordingRequest -> Handler NoContent
-    updateTrackRecordingHandler authHeader clusterId trackId req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    updateTrackRecordingHandler :: Int64 -> Int64 -> UpdateTrackRecordingRequest -> Handler NoContent
+    updateTrackRecordingHandler clusterId trackId req = do
       let recordingId = updateRecordingId req
       let recordingTitle = updateRecordingTitle req
       trackCount <- liftIO $ withConnection connPool $ \conn -> do
@@ -381,9 +372,8 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
 
       pure NoContent
 
-    searchReleasesHandler :: Maybe Text -> Text -> Maybe Int -> Handler [CandidateRelease]
-    searchReleasesHandler authHeader query maybeLimit = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    searchReleasesHandler :: Text -> Maybe Int -> Handler [CandidateRelease]
+    searchReleasesHandler query maybeLimit = do
       let mbEnv = srMBClientEnv registry
       let limit = fromMaybe 10 maybeLimit
 
@@ -395,9 +385,8 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
           -- Convert MBRelease to CandidateRelease
           pure $ map mbReleaseToCandidateRelease (mbSearchReleases searchResp)
 
-    searchRecordingsHandler :: Maybe Text -> Text -> Maybe Int -> Handler [MBTrackInfo]
-    searchRecordingsHandler authHeader query maybeLimit = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    searchRecordingsHandler :: Text -> Maybe Int -> Handler [MBTrackInfo]
+    searchRecordingsHandler query maybeLimit = do
       let mbEnv = srMBClientEnv registry
       let limit = fromMaybe 25 maybeLimit
 
@@ -419,9 +408,8 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
           , mbTrackInfoDiscNumber = 1
           }
 
-    createClusterHandler :: Maybe Text -> CreateClusterRequest -> Handler ClusterResponse
-    createClusterHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    createClusterHandler :: CreateClusterRequest -> Handler ClusterResponse
+    createClusterHandler req = do
       let trackIds = createClusterTrackIds req
       let album = createClusterAlbum req
       let albumArtist = createClusterAlbumArtist req
@@ -442,12 +430,11 @@ clustersServer le bus _serverCfg jwtSecret registry tm connPool configVar = \may
         pure cid
 
       -- Return the new cluster
-      getClusterHandler authHeader newClusterId >>= \resp ->
+      getClusterHandler newClusterId >>= \resp ->
         pure (clusterWithTracksCluster resp)
 
-    deleteClusterHandler :: Maybe Text -> Int64 -> Maybe Int64 -> Handler NoContent
-    deleteClusterHandler authHeader clusterId maybeMergeInto = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    deleteClusterHandler :: Int64 -> Maybe Int64 -> Handler NoContent
+    deleteClusterHandler clusterId maybeMergeInto = do
 
       -- Get all tracks in this cluster
       maybeResult <- liftIO $ withConnection connPool $ \conn ->

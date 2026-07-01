@@ -6,21 +6,17 @@ module Skema.API.Handlers.Filesystem
   ) where
 
 import Skema.API.Types.Filesystem (FilesystemAPI, FilesystemBrowseResponse)
-import Skema.Auth (requireAuth)
-import Skema.Auth.JWT (JWTSecret)
 import qualified Skema.Config.Types as Cfg
 import Skema.FileSystem.Browser (browsePath)
 import Servant
 
 -- | Filesystem API handlers.
-filesystemServer :: Cfg.ServerConfig -> JWTSecret -> TVar Cfg.Config -> Server FilesystemAPI
-filesystemServer _serverCfg jwtSecret configVar = \maybeAuthHeader ->
-  browseHandler maybeAuthHeader
+filesystemServer :: Cfg.ServerConfig -> Server FilesystemAPI
+filesystemServer _serverCfg =
+  browseHandler
   where
-    browseHandler :: Maybe Text -> Maybe Text -> Handler FilesystemBrowseResponse
-    browseHandler authHeader maybePath = do
-      _ <- requireAuth configVar jwtSecret authHeader
-
+    browseHandler :: Maybe Text -> Handler FilesystemBrowseResponse
+    browseHandler maybePath = do
       let path = fromMaybe "/" maybePath
 
       -- Convert Text path to FilePath

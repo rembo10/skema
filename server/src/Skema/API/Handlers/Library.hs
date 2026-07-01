@@ -5,13 +5,11 @@ module Skema.API.Handlers.Library
   ( libraryServer
   ) where
 
-import Skema.API.Types.Library (LibraryAPI, UpdateTrackRequest(..), TracksResponse(..), TracksPagination(..), TracksStats(..))
+import Skema.API.Types.Library (LibraryAPI, UpdateTrackRequest(..), TracksResponse(..), TracksPagination(..), TracksStats(..), FileInfo(..))
 import Skema.API.Types.Tasks (TaskRequest(..), TaskResource(..))
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import Skema.API.Handlers.Utils (readConfig, parsePagination)
-import Skema.Auth (requireAuth)
-import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
 import Database.SQLite.Simple (Only(..))
 import qualified Skema.Config.Types as Cfg
@@ -28,16 +26,16 @@ import Skema.API.Types.Tasks (TaskResponse(..))
 import qualified Data.Text as T
 
 -- | Library API handlers.
-libraryServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> TVar Cfg.Config -> Server LibraryAPI
-libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAuthHeader ->
-  taskHandler maybeAuthHeader
-  :<|> filesHandler maybeAuthHeader
-  :<|> tracksHandler maybeAuthHeader
-  :<|> tracksStatsHandler maybeAuthHeader
-  :<|> updateTrackHandler maybeAuthHeader
+libraryServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> ServiceRegistry -> TaskManager -> ConnectionPool -> TVar Cfg.Config -> Server LibraryAPI
+libraryServer le bus _serverCfg _registry tm pool configVar =
+  taskHandler
+  :<|> filesHandler
+  :<|> tracksHandler
+  :<|> tracksStatsHandler
+  :<|> updateTrackHandler
   where
-    taskHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    taskHandler :: TaskRequest -> Handler TaskResponse
+    taskHandler req = do
       config <- liftIO $ readConfig configVar
 
       -- Create task based on request type
@@ -72,14 +70,13 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
           pure taskResp
         _ -> throwError err400 { errBody = "Unknown task type" }
 
-    filesHandler authHeader = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    filesHandler :: Handler [FileInfo]
+    filesHandler =
       -- TODO: Fetch from database
       pure []
 
-    tracksHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler TracksResponse
-    tracksHandler authHeader maybeOffset maybeLimit maybeFilter maybeSort maybeOrder maybeSearch = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    tracksHandler :: Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler TracksResponse
+    tracksHandler maybeOffset maybeLimit maybeFilter maybeSort maybeOrder maybeSearch = do
       let (offset, limit) = parsePagination maybeOffset maybeLimit
       let filterStatus = fromMaybe "all" maybeFilter
       let sortField = fromMaybe "album" maybeSort
@@ -158,10 +155,8 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
           , tracksResponseTracks = tracks
           }
 
-    tracksStatsHandler :: Maybe Text -> Handler TracksStats
-    tracksStatsHandler authHeader = do
-      _ <- requireAuth configVar jwtSecret authHeader
-
+    tracksStatsHandler :: Handler TracksStats
+    tracksStatsHandler =
       liftIO $ withConnection pool $ \conn -> do
         -- Get total count
         [Only total] <- queryRows conn
@@ -191,9 +186,8 @@ libraryServer le bus _serverCfg jwtSecret _registry tm pool configVar = \maybeAu
           , tracksStatsLocked = locked
           }
 
-    updateTrackHandler :: Maybe Text -> Int64 -> UpdateTrackRequest -> Handler NoContent
-    updateTrackHandler authHeader trackId req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    updateTrackHandler :: Int64 -> UpdateTrackRequest -> Handler NoContent
+    updateTrackHandler trackId req = do
       liftIO $ withConnection pool $ \conn ->
         executeQuery conn
           "UPDATE library_tracks SET cluster_id = ? WHERE id = ?"

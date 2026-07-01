@@ -8,8 +8,6 @@ module Skema.API.Handlers.Stats
 
 import Skema.API.Types.Library (StatsAPI, LibraryStats(..))
 import Skema.API.Handlers.Utils (readConfig)
-import Skema.Auth (requireAuth)
-import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
 import Skema.Database.Repository
 import qualified Skema.Config.Types as Cfg
@@ -17,9 +15,8 @@ import Skema.FileSystem.Utils (osPathToString)
 import Servant
 
 -- | Stats API handler.
-statsServer :: Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> TVar Cfg.Config -> Server StatsAPI
-statsServer _serverCfg jwtSecret connPool configVar = \maybeAuthHeader -> do
-  _ <- requireAuth configVar jwtSecret maybeAuthHeader
+statsServer :: Cfg.ServerConfig -> ConnectionPool -> TVar Cfg.Config -> Server StatsAPI
+statsServer _serverCfg connPool configVar =
   liftIO $ withConnection connPool $ \conn -> do
     (totalFiles, totalAlbums, totalArtists, matchedFiles, unmatchedFiles, accuracy, totalDiffs, totalSize, totalRuntime, catalogInLibrary, catalogWanted) <- getLibraryStats conn
 

@@ -8,9 +8,7 @@ module Skema.API.Handlers.Acquisition
 
 import Skema.API.Types.Acquisition (AcquisitionAPI, AcquisitionRuleResponse(..), AcquisitionSummaryResponse(..), SourceStatsResponse(..), CreateRuleRequest(..), UpdateRuleRequest(..))
 import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..))
-import Skema.API.Handlers.Utils (throw400, withAuthDB)
-import Skema.Auth (requireAuth)
-import Skema.Auth.JWT (JWTSecret)
+import Skema.API.Handlers.Utils (throw400, withDB)
 import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
@@ -30,18 +28,18 @@ import Katip (LogEnv)
 import Data.Time (UTCTime)
 
 -- | Acquisition API handlers.
-acquisitionServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> TVar Cfg.Config -> MBClientEnv -> HttpClient -> TaskManager -> Server AcquisitionAPI
-acquisitionServer le bus _serverCfg jwtSecret connPool configVar mbClient httpClient tm = \maybeAuthHeader ->
-  getRulesHandler maybeAuthHeader
-  :<|> createRuleHandler maybeAuthHeader
-  :<|> updateRuleHandler maybeAuthHeader
-  :<|> deleteRuleHandler maybeAuthHeader
-  :<|> taskHandler maybeAuthHeader
-  :<|> getSummaryHandler maybeAuthHeader
+acquisitionServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> ConnectionPool -> MBClientEnv -> HttpClient -> TaskManager -> Server AcquisitionAPI
+acquisitionServer le bus _serverCfg connPool mbClient httpClient tm =
+  getRulesHandler
+  :<|> createRuleHandler
+  :<|> updateRuleHandler
+  :<|> deleteRuleHandler
+  :<|> taskHandler
+  :<|> getSummaryHandler
   where
-    getRulesHandler :: Maybe Text -> Handler [AcquisitionRuleResponse]
-    getRulesHandler authHeader =
-      withAuthDB configVar jwtSecret connPool authHeader $ \conn -> do
+    getRulesHandler :: Handler [AcquisitionRuleResponse]
+    getRulesHandler =
+      withDB connPool $ \conn -> do
         sources <- DB.getAllAcquisitionRules conn
         forM sources $ \source -> pure $ AcquisitionRuleResponse
           { acquisitionRuleResponseId = fromMaybe 0 (DBTypes.sourceId source)
@@ -55,9 +53,8 @@ acquisitionServer le bus _serverCfg jwtSecret connPool configVar mbClient httpCl
           , acquisitionRuleResponseUpdatedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.sourceUpdatedAt source)
           }
 
-    createRuleHandler :: Maybe Text -> CreateRuleRequest -> Handler AcquisitionRuleResponse
-    createRuleHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    createRuleHandler :: CreateRuleRequest -> Handler AcquisitionRuleResponse
+    createRuleHandler req = do
       -- Parse and validate source type
       sourceType <- case DBUtils.textToSourceType (createRuleType req) of
         Nothing -> throw400 $ "Invalid source type: " <> createRuleType req
@@ -87,9 +84,8 @@ acquisitionServer le bus _serverCfg jwtSecret connPool configVar mbClient httpCl
         , acquisitionRuleResponseUpdatedAt = ""  -- Will be set by database
         }
 
-    updateRuleHandler :: Maybe Text -> Int64 -> UpdateRuleRequest -> Handler AcquisitionRuleResponse
-    updateRuleHandler authHeader sourceId req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    updateRuleHandler :: Int64 -> UpdateRuleRequest -> Handler AcquisitionRuleResponse
+    updateRuleHandler sourceId req = do
       -- Parse and validate source type
       sourceType <- case DBUtils.textToSourceType (updateRuleType req) of
         Nothing -> throw400 $ "Invalid source type: " <> updateRuleType req
@@ -120,16 +116,14 @@ acquisitionServer le bus _serverCfg jwtSecret connPool configVar mbClient httpCl
         , acquisitionRuleResponseUpdatedAt = ""  -- Will be set by database
         }
 
-    deleteRuleHandler :: Maybe Text -> Int64 -> Handler NoContent
-    deleteRuleHandler authHeader sourceId = do
-      withAuthDB configVar jwtSecret connPool authHeader $ \conn ->
+    deleteRuleHandler :: Int64 -> Handler NoContent
+    deleteRuleHandler sourceId = do
+      withDB connPool $ \conn ->
         DB.deleteAcquisitionRule conn sourceId
       pure NoContent
 
-    taskHandler :: Maybe Text -> TaskRequest -> Handler TaskResponse
-    taskHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
-
+    taskHandler :: TaskRequest -> Handler TaskResponse
+    taskHandler req = do
       case taskRequestType req of
         "evaluate" -> liftIO $ do
           let sid = fromMaybe 0 (taskRequestResourceId req)
@@ -159,9 +153,9 @@ acquisitionServer le bus _serverCfg jwtSecret connPool configVar mbClient httpCl
 
         _ -> throwError err400 { errBody = "Unknown task type" }
 
-    getSummaryHandler :: Maybe Text -> Handler AcquisitionSummaryResponse
-    getSummaryHandler authHeader =
-      withAuthDB configVar jwtSecret connPool authHeader $ \conn -> do
+    getSummaryHandler :: Handler AcquisitionSummaryResponse
+    getSummaryHandler =
+      withDB connPool $ \conn -> do
         (perSource, totalArtists, totalWanted) <- DB.getAcquisitionSummary conn
         pure $ AcquisitionSummaryResponse
           { acquisitionSummaryResponseSources = map (\(sid, ac, alc) ->

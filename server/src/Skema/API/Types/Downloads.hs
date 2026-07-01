@@ -22,7 +22,7 @@ import GHC.Generics ()
 import Servant
 
 -- | Downloads API endpoints.
-type DownloadsAPI = "downloads" :> Header "Authorization" Text :>
+type DownloadsAPI = "downloads" :>
   ( "tasks" :> ReqBody '[JSON] TaskRequest :> PostCreated '[JSON] TaskResponse
   :<|> QueryParam "offset" Int
     :> QueryParam "limit" Int

@@ -6,9 +6,7 @@ module Skema.API.Handlers.Diffs
   ) where
 
 import Skema.API.Types.Diffs (DiffsAPI, MetadataDiffResponse(..), GroupedDiffResponse(..), GroupedDiffsResponse(..), DiffsPagination(..), ApplyChangesRequest(..), MetadataChangeResponse(..), MetadataChangesResponse(..))
-import Skema.API.Handlers.Utils (throw500, parsePagination, withAuthDB)
-import Skema.Auth (requireAuth)
-import Skema.Auth.JWT (JWTSecret)
+import Skema.API.Handlers.Utils (throw500, parsePagination, withDB)
 import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
@@ -24,21 +22,19 @@ import Katip
 import Data.Time (UTCTime)
 
 -- | Diffs API handlers (includes both diffs and metadata-changes endpoints).
-diffsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> ConnectionPool -> TVar Cfg.Config -> Server DiffsAPI
-diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
-  (\maybeAuthHeader ->
-    getAllDiffsHandler maybeAuthHeader
-    :<|> getGroupedDiffsHandler maybeAuthHeader)
+diffsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> ServiceRegistry -> ConnectionPool -> Server DiffsAPI
+diffsServer le bus _serverCfg _registry connPool =
+  ( getAllDiffsHandler
+    :<|> getGroupedDiffsHandler)
   :<|>
-  (\maybeAuthHeader ->
-    applyChangesHandler maybeAuthHeader
-    :<|> getChangesHandler maybeAuthHeader
-    :<|> revertChangeHandler maybeAuthHeader)
+  ( applyChangesHandler
+    :<|> getChangesHandler
+    :<|> revertChangeHandler)
   where
     -- Diffs handlers
-    getAllDiffsHandler :: Maybe Text -> Handler [MetadataDiffResponse]
-    getAllDiffsHandler authHeader =
-      withAuthDB configVar jwtSecret connPool authHeader $ \conn -> do
+    getAllDiffsHandler :: Handler [MetadataDiffResponse]
+    getAllDiffsHandler =
+      withDB connPool $ \conn -> do
         diffs <- DB.getAllMetadataDiffs conn
         forM diffs $ \(diff, path) -> do
           pathStr <- osPathToString path
@@ -52,9 +48,8 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
             , diffCreatedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.diffCreatedAt diff)
             }
 
-    getGroupedDiffsHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Handler GroupedDiffsResponse
-    getGroupedDiffsHandler authHeader maybeOffset maybeLimit = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    getGroupedDiffsHandler :: Maybe Int -> Maybe Int -> Handler GroupedDiffsResponse
+    getGroupedDiffsHandler maybeOffset maybeLimit = do
       let (offset, limit) = parsePagination maybeOffset maybeLimit
 
       liftIO $ withConnection connPool $ \conn -> do
@@ -100,9 +95,8 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
           }
 
     -- Metadata changes handlers
-    applyChangesHandler :: Maybe Text -> ApplyChangesRequest -> Handler [MetadataChangeResponse]
-    applyChangesHandler authHeader req = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    applyChangesHandler :: ApplyChangesRequest -> Handler [MetadataChangeResponse]
+    applyChangesHandler req = do
       let diffIds = applyChangesDiffIds req
 
       -- Publish MetadataWriteRequested event for async processing
@@ -113,9 +107,8 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
       -- Return empty list immediately - client will receive updates via SSE
       pure []
 
-    getChangesHandler :: Maybe Text -> Maybe Int -> Maybe Int -> Handler MetadataChangesResponse
-    getChangesHandler authHeader maybeOffset maybeLimit = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    getChangesHandler :: Maybe Int -> Maybe Int -> Handler MetadataChangesResponse
+    getChangesHandler maybeOffset maybeLimit = do
       let (offset, limit) = parsePagination maybeOffset maybeLimit
 
       liftIO $ withConnection connPool $ \conn -> do
@@ -145,9 +138,8 @@ diffsServer le bus _serverCfg jwtSecret _registry connPool configVar =
           , metadataChangesResponseChanges = paginated
           }
 
-    revertChangeHandler :: Maybe Text -> Int64 -> Handler NoContent
-    revertChangeHandler authHeader changeId = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    revertChangeHandler :: Int64 -> Handler NoContent
+    revertChangeHandler changeId = do
       result <- liftIO $ DB.revertMetadataChange connPool changeId
       case result of
         Left err -> throw500 $ "Failed to revert change: " <> err

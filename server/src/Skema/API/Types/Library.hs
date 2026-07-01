@@ -25,7 +25,7 @@ import Servant
 import Database.SQLite.Simple.FromRow (FromRow(..), field)
 
 -- | Library management endpoints.
-type LibraryAPI = "library" :> Header "Authorization" Text :>
+type LibraryAPI = "library" :>
   ( "tasks" :> ReqBody '[JSON] TaskRequest :> PostCreated '[JSON] TaskResponse
   :<|> "files" :> Get '[JSON] [FileInfo]
   :<|> "tracks"
@@ -41,7 +41,7 @@ type LibraryAPI = "library" :> Header "Authorization" Text :>
   )
 
 -- | Stats API endpoints.
-type StatsAPI = "stats" :> Header "Authorization" Text :> Get '[JSON] LibraryStats
+type StatsAPI = "stats" :> Get '[JSON] LibraryStats
 
 -- | File information for API responses.
 data FileInfo = FileInfo

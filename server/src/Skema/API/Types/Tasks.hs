@@ -42,7 +42,7 @@ instance ToSchema TaskRequest where
   declareNamedSchema = genericDeclareNamedSchema (schemaOptions 11)
 
 -- | Global tasks API endpoints.
-type TasksAPI = "tasks" :> Header "Authorization" Text :>
+type TasksAPI = "tasks" :>
   ( Get '[JSON] [TaskResponse]
   :<|> Capture "taskId" Text :> Get '[JSON] TaskResponse
   :<|> Capture "taskId" Text :> DeleteNoContent

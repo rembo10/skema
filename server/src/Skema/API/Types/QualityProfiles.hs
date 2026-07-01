@@ -18,7 +18,7 @@ import GHC.Generics ()
 import Servant
 
 -- | Quality profiles API endpoints.
-type QualityProfilesAPI = "quality-profiles" :> Header "Authorization" Text :>
+type QualityProfilesAPI = "quality-profiles" :>
   ( Get '[JSON] [QualityProfile]
   :<|> Capture "profileId" Int64 :> Get '[JSON] QualityProfile
   :<|> ReqBody '[JSON] CreateQualityProfileRequest :> PostCreated '[JSON] QualityProfile

@@ -28,12 +28,12 @@ import Servant.API.EventStream (ServerSentEvents, ToServerEvent(..))
 import qualified Servant.API.EventStream as SSE
 
 -- | Server-sent events API.
--- GET: Stream events via SSE (requires JWT as query parameter)
--- POST: Submit events to the event bus (requires Authorization header)
+-- GET: Stream events via SSE (requires JWT as query parameter, validated in handler)
+-- POST: Submit events to the event bus (auth enforced by middleware)
 type EventsAPI =
   "events" :>
     ( QueryParam "token" Text :> ServerSentEvents (SourceIO ServerEvent)
-    :<|> Header "Authorization" Text :> ReqBody '[JSON] EventRequest :> Post '[JSON] EventResponse
+    :<|> ReqBody '[JSON] EventRequest :> Post '[JSON] EventResponse
     )
 
 -- | Image proxy API for caching and serving external images.

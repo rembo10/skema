@@ -11,8 +11,7 @@ module Skema.API.Handlers.Config
 
 import Skema.API.Types.Config (ConfigAPI, ConfigSchemaAPI)
 import Skema.API.Handlers.Utils (throw400, throw500, readConfig)
-import Skema.Auth (requireAuth)
-import Skema.Auth.JWT (JWTSecret, generateApiKey)
+import Skema.Auth.JWT (generateApiKey)
 import Skema.Database.Connection
 import Skema.Config.Discovery (saveConfigToFile)
 import Skema.Config.Schema (schemaToJSON, allSchemas)
@@ -28,23 +27,18 @@ import Data.Aeson (Value(..), object, (.=))
 import qualified Data.Aeson.KeyMap as KM
 
 -- | Config API handlers.
-configServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> TVar Cfg.Config -> FilePath -> Server ConfigAPI
-configServer le bus _serverCfg jwtSecret _connPool configVar configPath =
-  authProtectedHandlers
+configServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> ConnectionPool -> TVar Cfg.Config -> FilePath -> Server ConfigAPI
+configServer le bus _serverCfg _connPool configVar configPath =
+  getConfigHandler
+  :<|> updateConfigHandler
   :<|> generateApiKeyHandler
   :<|> revokeApiKeyHandler
   where
-    authProtectedHandlers maybeAuthHeader =
-      getConfigHandler maybeAuthHeader
-      :<|> updateConfigHandler maybeAuthHeader
-
-    getConfigHandler authHeader = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    getConfigHandler = do
       cfg <- liftIO $ readConfig configVar
       liftIO $ configToAPIJSON cfg
 
-    updateConfigHandler authHeader updateValue = do
-      _ <- requireAuth configVar jwtSecret authHeader
+    updateConfigHandler updateValue = do
       currentCfg <- liftIO $ readConfig configVar
 
       -- Extract password from update if present, and hash it
