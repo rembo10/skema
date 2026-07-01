@@ -151,27 +151,19 @@ handleCatalogArtistFollowed CatalogDeps{..} artistMBID artistName = do
                           -- Album already exists, skip (catalog is already up to date)
                           $(logTM) DebugS $ logStr $ ("Album already in catalog: " <> title :: Text)
                         Nothing -> do
-                          -- New album - add to catalog (wanted status derived from quality profile)
+                          -- New album - add to catalog. The catalog only records that the
+                          -- album exists; the Acquisition service (listening for
+                          -- CatalogAlbumAdded) owns the wanted decision and applies the
+                          -- LibraryArtists release-status filter. Assigning a quality
+                          -- profile here would bypass that filter and want every release.
                           albumId <- liftIO $ withConnection pool $ \conn ->
                             upsertCatalogAlbum conn rgId title artistId artistMBID artistName albumType firstReleaseDate
 
-                          -- Resolve quality profile: artist > default (no source for catalog refresh)
-                          resolvedProfileId <- liftIO $ withConnection pool $ \conn ->
-                            resolveQualityProfileId conn Nothing (Just artistId) Nothing
-
-                          -- Set the resolved profile on the album
-                          case resolvedProfileId of
-                            Just _pid -> liftIO $ withConnection pool $ \conn ->
-                              updateCatalogAlbum conn albumId (Just resolvedProfileId)
-                            Nothing -> pure ()
-
                           $(logTM) InfoS $ logStr $ ("Added album to catalog: " <> title :: Text)
 
-                          -- Compute wanted status: album is wanted if it got a quality profile
-                          let isWanted = isJust resolvedProfileId
-
-                          -- Emit CatalogAlbumAdded event with complete album data
-                          -- This eliminates the need for frontend to make GET requests
+                          -- Emit CatalogAlbumAdded event with complete album data.
+                          -- This eliminates the need for frontend to make GET requests.
+                          -- Acquisition decides wanted-ness from here.
                           liftIO $ publishAndLog bus le "catalog" $ CatalogAlbumAdded
                             { catalogAlbumId = albumId
                             , catalogAlbumReleaseGroupMBID = rgId
@@ -181,7 +173,7 @@ handleCatalogArtistFollowed CatalogDeps{..} artistMBID artistName = do
                             , catalogAlbumArtistName = artistName
                             , catalogAlbumType = albumType
                             , catalogAlbumFirstReleaseDate = firstReleaseDate
-                            , catalogAlbumWanted = isWanted
+                            , catalogAlbumWanted = False
                             }
 
 -- | Handle a catalog artist refresh request.
@@ -349,27 +341,23 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                                 }
 
                         Nothing -> do
-                          -- New album discovered! Add to catalog
+                          -- New album discovered! Add to catalog.
+                          --
+                          -- The catalog only records that the album exists; it does NOT
+                          -- decide wanted-ness. The Acquisition service listens for
+                          -- CatalogAlbumAdded and applies the LibraryArtists release-status
+                          -- filter (default: upcoming only) to decide whether to assign a
+                          -- quality profile / mark the album wanted. Assigning a profile
+                          -- here would bypass that filter and mark every newly-discovered
+                          -- release group wanted, including old back-catalog releases.
                           albumId <- liftIO $ withConnection pool $ \conn ->
                             upsertCatalogAlbum conn rgId title artistId artistMBID currentArtistName albumType firstReleaseDate
-
-                          -- Resolve quality profile: artist > default (no source for catalog refresh)
-                          resolvedProfileId <- liftIO $ withConnection pool $ \conn ->
-                            resolveQualityProfileId conn Nothing (Just artistId) Nothing
-
-                          -- Set the resolved profile on the album
-                          case resolvedProfileId of
-                            Just _pid -> liftIO $ withConnection pool $ \conn ->
-                              updateCatalogAlbum conn albumId (Just resolvedProfileId)
-                            Nothing -> pure ()
 
                           liftIO $ modifyIORef' newAlbumsCount (+1)
                           $(logTM) InfoS $ logStr $ ("NEW album discovered: " <> title :: Text)
 
-                          -- Compute wanted status: album is wanted if it got a quality profile
-                          let isWanted = isJust resolvedProfileId
-
-                          -- Emit CatalogAlbumAdded event with complete album data
+                          -- Emit CatalogAlbumAdded event with complete album data.
+                          -- Acquisition decides wanted-ness from here.
                           liftIO $ publishAndLog bus le "catalog" $ CatalogAlbumAdded
                             { catalogAlbumId = albumId
                             , catalogAlbumReleaseGroupMBID = rgId
@@ -379,7 +367,7 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                             , catalogAlbumArtistName = currentArtistName
                             , catalogAlbumType = albumType
                             , catalogAlbumFirstReleaseDate = firstReleaseDate
-                            , catalogAlbumWanted = isWanted
+                            , catalogAlbumWanted = False
                             }
 
                     newCount <- liftIO $ readIORef newAlbumsCount
