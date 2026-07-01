@@ -171,10 +171,10 @@ export function LibraryConfigSection({ config, onChange, showAdvanced = false }:
     isFieldVisible({  }, section, showAdvanced),
   ].some(Boolean);
   const grpFileOrganizationVisible = [
-    isFieldVisible({ advanced: true }, section, showAdvanced),
-    isFieldVisible({ advanced: true }, section, showAdvanced),
-    isFieldVisible({ advanced: true }, section, showAdvanced),
-    isFieldVisible({ advanced: true, dependsOn: "normalize_featuring" }, section, showAdvanced),
+    isFieldVisible({  }, section, showAdvanced),
+    isFieldVisible({  }, section, showAdvanced),
+    isFieldVisible({  }, section, showAdvanced),
+    isFieldVisible({ dependsOn: "normalize_featuring" }, section, showAdvanced),
   ].some(Boolean);
   return (
     <div className="space-y-6">
@@ -248,7 +248,6 @@ export function LibraryConfigSection({ config, onChange, showAdvanced = false }:
         onChange={onChange}
         type="string"
         description="Directory structure format for organizing files"
-        advanced
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
@@ -259,7 +258,6 @@ export function LibraryConfigSection({ config, onChange, showAdvanced = false }:
         onChange={onChange}
         type="string"
         description="File naming format"
-        advanced
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
@@ -270,7 +268,6 @@ export function LibraryConfigSection({ config, onChange, showAdvanced = false }:
         onChange={onChange}
         type="boolean"
         description="Normalize featuring artist format in track titles"
-        advanced
         showAdvanced={showAdvanced}
         sectionValues={section}
       />
@@ -281,7 +278,6 @@ export function LibraryConfigSection({ config, onChange, showAdvanced = false }:
         onChange={onChange}
         type="string"
         description="Format to use for featuring artists"
-        advanced
         dependsOn="normalize_featuring"
         showAdvanced={showAdvanced}
         sectionValues={section}

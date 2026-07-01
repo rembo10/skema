@@ -871,23 +871,19 @@ librarySchema = schema "library" "Music library configuration"
       & boolField
       & example "false"
       & inGroup "Importing"
-  -- File Organization (advanced, setup-time details)
+  -- File Organization
   , "path_format" .:: "Directory structure format for organizing files"
       & example "{album_artist}/{album} [{year}]"
-      & advanced
       & inGroup "File Organization"
   , "file_format" .:: "File naming format"
       & example "{track:02} {artist} - {album} {year} - {title}.{ext}"
-      & advanced
       & inGroup "File Organization"
   , "normalize_featuring" .:: "Normalize featuring artist format in track titles"
       & boolField
       & example "false"
-      & advanced
       & inGroup "File Organization"
   , "normalize_featuring_to" .:: "Format to use for featuring artists"
       & example "feat."
-      & advanced
       & dependsOn "normalize_featuring"
       & inGroup "File Organization"
   ]
