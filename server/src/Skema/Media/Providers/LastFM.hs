@@ -24,7 +24,7 @@ import qualified Data.List as List
 -- | App-level Last.fm API key.
 -- This is the default key provided for this application.
 defaultApiKey :: Text
-defaultApiKey = "194b59cc05ff8928dc59b42466528a2d"
+defaultApiKey = "c97599b5485551914873cb86280ab781"
 
 -- | Fetch artist image from Last.fm.
 --
