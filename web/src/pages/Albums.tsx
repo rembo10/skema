@@ -5,7 +5,7 @@ import { formatDate } from '../lib/formatters';
 import toast from 'react-hot-toast';
 import { handleApiError } from '../lib/errors';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import { useSSEEvent } from '../hooks/useSSEEvent';
+import { useSSEEvent, useSSERefresh } from '../hooks/useSSEEvent';
 import { PaginationControls } from '../components/PaginationControls';
 import { usePagination } from '../hooks/usePagination';
 import { useAlbumsFilterState, QuickFilter } from '../hooks/useAlbumsFilterState';
@@ -39,6 +39,11 @@ import {
 } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 50;
+
+// Events that add, remove, or re-categorize albums and therefore require a
+// re-fetch of the current filtered/paginated view (as opposed to an in-place
+// row patch, which CatalogAlbumUpdated/AlbumCoverFetched handle directly).
+const ALBUM_LIST_REFRESH_EVENTS = ['CatalogAlbumAdded', 'WantedAlbumAdded', 'DownloadCompleted', 'DownloadImported'];
 
 const stateConfig: Record<AlbumState, { label: string; icon: typeof Music; color: string }> = {
   NotWanted: { label: 'Not Wanted', icon: X, color: 'text-gray-400' },
@@ -148,6 +153,18 @@ export default function Albums() {
       return newAlbums;
     });
   });
+
+  // SSE: album cover fetched — patch the thumbnail in place if the album is visible
+  useSSEEvent<{ release_group_mbid: string; cover_url: string; thumbnail_url: string | null }>('AlbumCoverFetched', (data) => {
+    setAlbums(prevAlbums => prevAlbums.map(a =>
+      a.release_group_mbid === data.release_group_mbid
+        ? { ...a, cover_url: data.cover_url, cover_thumbnail_url: data.thumbnail_url }
+        : a
+    ));
+  });
+
+  // SSE: albums added/removed/re-categorized — re-fetch the current view (debounced)
+  useSSERefresh(ALBUM_LIST_REFRESH_EVENTS, () => loadAlbums());
 
   const loadQualityProfiles = async () => {
     try {
