@@ -1,26 +1,24 @@
-import { useState, useEffect, memo } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import { Link } from 'react-router-dom';
 import { Disc, ExternalLink, ArrowRight } from 'lucide-react';
 import { api } from '../lib/api';
 import { formatRelativeDate } from '../lib/formatters';
+import { useSSERefresh } from '../hooks/useSSEEvent';
 import { ImageWithFallback } from './ImageWithFallback';
 import { Skeleton } from './LoadingSkeleton';
 import type { CatalogAlbumOverview } from '../types/api';
+
+const RECENTLY_RELEASED_ALBUM_EVENTS = ['CatalogAlbumAdded', 'CatalogAlbumUpdated', 'AlbumCoverFetched'];
 
 function RecentlyReleasedAlbumsComponent() {
   const [albums, setAlbums] = useState<CatalogAlbumOverview[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadRecentlyReleasedAlbums();
-  }, []);
-
-  const loadRecentlyReleasedAlbums = async () => {
+  const loadRecentlyReleasedAlbums = useCallback(async (showLoading = false) => {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       // Get albums released on or before today, sorted by release date (most recent first)
       const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
-      console.log('[RecentlyReleased] Fetching albums with release_date_before:', today);
       const response = await api.getAlbumOverview({
         release_date_before: today,
         limit: 5,
@@ -28,18 +26,19 @@ function RecentlyReleasedAlbumsComponent() {
         order: 'desc',
       });
 
-      console.log('[RecentlyReleased] Received albums:', response.albums.map(a => ({
-        title: a.title,
-        artist: a.artist_name,
-        date: a.first_release_date
-      })));
       setAlbums(response.albums);
     } catch (error) {
       console.error('Failed to load recently released albums:', error);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadRecentlyReleasedAlbums(true);
+  }, [loadRecentlyReleasedAlbums]);
+
+  useSSERefresh(RECENTLY_RELEASED_ALBUM_EVENTS, loadRecentlyReleasedAlbums);
 
   if (loading) {
     return (

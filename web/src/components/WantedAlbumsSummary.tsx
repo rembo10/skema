@@ -1,23 +1,22 @@
-import { useState, useEffect, memo } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import { Link } from 'react-router-dom';
 import { Heart, Disc, ExternalLink } from 'lucide-react';
 import { api } from '../lib/api';
 import { formatDate } from '../lib/formatters';
+import { useSSERefresh } from '../hooks/useSSEEvent';
 import { ImageWithFallback } from './ImageWithFallback';
 import { Skeleton } from './LoadingSkeleton';
 import type { CatalogAlbumOverview } from '../types/api';
+
+const WANTED_ALBUM_EVENTS = ['WantedAlbumAdded', 'CatalogAlbumAdded', 'CatalogAlbumUpdated', 'AlbumCoverFetched'];
 
 function WantedAlbumsSummaryComponent() {
   const [albums, setAlbums] = useState<CatalogAlbumOverview[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadWantedAlbums();
-  }, []);
-
-  const loadWantedAlbums = async () => {
+  const loadWantedAlbums = useCallback(async (showLoading = false) => {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       const response = await api.getAlbumOverview({
         state: ['Wanted'],
         limit: 5,
@@ -29,9 +28,15 @@ function WantedAlbumsSummaryComponent() {
     } catch (error) {
       console.error('Failed to load wanted albums:', error);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadWantedAlbums(true);
+  }, [loadWantedAlbums]);
+
+  useSSERefresh(WANTED_ALBUM_EVENTS, loadWantedAlbums);
 
   if (loading) {
     return (

@@ -378,7 +378,14 @@ export function useSSE(enabled: boolean = true) {
       eventSource.addEventListener('LibraryArtistFound', () => {});
       eventSource.addEventListener('CatalogArtistFollowed', () => {});
       eventSource.addEventListener('CatalogArtistRefreshRequested', () => {});
-      eventSource.addEventListener('WantedAlbumAdded', () => {});
+      eventSource.addEventListener('WantedAlbumAdded', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          emitSSEEvent('WantedAlbumAdded', data);
+        } catch (error) {
+          console.error('Error handling WantedAlbumAdded:', error);
+        }
+      });
       eventSource.addEventListener('AlbumSearchStarted', () => {});
       eventSource.addEventListener('IndexerSearchCompleted', () => {});
       eventSource.addEventListener('AlbumSearchCompleted', () => {});

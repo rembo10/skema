@@ -1,23 +1,22 @@
-import { useState, useEffect, memo } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import { Link } from 'react-router-dom';
 import { Calendar, Disc, ExternalLink } from 'lucide-react';
 import { api } from '../lib/api';
 import { formatDate, getDaysUntil } from '../lib/formatters';
+import { useSSERefresh } from '../hooks/useSSEEvent';
 import { ImageWithFallback } from './ImageWithFallback';
 import { Skeleton } from './LoadingSkeleton';
 import type { CatalogAlbumOverview } from '../types/api';
+
+const UPCOMING_ALBUM_EVENTS = ['WantedAlbumAdded', 'CatalogAlbumAdded', 'CatalogAlbumUpdated', 'AlbumCoverFetched'];
 
 function UpcomingAlbumsComponent() {
   const [albums, setAlbums] = useState<CatalogAlbumOverview[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadUpcomingAlbums();
-  }, []);
-
-  const loadUpcomingAlbums = async () => {
+  const loadUpcomingAlbums = useCallback(async (showLoading = false) => {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       const response = await api.getAlbumOverview({
         release_date_after: 'today',
         limit: 5,
@@ -29,9 +28,15 @@ function UpcomingAlbumsComponent() {
     } catch (error) {
       console.error('Failed to load upcoming albums:', error);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadUpcomingAlbums(true);
+  }, [loadUpcomingAlbums]);
+
+  useSSERefresh(UPCOMING_ALBUM_EVENTS, loadUpcomingAlbums);
 
   if (loading) {
     return (
