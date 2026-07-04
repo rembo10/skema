@@ -12,6 +12,7 @@
 -- - Updating wanted status in catalog_albums
 module Skema.Services.Acquisition
   ( startAcquisitionService
+  , handleCatalogAlbumAdded
   ) where
 
 import Skema.Services.Dependencies (AcquisitionDeps(..))
@@ -22,6 +23,7 @@ import Skema.Database.Connection
 import Skema.Database.Repository
 import Skema.Database.Types (AcquisitionSourceRecord(..), SourceType(..))
 import qualified Skema.Database.Types as DB
+import Skema.Config.Types (Config(..), LibraryConfig(..))
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
@@ -184,16 +186,57 @@ handleCatalogAlbumAdded AcquisitionDeps{..} releaseGroupMBID albumTitle artistMB
               if isJust (DB.catalogAlbumQualityProfileId album)
                 then $(logTM) DebugS $ logStr $ ("Album already has quality profile, skipping: " <> albumTitle :: Text)
                 else do
-                  -- Get the catalog artist to find which sources apply
+                  -- Get the catalog artist (needed for profile resolution and events)
                   artistRecord <- liftIO $ withConnection pool $ \conn ->
                     getCatalogArtistByMBID conn artistMBID
 
                   case artistRecord of
                     Nothing -> do
-                      $(logTM) DebugS $ logStr $ ("Artist not followed, skipping album evaluation" :: Text)
+                      $(logTM) DebugS $ logStr $ ("Artist not in catalog, skipping album evaluation" :: Text)
                     Just artist -> do
-                      -- Only evaluate if artist is followed
-                      when (DB.catalogArtistFollowed artist) $ do
+                      -- Albums already present in the library have a linked cluster
+                      -- on disk. When auto-upgrade-existing is enabled we enroll them
+                      -- for monitoring by assigning the default quality profile,
+                      -- bypassing the acquisition release-status filters (which default
+                      -- to "upcoming only" and would exclude back-catalog releases).
+                      config <- liftIO $ STM.atomically $ STM.readTVar acqConfigVar
+                      let autoUpgradeExisting = libraryAutoUpgradeExistingAlbums (library config)
+
+                      inLibrary <- case DB.catalogAlbumId album of
+                        Just albumId -> liftIO $ withConnection pool $ \conn ->
+                          albumHasLinkedCluster conn albumId
+                        Nothing -> pure False
+
+                      if autoUpgradeExisting && inLibrary
+                        then case DB.catalogAlbumId album of
+                          Nothing ->
+                            $(logTM) WarningS $ logStr $ ("Album has no ID, cannot enroll for upgrades: " <> albumTitle :: Text)
+                          Just albumId -> do
+                            $(logTM) InfoS $ logStr $ ("Existing library album, enrolling for quality upgrades: " <> albumTitle :: Text)
+
+                            -- Resolve quality profile: artist > default
+                            qualityProfileToAssign <- liftIO $ withConnection pool $ \conn ->
+                              resolveQualityProfileId conn Nothing (DB.catalogArtistId artist) Nothing
+
+                            case qualityProfileToAssign of
+                              Just profileId -> do
+                                liftIO $ withConnection pool $ \conn ->
+                                  updateCatalogAlbum conn albumId (Just qualityProfileToAssign)
+                                $(logTM) InfoS $ logStr $ ("Assigned quality profile " <> show profileId <> " to existing album: " <> albumTitle :: Text)
+
+                                -- Emit WantedAlbumAdded so the download service searches
+                                -- for a better release (quality-gated: only downloads an
+                                -- actual upgrade over the current library copy).
+                                liftIO $ publishAndLog bus le "acquisition" $ WantedAlbumAdded
+                                  { wantedCatalogAlbumId = albumId
+                                  , wantedReleaseGroupId = releaseGroupMBID
+                                  , wantedAlbumTitle = albumTitle
+                                  , wantedArtistName = DB.catalogArtistName artist
+                                  }
+                              Nothing ->
+                                $(logTM) WarningS $ logStr $ ("No default quality profile available, cannot enroll album: " <> albumTitle :: Text)
+                      -- Only evaluate acquisition sources if artist is followed
+                      else when (DB.catalogArtistFollowed artist) $ do
                         -- Get enabled acquisition sources
                         sources <- liftIO $ withConnection pool $ \conn ->
                           getEnabledAcquisitionRules conn

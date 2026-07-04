@@ -867,7 +867,7 @@ librarySchema = schema "library" "Music library configuration"
       & example "true"
       & inGroup "Scanning"
   -- Importing
-  , "auto_upgrade_existing_albums" .:: "When an album already in your library is discovered, automatically monitor it for quality upgrades"
+  , "auto_upgrade_existing_albums" .:: "Apply the default quality profile to existing library albums when discovered, so they are monitored and upgraded to better releases"
       & boolField
       & example "false"
       & inGroup "Importing"

@@ -14,7 +14,7 @@ library:
   auto_scan_interval_mins: 60
   # Scan library when application starts
   auto_scan_on_startup: true
-  # When an album already in your library is discovered, automatically monitor it for quality upgrades
+  # Apply the default quality profile to existing library albums when discovered, so they are monitored and upgraded to better releases
   auto_upgrade_existing_albums: false
   # Directory structure format for organizing files
   path_format: {album_artist}/{album} [{year}]

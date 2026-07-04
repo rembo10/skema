@@ -7,6 +7,7 @@ import qualified Integration.GrouperSpec
 import qualified Integration.ScanGroupIdentifySpec
 import qualified Integration.EndToEndSpec
 import qualified Integration.SubmissionSpec
+import qualified Integration.AcquisitionServiceSpec
 import qualified Integration.QualityProfilesHandlerSpec
 import qualified Integration.DownloadsRepoSpec
 import qualified Integration.CatalogAlbumRepoSpec
@@ -52,6 +53,7 @@ tests = testGroup "Skema Tests"
   , Integration.ScanGroupIdentifySpec.tests
   , Integration.EndToEndSpec.tests
   , Integration.SubmissionSpec.tests
+  , Integration.AcquisitionServiceSpec.tests
   , Integration.QualityProfilesHandlerSpec.tests
   , Integration.DownloadsRepoSpec.tests
   , Integration.CatalogAlbumRepoSpec.tests

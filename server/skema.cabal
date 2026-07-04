@@ -293,6 +293,7 @@ test-suite skema-test
     Integration.ScanGroupIdentifySpec
     Integration.EndToEndSpec
     Integration.SubmissionSpec
+    Integration.AcquisitionServiceSpec
     Integration.QualityProfilesHandlerSpec
     Integration.DownloadsRepoSpec
     Integration.CatalogAlbumRepoSpec

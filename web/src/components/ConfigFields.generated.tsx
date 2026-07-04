@@ -236,7 +236,7 @@ export function LibraryConfigSection({ config, onChange, showAdvanced = false }:
         value={section.auto_upgrade_existing_albums}
         onChange={onChange}
         type="boolean"
-        description="When an album already in your library is discovered, automatically monitor it for quality upgrades"
+        description="Apply the default quality profile to existing library albums when discovered, so they are monitored and upgraded to better releases"
         showAdvanced={showAdvanced}
         sectionValues={section}
       />

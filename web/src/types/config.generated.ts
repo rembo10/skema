@@ -158,7 +158,7 @@ export const librarySchema: SectionMeta = {
 ,
     {
       name: 'auto_upgrade_existing_albums',
-      description: 'When an album already in your library is discovered, automatically monitor it for quality upgrades',
+      description: 'Apply the default quality profile to existing library albums when discovered, so they are monitored and upgraded to better releases',
       type: 'boolean'
     }
 

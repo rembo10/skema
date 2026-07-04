@@ -18,6 +18,7 @@ module Skema.Database.Repository.Clusters
   , emptyMetadataRecord
   , computeClusterQuality
   , updateClusterQuality
+  , albumHasLinkedCluster
   ) where
 
 import Skema.Database.Connection
@@ -86,6 +87,15 @@ resolveCatalogAlbumIdForRG conn (Just rgId) = do
   pure $ case viaNonEmpty head results of
     Just (Only aid) -> Just aid
     Nothing -> Nothing
+
+-- | Check whether a catalog album has at least one linked cluster on disk,
+-- i.e. the album is already present in the user's library.
+albumHasLinkedCluster :: SQLite.Connection -> Int64 -> IO Bool
+albumHasLinkedCluster conn albumId = do
+  results <- queryRows conn
+    "SELECT 1 FROM clusters WHERE catalog_album_id = ? LIMIT 1"
+    (Only albumId) :: IO [Only Int64]
+  pure $ not (null results)
 
 -- | Update a cluster with MusicBrainz match data (automatic matching).
 -- Now accepts the full MBRelease and candidate list, caching both as JSON for performance.

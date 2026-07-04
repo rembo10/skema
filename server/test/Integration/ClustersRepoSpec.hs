@@ -27,6 +27,7 @@ import Skema.Database.Repository
   , clearClusterRelease
   , computeClusterQuality
   , updateClusterQuality
+  , albumHasLinkedCluster
   , upsertCatalogArtist
   , upsertCatalogAlbum
   )
@@ -61,6 +62,7 @@ tests = testGroup "Integration.ClustersRepo"
   , testCase "findClusterByHash returns Nothing for an unknown hash" testFindMiss
   , testCase "MB match update sets release data, clear wipes it" testMBUpdateClear
   , testCase "cluster quality is the lowest track quality" testClusterQuality
+  , testCase "albumHasLinkedCluster reflects whether an album is on disk" testAlbumHasLinkedCluster
   ]
 
 -- Builders ------------------------------------------------------------------
@@ -141,3 +143,25 @@ testClusterQuality = withTestEnv $ \env -> withConnection (tePool env) $ \conn -
   updateClusterQuality conn cid
   rec <- getClusterById conn cid
   fmap clusterQuality rec @?= Just (Just (qualityToText MP3_320))
+
+-- | 'albumHasLinkedCluster' is the "is this album in the library?" test used
+-- by the auto-upgrade-existing flow: True once a cluster on disk points at the
+-- album, False for an album with no linked cluster.
+testAlbumHasLinkedCluster :: IO ()
+testAlbumHasLinkedCluster = withTestEnv $ \env -> withConnection (tePool env) $ \conn -> do
+  artistId <- upsertCatalogArtist conn "mbid-art" "Artist" Nothing Nothing Nothing True Nothing Nothing Nothing
+  onDiskAlbum <- upsertCatalogAlbum conn "rg-on-disk" "On Disk" artistId "mbid-art" "Artist" Nothing Nothing
+  absentAlbum <- upsertCatalogAlbum conn "rg-absent" "Absent" artistId "mbid-art" "Artist" Nothing Nothing
+
+  -- No clusters yet: neither album is in the library.
+  albumHasLinkedCluster conn onDiskAlbum >>= assertBool "no cluster yet -> not in library" . not
+
+  -- Link a cluster to the first album (as the scan/import flow does).
+  cid <- createCluster conn (computeClusterHash (Just "On Disk") (Just "Artist") 5) (Just "On Disk") (Just "Artist") 5
+  SQLite.execute conn "UPDATE clusters SET catalog_album_id = ? WHERE id = ?" (onDiskAlbum, cid)
+
+  linked <- albumHasLinkedCluster conn onDiskAlbum
+  assertBool "album with a linked cluster is in the library" linked
+
+  absent <- albumHasLinkedCluster conn absentAlbum
+  assertBool "album without a linked cluster is not in the library" (not absent)

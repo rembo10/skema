@@ -121,7 +121,8 @@ data LibraryConfig = LibraryConfig
   , libraryFileFormat :: Text
     -- ^ Template for track filenames (e.g., "{if:multidisc|{disc:02}-}{track:02} - {title}.{ext}")
   , libraryAutoUpgradeExistingAlbums :: Bool
-    -- ^ When discovering albums already in library, automatically set their quality profile to default (enable monitoring/upgrading)
+    -- ^ Apply the default quality profile to albums already in the library when
+    -- they are discovered, so they are monitored and upgraded to better releases
   } deriving (Show, Eq, Generic)
 
 instance FromJSON LibraryConfig where
