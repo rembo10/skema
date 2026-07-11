@@ -4,17 +4,21 @@
 module Skema.API.Handlers.Static
   ( staticFileServer
   , frontendServer
+  , missingImageEvent
   ) where
 
 import Network.Wai.Application.Static (staticApp, defaultFileServerSettings)
-import WaiAppStatic.Types (StaticSettings(..), MaxAge(..), LookupResult(..), toPiece)
+import WaiAppStatic.Types (StaticSettings(..), MaxAge(..), LookupResult(..), Pieces, toPiece, fromPiece)
 import Servant
 import System.FilePath ((</>))
 import qualified System.Environment as Env
 import Skema.Config.Types (Config, serverWebRoot, server)
+import Skema.Events.Bus (EventBus, publishAndLog)
+import Skema.Events.Types (Event(..))
 import qualified Control.Concurrent.STM as STM
 import Network.Wai (responseLBS, Middleware, rawPathInfo)
 import Network.HTTP.Types (status200, hContentType)
+import Katip (LogEnv)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString as BS
@@ -22,8 +26,15 @@ import qualified Data.ByteString.Lazy as LBS
 
 -- | Static file server for images.
 -- Serves images from the cache directory with proper caching headers.
-staticFileServer :: FilePath -> Server Raw
-staticFileServer cacheDir = Tagged $ app
+--
+-- When a requested image file is missing on disk (for example after the cache
+-- directory was deleted) the database may still hold a stale @image_url@ that
+-- points at it. In that case we emit an 'ArtistImageMissing' / 'AlbumCoverMissing'
+-- event so the image service re-fetches the artwork and reconciles the database
+-- with disk. The request itself still 404s; the UI updates over SSE once the
+-- re-fetch completes.
+staticFileServer :: EventBus -> LogEnv -> FilePath -> Server Raw
+staticFileServer bus le cacheDir = Tagged $ app
   where
     imagesDir = cacheDir </> "images"
 
@@ -32,10 +43,42 @@ staticFileServer cacheDir = Tagged $ app
 
     settings dir =
       let baseSettings = defaultFileServerSettings dir
+          defaultLookup = ssLookupFile baseSettings
       in baseSettings
            { ssMaxAge = MaxAgeSeconds 86400  -- Cache for 24 hours
            , ssAddTrailingSlash = False
+           , ssLookupFile = \pieces -> do
+               result <- defaultLookup pieces
+               case result of
+                 LRNotFound -> do
+                   emitMissingImageEvent bus le pieces
+                   pure result
+                 _ -> pure result
            }
+
+-- | Emit a re-fetch event for a missing cached image.
+emitMissingImageEvent :: EventBus -> LogEnv -> Pieces -> IO ()
+emitMissingImageEvent bus le pieces =
+  forM_ (missingImageEvent (map fromPiece pieces)) $
+    publishAndLog bus le "static.image"
+
+-- | Decide which re-fetch event (if any) a missing image path implies.
+--
+-- Image paths look like @artists/<mbid>.jpg@ or @albums/<mbid>_thumb.jpg@
+-- relative to the images root, so the category is the first path segment and
+-- the MBID is the file name with its extension and any @_thumb@ suffix stripped.
+-- Paths that are not a recognised @artists@/@albums@ image yield 'Nothing'.
+missingImageEvent :: [Text] -> Maybe Event
+missingImageEvent (category : fileName : _)
+  | T.null mbid = Nothing
+  | otherwise = case category of
+      "artists" -> Just (ArtistImageMissing mbid)
+      "albums"  -> Just (AlbumCoverMissing mbid)
+      _         -> Nothing
+  where
+    base = T.takeWhile (/= '.') fileName  -- MBIDs never contain a dot
+    mbid = fromMaybe base (T.stripSuffix "_thumb" base)
+missingImageEvent _ = Nothing
 
 -- | Frontend SPA server.
 -- Serves the built frontend with fallback to index.html for client-side routing.

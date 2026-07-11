@@ -6,14 +6,17 @@
 -- | Image service - fetches and stores artist images and album covers.
 module Skema.Services.Image
   ( startImageService
+  , repairArtistImage
+  , repairAlbumCover
   ) where
 
 import Skema.Services.Dependencies (ImageDeps(..))
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getCatalogArtistByMBID, getCatalogArtistById, updateCatalogArtistBio)
+import Skema.Database.Repository (getCatalogArtistByMBID, getCatalogArtistById, getCatalogAlbumByReleaseGroupMBID, updateCatalogArtistBio)
 import Skema.Database.Types (catalogArtistId, catalogArtistImageUrl, catalogArtistBio)
+import qualified Skema.Database.Types as DBTypes
 import Skema.Config.Types (media, mediaLastFmApiKey)
 import Skema.MusicBrainz.Types (MBID(..))
 import Skema.Media.Client (fetchArtistImage, fetchAlbumCover, defaultMediaConfig)
@@ -23,8 +26,9 @@ import Skema.Media.Storage (downloadAndStoreImages)
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
-import Control.Exception (try)
+import Control.Exception (try, finally)
 import Database.SQLite.Simple (Only(..))
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import Katip
 
@@ -43,6 +47,10 @@ mediaSourceToText Deezer = "Deezer"
 startImageService :: ImageDeps -> IO (Async ())
 startImageService deps = do
   chan <- STM.atomically $ subscribe (imgEventBus deps)
+  -- Tracks image re-fetches currently in flight (keyed by "artist:<mbid>" /
+  -- "album:<mbid>") so a burst of 404s for the same missing file only triggers
+  -- one re-fetch, avoiding concurrent writers to the same cache path.
+  repairing <- STM.newTVarIO Set.empty
   async $ forever $ do
     envelope <- STM.atomically $ readTChan chan
     case envelopeEvent envelope of
@@ -90,6 +98,14 @@ startImageService deps = do
             Right () -> pure ()
         pure ()
 
+      ArtistImageMissing{..} ->
+        withRepairLock (imgLogEnv deps) repairing ("artist:" <> missingArtistMBID) $
+          repairArtistImage deps missingArtistMBID
+
+      AlbumCoverMissing{..} ->
+        withRepairLock (imgLogEnv deps) repairing ("album:" <> missingReleaseGroupMBID) $
+          repairAlbumCover deps missingReleaseGroupMBID
+
       ArtistDiscographyRequested{..} -> do
         -- User is viewing this artist's page - prioritize fetching covers for their albums
         _ <- async $ handleArtistDiscographyImageRequest deps requestedArtistId requestedArtistMBID
@@ -110,6 +126,65 @@ startImageService deps = do
         pure ()
 
       _ -> pure ()  -- Ignore other events
+
+-- | Run a repair action in the background, deduplicated by key.
+--
+-- If a repair for the same key is already in flight the action is skipped;
+-- otherwise it runs asynchronously and the key is released when it finishes
+-- (whether it succeeds or throws), so a later genuine request can retry.
+withRepairLock :: LogEnv -> STM.TVar (Set.Set Text) -> Text -> IO () -> IO ()
+withRepairLock le repairing key action = do
+  acquired <- STM.atomically $ do
+    inFlight <- STM.readTVar repairing
+    if Set.member key inFlight
+      then pure False
+      else do
+        STM.modifyTVar' repairing (Set.insert key)
+        pure True
+  when acquired $ do
+    _ <- async $ runRepair `finally` STM.atomically (STM.modifyTVar' repairing (Set.delete key))
+    pure ()
+  where
+    runRepair = do
+      result <- try action
+      case result of
+        Left (e :: SomeException) ->
+          runKatipContextT le () "image.repair" $
+            $(logTM) ErrorS $ logStr ("Exception repairing image " <> key <> ": " <> show e :: Text)
+        Right () -> pure ()
+
+-- | Re-fetch a missing artist image and reconcile the database with disk.
+--
+-- Clears the stale image URLs first so the catalog stops pointing the UI at a
+-- 404 even if the re-fetch turns up nothing.
+repairArtistImage :: ImageDeps -> Text -> IO ()
+repairArtistImage deps artistMBID = do
+  maybeArtist <- withConnection (imgDbPool deps) $ \conn ->
+    getCatalogArtistByMBID conn artistMBID
+  case maybeArtist of
+    Just artist
+      | Just artistId <- catalogArtistId artist -> do
+          withConnection (imgDbPool deps) $ \conn ->
+            executeQuery conn
+              "UPDATE catalog_artists SET image_url = NULL, thumbnail_url = NULL WHERE id = ?"
+              (Only artistId)
+          handleArtistImageFetch deps artistId artistMBID (DBTypes.catalogArtistName artist)
+    _ -> pure ()
+
+-- | Re-fetch a missing album cover and reconcile the database with disk.
+repairAlbumCover :: ImageDeps -> Text -> IO ()
+repairAlbumCover deps releaseGroupMBID = do
+  maybeAlbum <- withConnection (imgDbPool deps) $ \conn ->
+    getCatalogAlbumByReleaseGroupMBID conn releaseGroupMBID
+  case maybeAlbum of
+    Just album
+      | Just albumId <- DBTypes.catalogAlbumId album -> do
+          withConnection (imgDbPool deps) $ \conn ->
+            executeQuery conn
+              "UPDATE catalog_albums SET album_cover_url = NULL, album_cover_thumbnail_url = NULL WHERE id = ?"
+              (Only albumId)
+          handleAlbumCoverFetch deps releaseGroupMBID (DBTypes.catalogAlbumTitle album) albumId
+    _ -> pure ()
 
 -- | Handle artist image fetching and storage.
 handleArtistImageFetch :: ImageDeps -> Int64 -> Text -> Text -> IO ()

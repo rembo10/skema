@@ -26,6 +26,10 @@ export default function FollowedArtists() {
   const [sortField, setSortField] = useState<'name' | 'date_added' | 'completion'>('date_added');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [refreshing, setRefreshing] = useState(false);
+  // Artist MBIDs whose image failed to load (e.g. a missing cache file). Tracked
+  // in state so a later ArtistImageFetched can clear it and re-show the image,
+  // rather than hiding the <img> imperatively (which would never recover).
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const { offset, totalCount, setTotalCount, nextPage, prevPage, resetOffset } = usePagination(ITEMS_PER_PAGE);
 
   // Reset offset when search or sort changes
@@ -45,6 +49,22 @@ export default function FollowedArtists() {
         ? { ...a, cover_url: data.cover_url, cover_thumbnail_url: data.thumbnail_url }
         : a
     ));
+  });
+
+  // SSE: artist image fetched — update local artists. Also fires when a missing
+  // cache file is re-fetched, so clear any prior load failure to re-show it.
+  useSSEEvent<{ artist_mbid: string; image_url: string; thumbnail_url: string | null }>('ArtistImageFetched', (data) => {
+    setArtists(prev => prev.map(a =>
+      a.mbid === data.artist_mbid
+        ? { ...a, image_url: data.image_url, thumbnail_url: data.thumbnail_url }
+        : a
+    ));
+    setFailedImages(prev => {
+      if (!prev.has(data.artist_mbid)) return prev;
+      const next = new Set(prev);
+      next.delete(data.artist_mbid);
+      return next;
+    });
   });
 
   // SSE: album updated
@@ -228,15 +248,16 @@ export default function FollowedArtists() {
                 <Link to={`/artists/${artist.id}`}>
                   {/* Artist Image */}
                   <div className="aspect-square bg-dark-bg-subtle relative overflow-hidden">
-                    {artist.image_url ? (
+                    {artist.image_url && !failedImages.has(artist.mbid) ? (
                       <img
+                        key={artist.image_url}
                         src={artist.image_url}
                         alt={artist.name}
                         loading="lazy"
                         decoding="async"
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
+                        onError={() => {
+                          setFailedImages(prev => new Set(prev).add(artist.mbid));
                         }}
                       />
                     ) : (

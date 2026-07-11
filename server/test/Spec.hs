@@ -12,6 +12,7 @@ import qualified Integration.QualityProfilesHandlerSpec
 import qualified Integration.DownloadsRepoSpec
 import qualified Integration.CatalogAlbumRepoSpec
 import qualified Integration.CatalogArtistRepoSpec
+import qualified Integration.ImageServiceSpec
 import qualified Integration.QualityRepoSpec
 import qualified Integration.ClustersRepoSpec
 import qualified Integration.TracksRepoSpec
@@ -19,6 +20,7 @@ import qualified Unit.ConfigSpec
 import qualified Unit.IndexerSpec
 import qualified Unit.MatchingSpec
 import qualified Unit.MusicBrainzSpec
+import qualified Unit.StaticImageSpec
 import qualified Unit.Domain.PathFormatterSpec
 import qualified Unit.Domain.CatalogSpec
 import qualified Unit.Domain.QualitySpec
@@ -39,6 +41,7 @@ tests = testGroup "Skema Tests"
   , Unit.IndexerSpec.tests
   , Unit.MatchingSpec.tests
   , Unit.MusicBrainzSpec.tests
+  , Unit.StaticImageSpec.tests
   , Unit.Domain.PathFormatterSpec.tests
   , Unit.Domain.CatalogSpec.tests
   , Unit.Domain.QualitySpec.tests
@@ -58,6 +61,7 @@ tests = testGroup "Skema Tests"
   , Integration.DownloadsRepoSpec.tests
   , Integration.CatalogAlbumRepoSpec.tests
   , Integration.CatalogArtistRepoSpec.tests
+  , Integration.ImageServiceSpec.tests
   , Integration.QualityRepoSpec.tests
   , Integration.ClustersRepoSpec.tests
   , Integration.TracksRepoSpec.tests

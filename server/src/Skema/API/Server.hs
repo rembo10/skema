@@ -172,7 +172,7 @@ server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDi
    :<|> tasksServer tm)
    :<|> versionServer latestVar
    :<|> (pure swaggerUiHtml :<|> pure openApiSpec))
-  :<|> staticFileServer cacheDir
+  :<|> staticFileServer bus le cacheDir
   :<|> frontendServer configVar
 
 -- | Start a background worker that emits heartbeat events periodically.

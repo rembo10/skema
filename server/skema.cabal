@@ -298,6 +298,7 @@ test-suite skema-test
     Integration.DownloadsRepoSpec
     Integration.CatalogAlbumRepoSpec
     Integration.CatalogArtistRepoSpec
+    Integration.ImageServiceSpec
     Integration.QualityRepoSpec
     Integration.ClustersRepoSpec
     Integration.TracksRepoSpec
@@ -305,6 +306,7 @@ test-suite skema-test
     Unit.IndexerSpec
     Unit.MatchingSpec
     Unit.MusicBrainzSpec
+    Unit.StaticImageSpec
     Unit.Domain.PathFormatterSpec
     Unit.Domain.CatalogSpec
     Unit.Domain.QualitySpec

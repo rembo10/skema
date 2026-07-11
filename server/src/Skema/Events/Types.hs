@@ -158,6 +158,15 @@ data Event
       , albumCoverThumbnailUrl :: Maybe Text
       , albumCoverSource :: Text
       }
+  -- Emitted when a cached image file is requested but missing on disk
+  -- (e.g. the cache directory was deleted). Triggers a re-fetch so the
+  -- database and disk are reconciled.
+  | ArtistImageMissing
+      { missingArtistMBID :: Text
+      }
+  | AlbumCoverMissing
+      { missingReleaseGroupMBID :: Text
+      }
 
   -- Search/Orchestration events
   | AlbumSearchStarted
@@ -513,6 +522,12 @@ eventToJSON = \case
     , "cover_url" .= albumCoverUrl
     , "thumbnail_url" .= albumCoverThumbnailUrl
     , "source" .= albumCoverSource
+    ]
+  ArtistImageMissing{..} -> object
+    [ "artist_mbid" .= missingArtistMBID
+    ]
+  AlbumCoverMissing{..} -> object
+    [ "release_group_mbid" .= missingReleaseGroupMBID
     ]
   AlbumSearchStarted{..} -> object
     [ "album_title" .= searchAlbumTitle
