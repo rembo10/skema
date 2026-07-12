@@ -31,6 +31,10 @@ import qualified Unit.Domain.AcquisitionSpec
 import qualified Unit.Domain.IdentificationSpec
 import qualified Unit.Domain.DownloadSpec
 import qualified Unit.SlskdSpec
+import qualified Unit.DownloadClient.NZBGetSpec
+import qualified Unit.DownloadClient.SABnzbdSpec
+import qualified Unit.DownloadClient.QBittorrentSpec
+import qualified Unit.DownloadClient.TransmissionSpec
 
 main :: IO ()
 main = defaultMain tests
@@ -52,6 +56,10 @@ tests = testGroup "Skema Tests"
   , Unit.Domain.IdentificationSpec.tests
   , Unit.Domain.DownloadSpec.tests
   , Unit.SlskdSpec.tests
+  , Unit.DownloadClient.NZBGetSpec.tests
+  , Unit.DownloadClient.SABnzbdSpec.tests
+  , Unit.DownloadClient.QBittorrentSpec.tests
+  , Unit.DownloadClient.TransmissionSpec.tests
   , Integration.GrouperSpec.tests
   , Integration.ScanGroupIdentifySpec.tests
   , Integration.EndToEndSpec.tests

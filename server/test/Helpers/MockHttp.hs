@@ -23,6 +23,7 @@ module Helpers.MockHttp
   , jsonResponse
   , textResponse
   , statusResponse
+  , statusResponseWithHeaders
     -- * Exceptions
   , UnexpectedHttpRequest(..)
   ) where
@@ -97,6 +98,13 @@ textResponse txt = buildResponse ok200 [("Content-Type", "text/plain")] (LBS.fro
 statusResponse :: Int -> LBS.ByteString -> Response LBS.ByteString
 statusResponse code body =
   buildResponse (mkStatus code (TE.encodeUtf8 ("status " <> T.pack (show code)))) [] body
+
+-- | Build a response with an arbitrary status code, response headers, and body.
+-- Used to simulate handshakes that carry state in a header (e.g. Transmission's
+-- @X-Transmission-Session-Id@ on a 409).
+statusResponseWithHeaders :: Int -> ResponseHeaders -> LBS.ByteString -> Response LBS.ByteString
+statusResponseWithHeaders code headers body =
+  buildResponse (mkStatus code (TE.encodeUtf8 ("status " <> T.pack (show code)))) headers body
 
 buildResponse :: Status -> ResponseHeaders -> LBS.ByteString -> Response LBS.ByteString
 buildResponse status headers body = Response

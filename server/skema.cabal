@@ -317,11 +317,16 @@ test-suite skema-test
     Unit.Domain.IdentificationSpec
     Unit.Domain.DownloadSpec
     Unit.SlskdSpec
+    Unit.DownloadClient.NZBGetSpec
+    Unit.DownloadClient.SABnzbdSpec
+    Unit.DownloadClient.QBittorrentSpec
+    Unit.DownloadClient.TransmissionSpec
     Helpers.TestEnv
     Helpers.Builders
     Helpers.EventAssertions
     Helpers.TempLibrary
     Helpers.MockHttp
+    Helpers.MockClient
     Helpers.Handler
 
   build-depends:

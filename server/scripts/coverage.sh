@@ -17,7 +17,7 @@
 # files and produce spurious interface-file errors.
 set -euo pipefail
 
-MIN_COVERAGE="${MIN_COVERAGE:-34}"
+MIN_COVERAGE="${MIN_COVERAGE:-35}"
 
 cd "$(dirname "$0")/.."
 
@@ -25,7 +25,12 @@ cd "$(dirname "$0")/.."
 # optimisation, so the coverage number is independent of the optimisation level.
 cabal test --enable-coverage --ghc-options=-O0 --test-show-details=direct
 
-html=$(find dist-newstyle -path '*/hpc/vanilla/html/hpc_index.html' | head -1)
+# dist-newstyle can hold reports from several package versions (e.g. after a
+# version bump). Pick the most recently written one — the build above just
+# regenerated the current version's report, so newest mtime is always it.
+# Using `head -1` here would silently parse a stale report and mask regressions.
+html=$(find dist-newstyle -path '*/hpc/vanilla/html/hpc_index.html' -printf '%T@\t%p\n' \
+  | sort -rn | head -1 | cut -f2-)
 if [ -z "${html}" ]; then
   echo "coverage: could not locate hpc_index.html under dist-newstyle" >&2
   exit 1
