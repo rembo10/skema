@@ -9,6 +9,7 @@ module Skema.API.Types.Clusters
   , ClusterResponse(..)
   , ClustersResponse(..)
   , ClustersPagination(..)
+  , ClustersStats(..)
   , ClusterWithTracksResponse(..)
   , ClusterTrackInfo(..)
   , MBTrackInfo(..)
@@ -113,10 +114,28 @@ instance FromJSON ClustersPagination where
 instance ToSchema ClustersPagination where
   declareNamedSchema = genericDeclareNamedSchema (schemaOptions 18)
 
+-- | Global cluster stats, independent of the current filter/search/page.
+data ClustersStats = ClustersStats
+  { clustersStatsTotal :: Int
+  , clustersStatsMatched :: Int
+  , clustersStatsUnmatched :: Int
+  , clustersStatsLocked :: Int
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON ClustersStats where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 13 }
+
+instance FromJSON ClustersStats where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 13 }
+
+instance ToSchema ClustersStats where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 13)
+
 -- | Paginated clusters response.
 data ClustersResponse = ClustersResponse
   { clustersResponsePagination :: ClustersPagination
   , clustersResponseClusters :: [ClusterResponse]
+  , clustersResponseStats :: ClustersStats
   } deriving (Show, Eq, Generic)
 
 instance ToJSON ClustersResponse where

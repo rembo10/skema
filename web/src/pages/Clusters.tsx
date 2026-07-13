@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Cluster } from '../types/api';
+import { useState, useEffect } from 'react';
+import { Cluster, ClustersStats } from '../types/api';
 import { api } from '../lib/api';
 import { handleApiError } from '../lib/errors';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -7,6 +7,7 @@ import { IdentificationNav } from '../components/IdentificationNav';
 import { RematchModal } from '../components/identification/RematchModal';
 import { PaginationControls } from '../components/PaginationControls';
 import { usePagination } from '../hooks/usePagination';
+import { useSSERefresh } from '../hooks/useSSEEvent';
 import { TableRowSkeleton, StatsGridSkeleton } from '../components/LoadingSkeleton';
 import { LoadingState } from '../components/LoadingState';
 import { MatchStatusBadge } from '../components/status/StatusBadge';
@@ -27,9 +28,13 @@ type FilterStatus = 'all' | 'matched' | 'unmatched' | 'locked';
 
 const ITEMS_PER_PAGE = 50;
 
+// Events that change the cluster list or the global match stats — reload both.
+const CLUSTER_REFRESH_EVENTS = ['ClustersGenerated', 'ClusterIdentified', 'TracksRematched'];
+
 export default function Clusters() {
   // Local state - no longer using store
   const [clusters, setClusters] = useState<Cluster[]>([]);
+  const [stats, setStats] = useState<ClustersStats>({ total: 0, matched: 0, unmatched: 0, locked: 0 });
   const [initialLoading, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -50,6 +55,9 @@ export default function Clusters() {
     loadData();
   }, [pagination.offset, debouncedSearchQuery, filterStatus, sortField, sortDirection]);
 
+  // Keep the list and global stats live as clusters are generated/identified/rematched.
+  useSSERefresh(CLUSTER_REFRESH_EVENTS, () => loadData());
+
   const loadData = async () => {
     try {
       setLoading(true);
@@ -62,6 +70,7 @@ export default function Clusters() {
         sortDirection
       );
       setClusters(response.clusters);
+      setStats(response.stats);
       pagination.setTotalCount(response.pagination.total);
     } catch (error) {
       handleApiError(error, 'Failed to load clusters');
@@ -78,6 +87,8 @@ export default function Clusters() {
       const updated = await api.setClusterLock(cluster.id, nextLocked);
       // Update the row in place — no full reload needed
       setClusters((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+      // Keep the global locked count in sync without a reload
+      setStats((prev) => ({ ...prev, locked: prev.locked + (nextLocked ? 1 : -1) }));
       toast.success(nextLocked ? 'Match confirmed and locked' : 'Match unlocked');
     } catch (error) {
       handleApiError(error, nextLocked ? 'Failed to lock match' : 'Failed to unlock match');
@@ -94,16 +105,6 @@ export default function Clusters() {
       setSortDirection('asc');
     }
   };
-
-  // Stats - showing total count from pagination response
-  // Note: matched/unmatched/locked counts are based on current page only
-  const stats = useMemo(() => {
-    const total = pagination.totalCount;
-    const matched = clusters.filter(c => c.mb_release_id).length;
-    const unmatched = clusters.filter(c => !c.mb_release_id).length;
-    const locked = clusters.filter(c => c.match_locked).length;
-    return { total, matched, unmatched, locked };
-  }, [clusters, pagination.totalCount]);
 
   return (
     <div className="h-full flex flex-col animate-fade-in">

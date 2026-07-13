@@ -7,7 +7,7 @@ module Skema.API.Handlers.Clusters
   ( clustersServer
   ) where
 
-import Skema.API.Types.Clusters (ClustersAPI, ClusterResponse(..), ClustersResponse(..), ClustersPagination(..), ClusterWithTracksResponse(..), ClusterTrackInfo(..), MBTrackInfo(..), CandidateRelease(..), AssignReleaseRequest(..), UpdateTrackRecordingRequest(..), CreateClusterRequest(..), SetLockRequest(..))
+import Skema.API.Types.Clusters (ClustersAPI, ClusterResponse(..), ClustersResponse(..), ClustersPagination(..), ClustersStats(..), ClusterWithTracksResponse(..), ClusterTrackInfo(..), MBTrackInfo(..), CandidateRelease(..), AssignReleaseRequest(..), UpdateTrackRecordingRequest(..), CreateClusterRequest(..), SetLockRequest(..))
 import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..))
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
@@ -213,6 +213,10 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
         let total = length sorted
         let paginated = take limit $ drop offset $ sorted
 
+        -- Global stats over ALL clusters, independent of filter/search/page
+        let matchedCount = length $ filter (isJust . clusterResponseMBReleaseId) clusterResponses
+            lockedCount = length $ filter clusterResponseMatchLocked clusterResponses
+
         pure $ ClustersResponse
           { clustersResponsePagination = ClustersPagination
               { clustersPaginationTotal = total
@@ -220,6 +224,12 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
               , clustersPaginationLimit = limit
               }
           , clustersResponseClusters = paginated
+          , clustersResponseStats = ClustersStats
+              { clustersStatsTotal = length clusterResponses
+              , clustersStatsMatched = matchedCount
+              , clustersStatsUnmatched = length clusterResponses - matchedCount
+              , clustersStatsLocked = lockedCount
+              }
           }
       where
         matchText :: Text -> Maybe Text -> Bool

@@ -51,9 +51,17 @@ export interface ClustersPagination {
   limit: number;
 }
 
+export interface ClustersStats {
+  total: number;
+  matched: number;
+  unmatched: number;
+  locked: number;
+}
+
 export interface ClustersResponse {
   pagination: ClustersPagination;
   clusters: Cluster[];
+  stats: ClustersStats;
 }
 
 export interface Cluster {

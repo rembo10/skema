@@ -141,6 +141,7 @@ export function useSSE(enabled: boolean = true) {
           type: 'in_progress',
           message: `Found ${data.total_groups} albums (${data.needs_identification} need identification)`,
         });
+        emitSSEEvent('ClustersGenerated', data);
       });
 
       // Identification events
@@ -173,6 +174,11 @@ export function useSSE(enabled: boolean = true) {
       eventSource.addEventListener('ClusterIdentified', (e: MessageEvent) => {
         const data = JSON.parse(e.data);
         emitSSEEvent('ClusterIdentified', data);
+      });
+
+      eventSource.addEventListener('TracksRematched', (e: MessageEvent) => {
+        const data = JSON.parse(e.data);
+        emitSSEEvent('TracksRematched', data);
       });
 
       // Persistence events
