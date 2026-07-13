@@ -11,6 +11,7 @@ module Skema.Database.Repository.Clusters
   , updateClusterLastIdentified
   , updateClusterWithCandidates
   , clearClusterRelease
+  , setClusterMatchLock
   , updateTrackCluster
   , getClusterById
   , getAllClusters
@@ -167,6 +168,16 @@ clearClusterRelease conn cid clearCandidates = do
     else executeQuery conn
       "UPDATE clusters SET mb_release_id = NULL, mb_release_group_id = NULL, mb_confidence = NULL, match_source = NULL, match_locked = 0, catalog_album_id = NULL, updated_at = ? WHERE id = ?"
       (now, cid)
+
+-- | Lock or unlock a cluster's current match.
+-- Locking confirms the match and prevents automatic re-identification from
+-- overwriting it. Does not touch the release data itself.
+setClusterMatchLock :: SQLite.Connection -> Int64 -> Bool -> IO ()
+setClusterMatchLock conn cid locked = do
+  now <- getCurrentTime
+  executeQuery conn
+    "UPDATE clusters SET match_locked = ?, updated_at = ? WHERE id = ?"
+    (locked, now, cid)
 
 -- | Update the cluster_id for tracks.
 -- Replaces the old junction table approach with direct FK assignment.

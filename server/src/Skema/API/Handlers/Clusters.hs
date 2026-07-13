@@ -7,7 +7,7 @@ module Skema.API.Handlers.Clusters
   ( clustersServer
   ) where
 
-import Skema.API.Types.Clusters (ClustersAPI, ClusterResponse(..), ClustersResponse(..), ClustersPagination(..), ClusterWithTracksResponse(..), ClusterTrackInfo(..), MBTrackInfo(..), CandidateRelease(..), AssignReleaseRequest(..), UpdateTrackRecordingRequest(..), CreateClusterRequest(..))
+import Skema.API.Types.Clusters (ClustersAPI, ClusterResponse(..), ClustersResponse(..), ClustersPagination(..), ClusterWithTracksResponse(..), ClusterTrackInfo(..), MBTrackInfo(..), CandidateRelease(..), AssignReleaseRequest(..), UpdateTrackRecordingRequest(..), CreateClusterRequest(..), SetLockRequest(..))
 import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..))
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
@@ -60,6 +60,7 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
   :<|> getCandidatesHandler
   :<|> assignReleaseHandler
   :<|> removeReleaseHandler
+  :<|> setLockHandler
   :<|> updateTrackRecordingHandler
   :<|> searchReleasesHandler
   :<|> searchRecordingsHandler
@@ -348,6 +349,30 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
       liftIO $ withConnection connPool $ \conn ->
         DB.clearClusterRelease conn clusterId False
       pure NoContent
+
+    setLockHandler :: Int64 -> SetLockRequest -> Handler ClusterResponse
+    setLockHandler clusterId req = do
+      let locked = setLockLocked req
+      -- Verify the cluster exists (and, when locking, that it has a match to lock)
+      maybeCluster <- liftIO $ withConnection connPool $ \conn ->
+        DB.getClusterById conn clusterId
+      case maybeCluster of
+        Nothing -> throw404 $ "Cluster not found: " <> show clusterId
+        Just cluster -> do
+          when (locked && isNothing (DBTypes.clusterMBReleaseId cluster)) $
+            throw500 "Cannot lock a cluster without a match"
+          liftIO $ withConnection connPool $ \conn ->
+            DB.setClusterMatchLock conn clusterId locked
+          -- Return the updated cluster
+          maybeResult <- liftIO $ withConnection connPool $ \conn ->
+            DB.getClusterWithTracks conn clusterId
+          case maybeResult of
+            Nothing -> throw404 $ "Cluster not found: " <> show clusterId
+            Just (updated, tracks) -> do
+              let firstTrackMeta = case viaNonEmpty head tracks of
+                    Nothing -> Nothing
+                    Just (_, _, metadata, _, _) -> Just metadata
+              pure $ clusterToResponse updated firstTrackMeta
 
     updateTrackRecordingHandler :: Int64 -> Int64 -> UpdateTrackRecordingRequest -> Handler NoContent
     updateTrackRecordingHandler clusterId trackId req = do

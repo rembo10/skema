@@ -39,6 +39,7 @@ module Skema.Database.Repository
   , updateClusterLastIdentified
   , updateClusterWithCandidates
   , clearClusterRelease
+  , setClusterMatchLock
   , updateTrackCluster
   , getClusterById
   , getAllClusters
@@ -134,6 +135,7 @@ import Skema.Database.Repository.Clusters
   , updateClusterLastIdentified
   , updateClusterWithCandidates
   , clearClusterRelease
+  , setClusterMatchLock
   , updateTrackCluster
   , getClusterById
   , getAllClusters

@@ -10,12 +10,15 @@ import { usePagination } from '../hooks/usePagination';
 import { TableRowSkeleton, StatsGridSkeleton } from '../components/LoadingSkeleton';
 import { LoadingState } from '../components/LoadingState';
 import { MatchStatusBadge } from '../components/status/StatusBadge';
+import toast from 'react-hot-toast';
 import {
   Search,
   ArrowUpDown,
   RefreshCw,
   Filter,
   Edit2,
+  Lock,
+  LockOpen,
 } from 'lucide-react';
 
 type SortField = 'album' | 'artist' | 'confidence' | 'status' | 'track_count';
@@ -35,6 +38,7 @@ export default function Clusters() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [rematchingCluster, setRematchingCluster] = useState<Cluster | null>(null);
+  const [lockingClusterId, setLockingClusterId] = useState<number | null>(null);
   const pagination = usePagination(ITEMS_PER_PAGE);
 
   // Reset offset when filters change
@@ -64,6 +68,21 @@ export default function Clusters() {
     } finally {
       setLoading(false);
       setInitialLoading(false);
+    }
+  };
+
+  const handleToggleLock = async (cluster: Cluster) => {
+    const nextLocked = !cluster.match_locked;
+    try {
+      setLockingClusterId(cluster.id);
+      const updated = await api.setClusterLock(cluster.id, nextLocked);
+      // Update the row in place — no full reload needed
+      setClusters((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+      toast.success(nextLocked ? 'Match confirmed and locked' : 'Match unlocked');
+    } catch (error) {
+      handleApiError(error, nextLocked ? 'Failed to lock match' : 'Failed to unlock match');
+    } finally {
+      setLockingClusterId(null);
     }
   };
 
@@ -384,13 +403,36 @@ export default function Clusters() {
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  <button
-                    onClick={() => setRematchingCluster(cluster)}
-                    className="text-dark-text-secondary hover:text-dark-accent transition-colors"
-                    title="Re-match cluster"
-                  >
-                    <Edit2 className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-3">
+                    {cluster.mb_release_id && (
+                      cluster.match_locked ? (
+                        <button
+                          onClick={() => handleToggleLock(cluster)}
+                          disabled={lockingClusterId === cluster.id}
+                          className="text-purple-400 hover:text-dark-text transition-colors disabled:opacity-50"
+                          title="Unlock match (allow automatic re-matching)"
+                        >
+                          <Lock className="h-4 w-4" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleToggleLock(cluster)}
+                          disabled={lockingClusterId === cluster.id}
+                          className="text-dark-text-secondary hover:text-purple-400 transition-colors disabled:opacity-50"
+                          title="Confirm match (lock to prevent automatic re-matching)"
+                        >
+                          <LockOpen className="h-4 w-4" />
+                        </button>
+                      )
+                    )}
+                    <button
+                      onClick={() => setRematchingCluster(cluster)}
+                      className="text-dark-text-secondary hover:text-dark-accent transition-colors"
+                      title="Re-match cluster"
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </td>
               </tr>
               ))}

@@ -16,6 +16,7 @@ module Skema.API.Types.Clusters
   , AssignReleaseRequest(..)
   , UpdateTrackRecordingRequest(..)
   , CreateClusterRequest(..)
+  , SetLockRequest(..)
   ) where
 
 import Skema.API.Types.Tasks (TaskRequest, TaskResponse)
@@ -39,6 +40,8 @@ type ClustersAPI = "clusters" :>
   :<|> Capture "clusterId" Int64 :> "candidates" :> Get '[JSON] [CandidateRelease]
   :<|> Capture "clusterId" Int64 :> "release" :> ReqBody '[JSON] AssignReleaseRequest :> Put '[JSON] ClusterResponse
   :<|> Capture "clusterId" Int64 :> "release" :> DeleteNoContent
+  -- Lock/unlock the current match to confirm it and prevent re-matching
+  :<|> Capture "clusterId" Int64 :> "lock" :> ReqBody '[JSON] SetLockRequest :> Put '[JSON] ClusterResponse
   -- Track recording mapping endpoint
   :<|> Capture "clusterId" Int64 :> "tracks" :> Capture "trackId" Int64 :> "recording" :> ReqBody '[JSON] UpdateTrackRecordingRequest :> Put '[JSON] NoContent
   -- Search for releases (for manual matching)
@@ -237,6 +240,20 @@ instance FromJSON UpdateTrackRecordingRequest where
 
 instance ToSchema UpdateTrackRecordingRequest where
   declareNamedSchema = genericDeclareNamedSchema (schemaOptions 6)
+
+-- | Request to lock or unlock a cluster's current match.
+data SetLockRequest = SetLockRequest
+  { setLockLocked :: Bool
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON SetLockRequest where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 7 }
+
+instance FromJSON SetLockRequest where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 7 }
+
+instance ToSchema SetLockRequest where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 7)
 
 -- | Request to create a new cluster from tracks.
 data CreateClusterRequest = CreateClusterRequest

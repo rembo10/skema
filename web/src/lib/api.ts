@@ -304,6 +304,13 @@ export const api = {
     });
   },
 
+  async setClusterLock(clusterId: number, locked: boolean): Promise<Cluster> {
+    return fetchApi<Cluster>(`/clusters/${clusterId}/lock`, {
+      method: 'PUT',
+      body: JSON.stringify({ locked }),
+    });
+  },
+
   async getCandidates(clusterId: number): Promise<CandidateRelease[]> {
     return fetchApi<CandidateRelease[]>(`/clusters/${clusterId}/candidates`);
   },

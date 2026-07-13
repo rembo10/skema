@@ -15,6 +15,7 @@ import {
   XCircle,
   AlertTriangle,
   GripVertical,
+  Lock,
 } from 'lucide-react';
 import {
   DndContext,
@@ -171,6 +172,8 @@ export function RematchModal({ cluster, onClose, onUpdate }: RematchModalProps) 
   const [newRecordingId, setNewRecordingId] = useState('');
   const [mbTracks, setMBTracks] = useState<MBTrackInfo[] | null>(null);
   const [orderedTracks, setOrderedTracks] = useState<(ClusterTrack | null)[]>([]);
+  const [matchLocked, setMatchLocked] = useState(cluster.match_locked);
+  const [locking, setLocking] = useState(false);
 
   // Use cached data or fetch if not available
   const tracks = cachedTracks || [];
@@ -339,6 +342,22 @@ export function RematchModal({ cluster, onClose, onUpdate }: RematchModalProps) 
     } catch (error) {
       console.error('Failed to assign release:', error);
       toast.error('Failed to assign release');
+    }
+  };
+
+  const handleToggleLock = async () => {
+    const nextLocked = !matchLocked;
+    try {
+      setLocking(true);
+      await api.setClusterLock(cluster.id, nextLocked);
+      setMatchLocked(nextLocked);
+      toast.success(nextLocked ? 'Match confirmed and locked' : 'Match unlocked');
+      onUpdate();
+    } catch (error) {
+      console.error('Failed to update match lock:', error);
+      toast.error(nextLocked ? 'Failed to lock match' : 'Failed to unlock match');
+    } finally {
+      setLocking(false);
     }
   };
 
@@ -602,7 +621,7 @@ export function RematchModal({ cluster, onClose, onUpdate }: RematchModalProps) 
                         </span>
                       </div>
                     )}
-                    {cluster.match_locked && (
+                    {matchLocked && (
                       <div>
                         <span className="text-dark-text-tertiary">Status:</span>{' '}
                         <span className="text-purple-400 text-xs">🔒 Locked</span>
@@ -641,9 +660,32 @@ export function RematchModal({ cluster, onClose, onUpdate }: RematchModalProps) 
           {/* Current Match */}
           {cluster.mb_release_id && (
             <div>
-              <h3 className="text-sm font-semibold text-dark-text uppercase tracking-wide mb-3">
-                Current Match
-              </h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-dark-text uppercase tracking-wide">
+                  Current Match
+                </h3>
+                <button
+                  onClick={handleToggleLock}
+                  disabled={locking}
+                  className={`flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
+                    matchLocked
+                      ? 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
+                      : 'btn-primary'
+                  }`}
+                  title={matchLocked
+                    ? 'Unlock this match to allow automatic re-matching'
+                    : 'Confirm this match and lock it to prevent automatic re-matching'}
+                >
+                  {locking ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : matchLocked ? (
+                    <Lock className="h-4 w-4" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4" />
+                  )}
+                  {matchLocked ? 'Locked — Unlock' : 'Confirm Match'}
+                </button>
+              </div>
               <div className="card p-4 bg-dark-bg border-2 border-green-400/20">
                 <div className="flex items-start justify-between">
                   <div>
