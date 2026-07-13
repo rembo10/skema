@@ -3,7 +3,6 @@ import { Cluster, ClustersStats } from '../types/api';
 import { api } from '../lib/api';
 import { handleApiError } from '../lib/errors';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import { IdentificationNav } from '../components/IdentificationNav';
 import { RematchModal } from '../components/identification/RematchModal';
 import { PaginationControls } from '../components/PaginationControls';
 import { usePagination } from '../hooks/usePagination';
@@ -108,8 +107,6 @@ export default function Clusters() {
 
   return (
     <div className="h-full flex flex-col animate-fade-in">
-      <IdentificationNav />
-
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-dark-text">Clusters</h1>

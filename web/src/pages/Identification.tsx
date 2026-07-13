@@ -10,6 +10,7 @@ export default function Identification() {
 
   return (
     <div className="h-full flex flex-col">
+      <IdentificationNav />
       {isTracksView ? <Tracks /> : <Clusters />}
     </div>
   );
