@@ -14,7 +14,7 @@ import Skema.Domain.Metadata (metadataRecordToMonatone)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getAllClusters, getAllTracks, getMetadataForTrack, getTrackByPath, computeClusterHash, findClusterByHash, createCluster, updateTrackCluster, updateClusterQuality)
+import Skema.Database.Repository (getAllClusters, getAllTracks, getMetadataForTrack, getTrackByPath, computeClusterHash, findClusterByHash, createCluster, updateTrackCluster, updateClusterQuality, deleteEmptyClusters)
 import Skema.Database.Types (ClusterRecord(..), LibraryTrackRecord(..))
 import Skema.Domain.Identification (mkIdentifyConfig, partitionClusters)
 import Skema.Config.Types (Config(..))
@@ -120,6 +120,14 @@ handleMetadataReadComplete GrouperDeps{..} fileCount = do
         let isNewCluster = isNothing maybeCluster
         let anyTrackChanged = any (\(_, oldCid) -> oldCid /= Just cid) validTrackInfos
         pure $ if isNewCluster || anyTrackChanged then Just cid else Nothing
+
+    -- Prune clusters left with no tracks. When a track's identifying metadata
+    -- changes (e.g. an album artist is added) it moves to a different cluster,
+    -- and the cluster it left can be orphaned while still holding its old,
+    -- possibly locked, match. Those stale clusters are meaningless, so remove them.
+    prunedIds <- liftIO $ withConnection pool deleteEmptyClusters
+    unless (null prunedIds) $
+      $(logTM) InfoS $ logStr $ ("Pruned " <> show (length prunedIds) <> " empty cluster(s): " <> show prunedIds :: Text)
 
     -- Reload clusters to get updated state
     allClusters <- liftIO $ withConnection pool getAllClusters

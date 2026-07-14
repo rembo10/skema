@@ -12,6 +12,7 @@ module Skema.Database.Repository.Clusters
   , updateClusterWithCandidates
   , clearClusterRelease
   , setClusterMatchLock
+  , deleteEmptyClusters
   , updateTrackCluster
   , getClusterById
   , getAllClusters
@@ -31,7 +32,7 @@ import Skema.Domain.Quality (Quality(..), textToQuality, qualityToText)
 import System.OsPath (OsPath)
 import Data.Time (getCurrentTime)
 import Data.List (minimum)
-import Database.SQLite.Simple (Only(..))
+import Database.SQLite.Simple (Only(..), fromOnly)
 import qualified Database.SQLite.Simple as SQLite
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
@@ -178,6 +179,23 @@ setClusterMatchLock conn cid locked = do
   executeQuery conn
     "UPDATE clusters SET match_locked = ?, updated_at = ? WHERE id = ?"
     (locked, now, cid)
+
+-- | Delete clusters that have no library tracks assigned to them.
+-- When a track's identifying metadata changes (e.g. an album artist is added),
+-- re-grouping moves it to a different cluster. The cluster it left behind can be
+-- orphaned with zero tracks while still carrying its old (possibly locked)
+-- match. Such clusters are meaningless, so we prune them here. The delete
+-- cascades to cluster_match_candidates via ON DELETE CASCADE.
+-- Returns the IDs of the clusters that were deleted.
+deleteEmptyClusters :: SQLite.Connection -> IO [Int64]
+deleteEmptyClusters conn = do
+  emptyRows <- queryRows_ conn
+    "SELECT id FROM clusters c WHERE NOT EXISTS \
+    \(SELECT 1 FROM library_tracks t WHERE t.cluster_id = c.id)"
+  let ids = map fromOnly (emptyRows :: [Only Int64])
+  forM_ ids $ \cid ->
+    executeQuery conn "DELETE FROM clusters WHERE id = ?" (Only cid)
+  pure ids
 
 -- | Update the cluster_id for tracks.
 -- Replaces the old junction table approach with direct FK assignment.

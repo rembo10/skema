@@ -26,6 +26,8 @@ tests :: TestTree
 tests = testGroup "Integration.Grouper"
   [ testCase "handles many file groups without connection pool deadlock" $
       withTimeout $ testGrouperWithManyAlbums
+  , testCase "prunes the orphaned cluster left behind when tracks are re-grouped" $
+      withTimeout $ testGrouperPrunesOrphanedClusters
   ]
 
 -- | Wrap test with a timeout to catch deadlocks
@@ -106,6 +108,67 @@ testGrouperWithManyAlbums = do
 
     let trackCounts = map length clusterTracks
     sort trackCounts @?= [10, 10, 10]
+
+-- | Reproduces the "old single files still in the database" bug: when a track's
+-- album artist changes, re-grouping moves it to a new cluster. The cluster it
+-- left must not linger with zero tracks and a stale match.
+testGrouperPrunesOrphanedClusters :: IO ()
+testGrouperPrunesOrphanedClusters = do
+  withTestDb $ \ctx -> do
+    let pool = scDbPool ctx
+    let bus = scEventBus ctx
+    let le = scLogEnv ctx
+    let dummyConfig = scConfigVar ctx
+
+    now <- getCurrentTime
+    paths <- withConnection pool $ \conn ->
+      forM [1..5 :: Int] $ \trackNum -> do
+        path <- encodeUtf $ "/test/album/track" <> show trackNum <> ".flac"
+        _ <- insertTrack conn path 1000000 now
+        -- Initially grouped with no album artist
+        let metaRec = (createTestMetadataRecord "Shared Album" "Various" trackNum)
+              { metaAlbumArtist = Nothing }
+        maybeTrack <- getTrackByPath conn path
+        case maybeTrack >>= trackId of
+          Just tid -> insertTrackMetadata conn tid metaRec
+          Nothing -> pure ()
+        pure path
+
+    let grouperDeps = GrouperDeps
+          { groupEventBus = bus
+          , groupLogEnv = le
+          , groupDbPool = pool
+          , groupConfigVar = dummyConfig
+          , groupClock = systemClock
+          }
+
+    -- First grouping: one cluster holding all five tracks
+    handleMetadataReadComplete grouperDeps 5
+    firstClusters <- withConnection pool getAllClusters
+    length firstClusters @?= 1
+
+    -- Add an album artist to every track, then re-group. The tracks move to a
+    -- new cluster (album artist is part of the cluster hash).
+    withConnection pool $ \conn ->
+      forM_ (zip [1..] paths) $ \(trackNum, path) -> do
+        let metaRec = createTestMetadataRecord "Shared Album" "Real Artist" trackNum
+        maybeTrack <- getTrackByPath conn path
+        case maybeTrack >>= trackId of
+          Just tid -> updateTrackMetadata conn tid metaRec
+          Nothing -> pure ()
+
+    handleMetadataReadComplete grouperDeps 5
+
+    -- Exactly one cluster should remain (the orphan was pruned), and it holds all tracks.
+    finalClusters <- withConnection pool getAllClusters
+    length finalClusters @?= 1
+    finalTracks <- withConnection pool $ \conn ->
+      case clusterId =<< viaNonEmpty head finalClusters of
+        Nothing -> pure []
+        Just cid -> do
+          result <- getClusterWithTracks conn cid
+          pure $ maybe [] snd result
+    length finalTracks @?= 5
 
 -- Test Helpers
 
