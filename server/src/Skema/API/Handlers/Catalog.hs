@@ -901,10 +901,21 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
               DB.updateCatalogAlbum conn albumId (Just (Just profileId))
 
         SetWanted wanted -> do
-          -- Update wanted status for all albums
-          liftIO $ withConnection connPool $ \conn ->
-            forM_ albumIds $ \albumId ->
-              DB.updateCatalogAlbum conn albumId Nothing
+          -- "Wanted" is derived from the quality profile: assign the default
+          -- profile to make albums wanted, clear it to unwant them.
+          if wanted
+            then do
+              maybeProfileId <- liftIO $ withConnection connPool DB.getDefaultQualityProfileId
+              case maybeProfileId of
+                Nothing -> throw400 "No default quality profile configured"
+                Just profileId ->
+                  liftIO $ withConnection connPool $ \conn ->
+                    forM_ albumIds $ \albumId ->
+                      DB.updateCatalogAlbum conn albumId (Just (Just profileId))
+            else
+              liftIO $ withConnection connPool $ \conn ->
+                forM_ albumIds $ \albumId ->
+                  DB.updateCatalogAlbum conn albumId (Just Nothing)
 
           -- If setting to wanted, emit WantedAlbumAdded events for each
           when wanted $ do
