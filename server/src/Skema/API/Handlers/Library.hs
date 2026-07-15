@@ -12,6 +12,7 @@ import qualified Skema.Services.TaskManager as TM
 import Skema.API.Handlers.Utils (readConfig, parsePagination)
 import Skema.Database.Connection
 import Database.SQLite.Simple (Only(..))
+import Database.SQLite.Simple.ToField (toField)
 import qualified Skema.Config.Types as Cfg
 import Skema.FileSystem.Utils (osPathToString)
 import Skema.Services.Registry (ServiceRegistry)
@@ -91,17 +92,19 @@ libraryServer le bus _serverCfg _registry tm pool configVar =
               "locked" -> "c.match_locked = 1" :: Text
               _ -> "" :: Text
 
-        -- Build search clause
-        let searchClause = case searchQuery of
-              Nothing -> "" :: Text
+        -- Build search clause with bound parameters
+        let (searchClause, searchParams) = case searchQuery of
+              Nothing -> ("" :: Text, [])
               Just q ->
-                let pattern = "%" <> q <> "%"
-                in "(m.title LIKE " <> show pattern <> " OR " <>
-                   "m.artist LIKE " <> show pattern <> " OR " <>
-                   "c.album LIKE " <> show pattern <> " OR " <>
-                   "c.album_artist LIKE " <> show pattern <> " OR " <>
-                   "t.mb_recording_title LIKE " <> show pattern <> " OR " <>
-                   "t.path LIKE " <> show pattern <> ")" :: Text
+                let pattern = "%" <> q <> "%" :: Text
+                in ( "(m.title LIKE ? OR " <>
+                     "m.artist LIKE ? OR " <>
+                     "c.album LIKE ? OR " <>
+                     "c.album_artist LIKE ? OR " <>
+                     "t.mb_recording_title LIKE ? OR " <>
+                     "t.path LIKE ?)"
+                   , replicate 6 (toField pattern)
+                   )
 
         -- Combine clauses
         let whereClauses = filter (/= "") [filterClause, searchClause]
@@ -126,7 +129,7 @@ libraryServer le bus _serverCfg _registry tm pool configVar =
           ("SELECT COUNT(*) FROM library_tracks t \
           \LEFT JOIN library_track_metadata m ON t.id = m.track_id \
           \LEFT JOIN clusters c ON t.cluster_id = c.id " <> whereClause)
-          ()
+          searchParams
 
         -- Get paginated tracks with filter and sort
         tracks <- queryRows conn
@@ -144,7 +147,7 @@ libraryServer le bus _serverCfg _registry tm pool configVar =
           whereClause <>
           " ORDER BY " <> orderBy <>
           " LIMIT ? OFFSET ?")
-          (limit, offset)
+          (searchParams <> [toField limit, toField offset])
 
         pure $ TracksResponse
           { tracksResponsePagination = TracksPagination
