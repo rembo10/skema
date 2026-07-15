@@ -14,6 +14,7 @@ module Helpers.TestEnv
     TestEnv(..)
   , withTestEnv
   , withTestEnvMock
+  , withTestEnvTransport
     -- * Service Context Builders
   , mkTestServiceContext
   ) where
@@ -25,6 +26,7 @@ import Skema.Events.Bus (EventBus, newEventBus)
 import Skema.Services.Types (ServiceContext(..))
 import Skema.HTTP.Client
   ( HttpClient
+  , HttpTransport
   , newHttpClientWithTransport
   , defaultHttpConfig
   , defaultUserAgentData
@@ -75,7 +77,15 @@ withTestEnv = withTestEnvMock []
 -- given matchers. Matchers are tried in order; the first to match wins.
 -- Requests with no matching matcher throw 'UnexpectedHttpRequest'.
 withTestEnvMock :: [RequestMatcher] -> (TestEnv -> IO a) -> IO a
-withTestEnvMock matchers action = do
+withTestEnvMock matchers = withTestEnvTransport (mockTransport matchers)
+
+-- | Create a test environment backed by an arbitrary HTTP transport.
+--
+-- Most tests want 'withTestEnvMock' (canned responses). Use this directly
+-- when the transport itself matters — e.g. to introduce latency and exercise
+-- concurrency/streaming ordering.
+withTestEnvTransport :: HttpTransport -> (TestEnv -> IO a) -> IO a
+withTestEnvTransport transport action = do
   -- Create minimal LogEnv for testing (only show errors and critical messages)
   handleScribe <- mkHandleScribe ColorIfTerminal stderr (permitItem ErrorS) V2
   let mkLogEnv = registerScribe "stderr" handleScribe defaultScribeSettings =<< initLogEnv "skema-test" "test"
@@ -103,8 +113,7 @@ withTestEnvMock matchers action = do
           -- Create in-memory download progress map
           progressMap <- STM.newTVarIO mempty
 
-          -- Create HTTP client with a mock transport
-          let transport = mockTransport matchers
+          -- Create HTTP client with the provided transport
           httpClient <- newHttpClientWithTransport le defaultHttpConfig defaultUserAgentData transport
 
           -- Read config for MusicBrainz setup

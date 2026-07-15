@@ -296,6 +296,7 @@ test-suite skema-test
     Integration.SubmissionSpec
     Integration.AcquisitionServiceSpec
     Integration.QualityProfilesHandlerSpec
+    Integration.IndexerStreamingSpec
     Integration.DownloadsRepoSpec
     Integration.CatalogAlbumRepoSpec
     Integration.CatalogArtistRepoSpec
