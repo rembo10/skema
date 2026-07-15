@@ -158,6 +158,8 @@ runIncrementalMigrations le conn = do
           \  AND mb_recording_id IS NULL \
           \  AND EXISTS (SELECT 1 FROM clusters WHERE id = library_tracks.cluster_id AND mb_release_data IS NOT NULL)"
 
+        recordMigration conn "001_track_recording_and_provenance"
+
     -- Migration 002: Quality profiles and catalog improvements
     applied002 <- liftIO $ migrationApplied conn "002_quality_profiles_and_catalog"
     unless applied002 $ do
