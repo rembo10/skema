@@ -22,6 +22,7 @@ import qualified Skema.Database.Types as DBTypes
 import Database.SQLite.Simple (Only(..))
 import qualified Skema.Config.Types as Cfg
 import Skema.Services.Registry (ServiceRegistry(..))
+import Skema.Services.Download.Cancel (cancelDownload)
 import Skema.MusicBrainz.Client (searchArtists, searchReleaseGroups, getRelease, getReleaseGroup, getReleaseGroupReleases, pickRepresentativeRelease, prettyClientError)
 import Skema.MusicBrainz.Types (MBRelease(..), MBReleaseGroup(..), MBMedium(..), MBTrack(..), mbasArtists, mbasArtistId, mbrgsReleaseGroups, mbrgsReleaseGroupId, MBID(..), unMBID)
 import Skema.Domain.Converters (mbArtistSearchToCatalogResponse, mbReleaseGroupSearchToCatalogResponse)
@@ -574,9 +575,9 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
           -- Cancel active download if Core logic says we should
           case (shouldCancel, maybeActiveDownloadId) of
-            (True, Just downloadId) ->
-              liftIO $ withConnection connPool $ \conn ->
-                executeQuery conn "DELETE FROM downloads WHERE id = ?" (Only downloadId)
+            (True, Just downloadId) -> do
+              config <- liftIO $ readConfig configVar
+              liftIO $ cancelDownload le (srHttpClient registry) (Cfg.download config) connPool downloadId
             _ -> pure ()
 
           -- Emit WantedAlbumAdded event if album is being marked as wanted (was not wanted before)

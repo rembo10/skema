@@ -21,11 +21,8 @@ import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
 import Skema.Services.Registry (ServiceRegistry(..))
 import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
-import Skema.Services.Download.Client (createClientInstance)
-import Skema.DownloadClient.Types (removeDownload)
+import Skema.Services.Download.Cancel (cancelDownload)
 import Skema.Indexer.Types (ReleaseInfo(..), DownloadType(..), SlskdFile(..))
-import qualified Skema.Slskd.Client as Slskd
-import qualified Skema.Slskd.Types as SlskdTypes
 import Skema.Domain.Quality (textToQuality)
 import Control.Concurrent.Async (async)
 import Data.Aeson (toJSON, object, (.=))
@@ -299,92 +296,6 @@ downloadsServer le bus _serverCfg registry tm connPool progressMap configVar =
 
     deleteDownloadHandler :: Int64 -> Handler NoContent
     deleteDownloadHandler downloadId = do
-      -- Look up the download to check if it's in progress
-      maybeDownload <- liftIO $ withConnection connPool $ \conn ->
-        DownloadsRepo.getDownloadById conn downloadId
-
-      -- If download is in progress, try to cancel it from the client
-      case maybeDownload of
-        Just download -> do
-          let status = DBTypes.downloadStatus download
-              clientName = DBTypes.downloadClient download
-              clientId = DBTypes.downloadClientId download
-
-          -- Cancel if downloading or queued
-          when (status == DBTypes.DownloadDownloading || status == DBTypes.DownloadQueued) $ do
-            config <- liftIO $ readConfig configVar
-            liftIO $ runKatipContextT le () "api.downloads.delete" $ do
-              $(logTM) InfoS $ logStr $ ("Cancelling in-progress download " <> show downloadId <> " from client: " <> show clientName :: Text)
-
-            case clientName of
-              Just "slskd" -> do
-                -- For slskd, we need to cancel transfers
-                -- The client_id format is "username:title", extract username
-                case clientId of
-                  Just cid -> do
-                    let username = T.takeWhile (/= ':') cid
-                    -- Get slskd config and cancel transfers
-                    let maybeSlskdConfig = Cfg.downloadSlskdClient (Cfg.download config)
-                    case maybeSlskdConfig of
-                      Just slskdConfig | Cfg.slskdEnabled slskdConfig -> do
-                        let httpClient = srHttpClient registry
-                        let client = Slskd.createSlskdClient slskdConfig httpClient
-                        -- Get transfers for this user and cancel them
-                        result <- liftIO $ Slskd.getTransfersByUsername client username
-                        case result of
-                          Left err -> liftIO $ runKatipContextT le () "api.downloads.delete" $
-                            $(logTM) WarningS $ logStr $ ("Failed to get slskd transfers: " <> err :: Text)
-                          Right transfers -> do
-                            -- Cancel each transfer
-                            forM_ transfers $ \transfer -> do
-                              _ <- liftIO $ Slskd.cancelTransfer client username (SlskdTypes.stId transfer) True
-                              pure ()
-                            liftIO $ runKatipContextT le () "api.downloads.delete" $
-                              $(logTM) InfoS $ logStr $ ("Cancelled " <> show (length transfers) <> " slskd transfers" :: Text)
-                      _ -> pure ()
-                  Nothing -> pure ()
-
-              Just client | client == "SABnzbd" || client == "NZBGet" -> do
-                -- For NZB clients, use removeDownload
-                case clientId of
-                  Just cid -> do
-                    let nzbConfig = Cfg.downloadNzbClient (Cfg.download config)
-                    case nzbConfig of
-                      Just nzbClient | Cfg.dcEnabled nzbClient -> do
-                        let httpClient = srHttpClient registry
-                        clientInstance <- liftIO $ createClientInstance httpClient nzbClient
-                        result <- liftIO $ removeDownload clientInstance cid True
-                        case result of
-                          Left err -> liftIO $ runKatipContextT le () "api.downloads.delete" $
-                            $(logTM) WarningS $ logStr $ ("Failed to remove from NZB client: " <> err :: Text)
-                          Right () -> liftIO $ runKatipContextT le () "api.downloads.delete" $
-                            $(logTM) InfoS $ logStr $ ("Removed download from NZB client" :: Text)
-                      _ -> pure ()
-                  Nothing -> pure ()
-
-              Just client | client == "Transmission" || client == "qBittorrent" -> do
-                -- For torrent clients, use removeDownload
-                case clientId of
-                  Just cid -> do
-                    let torrentConfig = Cfg.downloadTorrentClient (Cfg.download config)
-                    case torrentConfig of
-                      Just torrentClient | Cfg.dcEnabled torrentClient -> do
-                        let httpClient = srHttpClient registry
-                        clientInstance <- liftIO $ createClientInstance httpClient torrentClient
-                        result <- liftIO $ removeDownload clientInstance cid True
-                        case result of
-                          Left err -> liftIO $ runKatipContextT le () "api.downloads.delete" $
-                            $(logTM) WarningS $ logStr $ ("Failed to remove from torrent client: " <> err :: Text)
-                          Right () -> liftIO $ runKatipContextT le () "api.downloads.delete" $
-                            $(logTM) InfoS $ logStr $ ("Removed download from torrent client" :: Text)
-                      _ -> pure ()
-                  Nothing -> pure ()
-
-              _ -> pure ()  -- Unknown client, just delete from DB
-
-        Nothing -> pure ()  -- Download not found, just proceed with delete
-
-      -- Delete the download record from the database
-      liftIO $ withConnection connPool $ \conn ->
-        DownloadsRepo.deleteDownload conn downloadId
+      config <- liftIO $ readConfig configVar
+      liftIO $ cancelDownload le (srHttpClient registry) (Cfg.download config) connPool downloadId
       pure NoContent

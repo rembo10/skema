@@ -182,6 +182,7 @@ library
     Skema.Services.Registry
     Skema.Services.TrashCleanup
     Skema.Services.Download
+    Skema.Services.Download.Cancel
     Skema.Services.Download.Client
     Skema.Domain.Scoring
     Skema.Services.Download.Search
