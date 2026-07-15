@@ -35,7 +35,7 @@ import Skema.Slskd.Client (createSlskdClient)
 import Skema.Slskd.Search (searchSlskd, searchSlskdStreaming, slskdCandidateToReleaseInfo)
 import Skema.Domain.Quality (qualityToText, textToQuality)
 import qualified Skema.Domain.Quality as Qual
-import Control.Concurrent.Async (async, mapConcurrently, race, concurrently)
+import Control.Concurrent.Async (async, mapConcurrently, race, concurrently, wait)
 import Control.Concurrent (threadDelay)
 import Data.Aeson (toJSON, object, (.=))
 import Servant hiding (SourceIO)
@@ -1102,7 +1102,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         let httpClient = srHttpClient svcRegistry
 
         -- Search indexers concurrently
-        forM_ indexers $ \indexer -> async $ do
+        indexerSearches <- forM indexers $ \indexer -> async $ do
           let indexerName = Cfg.indexerName indexer
           STM.atomically $ writeTChan chan (SearchStarted indexerName)
           result <- searchIndexer httpClient indexer query
@@ -1141,6 +1141,11 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
               Right _ -> do
                 STM.atomically $ writeTChan chan (SearchCompleted indexerName finalCount)
           _ -> pure ()
+
+        -- Wait for all indexer searches to finish before signaling completion.
+        -- Without this the searches run fire-and-forget and SearchDone is written
+        -- immediately, ending the stream before any results arrive.
+        mapM_ wait indexerSearches
 
         -- Signal completion
         endTime <- getCurrentTime
