@@ -13,6 +13,8 @@ module Skema.Database.Utils
   , textToDownloadStatus
   , insertReturningId
   , insertReturningIdMaybe
+  , qualityRankSql
+  , albumWantedSql
   ) where
 
 import Skema.Database.Types
@@ -24,6 +26,7 @@ import Skema.Database.Types
   , textToDownloadStatus
   )
 import Skema.Database.Connection (queryRows)
+import Skema.Domain.Quality (Quality, qualityToText)
 import Database.SQLite.Simple (Only(..), ToRow)
 import qualified Database.SQLite.Simple as SQLite
 
@@ -55,3 +58,32 @@ insertReturningIdMaybe
 insertReturningIdMaybe conn sql params = do
   results <- queryRows conn sql params :: IO [Only Int64]
   pure $ fmap (\(Only idValue) -> idValue) (viaNonEmpty head results)
+
+-- * Quality SQL helpers
+
+-- | SQL expression mapping a quality text column to its intrinsic rank,
+-- generated from the Quality enum in Skema.Domain.Quality so the SQL and
+-- Haskell orderings cannot drift. Unrecognized values rank below Unknown,
+-- so they always count as upgradeable.
+qualityRankSql :: Text -> Text
+qualityRankSql col =
+  "CASE " <> col <> " "
+    <> mconcat
+        [ "WHEN '" <> qualityToText q <> "' THEN " <> show (fromEnum q) <> " "
+        | q <- [minBound .. maxBound] :: [Quality]
+        ]
+    <> "ELSE -1 END"
+
+-- | SQL CASE computing whether an album is wanted (1) or not (0).
+-- Expects the aliases ca (catalog_albums), qp (quality_profiles), and
+-- c (the album's cluster) to be in scope. An album is wanted when it has
+-- a quality profile and either no cluster on disk or a cluster whose
+-- quality is below the profile's cutoff.
+albumWantedSql :: Text
+albumWantedSql =
+  "CASE \
+  \WHEN ca.quality_profile_id IS NULL THEN 0 \
+  \WHEN c.quality IS NULL THEN 1 \
+  \WHEN qp.cutoff_quality IS NULL THEN 0 \
+  \WHEN (" <> qualityRankSql "c.quality" <> ") >= (" <> qualityRankSql "qp.cutoff_quality" <> ") THEN 0 \
+  \ELSE 1 END"

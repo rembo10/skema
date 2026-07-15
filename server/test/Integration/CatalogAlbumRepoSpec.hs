@@ -27,9 +27,13 @@ import Skema.Database.Repository
   , deleteCatalogAlbum
   , createCluster
   , insertQualityProfile
+  , getCatalogAlbumsOverview
+  , CatalogAlbumOverviewRow(..)
+  , AlbumQuery(..)
+  , defaultAlbumQuery
   )
 import Skema.Database.Types (CatalogAlbumRecord(..))
-import Skema.Domain.Quality (Quality(..))
+import Skema.Domain.Quality (Quality(..), qualityToText)
 import Database.SQLite.Simple (Connection, Only(..))
 import qualified Database.SQLite.Simple as SQLite
 
@@ -43,6 +47,7 @@ tests = testGroup "Integration.CatalogAlbumRepo"
   , testCase "deleteCatalogAlbum removes the row" testDelete
   , testCase "upsert links an orphaned cluster sharing the release group" testUpsertLinksCluster
   , testCase "current_quality is derived from the linked cluster" testCurrentQualityDerived
+  , testCase "overview wanted reflects cluster quality vs profile cutoff" testOverviewWanted
   ]
 
 -- Builders ------------------------------------------------------------------
@@ -173,6 +178,41 @@ testCurrentQualityDerived = withTestEnv $ \env -> withConnection (tePool env) $ 
 
   afterLink <- getCatalogAlbumById conn albumId
   (catalogAlbumCurrentQuality =<< afterLink) @?= Just "Lossless"
+
+testOverviewWanted :: IO ()
+testOverviewWanted = withTestEnv $ \env -> withConnection (tePool env) $ \conn -> do
+  artistId <- mkArtist conn "Artist"
+  albumId <- upsertCatalogAlbum conn "rg-wanted" "Album" artistId "mbid-Artist" "Artist" Nothing Nothing
+  profileId <- insertQualityProfile conn "Lossless Profile" Lossless [] False
+  updateCatalogAlbum conn albumId (Just (Just profileId))
+
+  -- No cluster on disk yet: wanted.
+  noCluster <- overviewWanted conn albumId
+  noCluster @?= Just True
+
+  -- A cluster at cutoff quality satisfies the profile: not wanted.
+  clusterId <- createCluster conn "hash-wanted" (Just "Album") (Just "Artist") 10
+  SQLite.execute conn "UPDATE clusters SET quality = ?, catalog_album_id = ? WHERE id = ?"
+    (qualityToText Lossless, albumId, clusterId)
+  atCutoff <- overviewWanted conn albumId
+  atCutoff @?= Just False
+
+  -- Above-cutoff quality also satisfies it.
+  SQLite.execute conn "UPDATE clusters SET quality = ? WHERE id = ?"
+    (qualityToText HiResLossless, clusterId)
+  aboveCutoff <- overviewWanted conn albumId
+  aboveCutoff @?= Just False
+
+  -- Below-cutoff quality still wants an upgrade.
+  SQLite.execute conn "UPDATE clusters SET quality = ? WHERE id = ?"
+    (qualityToText MP3_320, clusterId)
+  belowCutoff <- overviewWanted conn albumId
+  belowCutoff @?= Just True
+
+overviewWanted :: Connection -> Int64 -> IO (Maybe Bool)
+overviewWanted conn albumId = do
+  rows <- getCatalogAlbumsOverview conn defaultAlbumQuery { aqAlbumId = Just albumId }
+  pure $ caorWanted <$> viaNonEmpty head rows
 
 -- Helpers -------------------------------------------------------------------
 

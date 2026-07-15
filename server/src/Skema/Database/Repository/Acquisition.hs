@@ -111,24 +111,14 @@ getAcquisitionSummary conn = do
     "SELECT COUNT(*) FROM catalog_artists WHERE followed = 1"
 
   -- Total wanted albums (quality_profile_id set and quality not yet at cutoff)
-  [Only totalWanted] <- queryRows_ conn
+  [Only totalWanted] <- queryRows_ conn $
     "SELECT COUNT(*) FROM catalog_albums ca \
     \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
     \LEFT JOIN clusters c ON c.id = ( \
     \  SELECT MAX(c2.id) FROM clusters c2 WHERE c2.catalog_album_id = ca.id \
     \) \
     \WHERE ca.quality_profile_id IS NOT NULL \
-    \  AND CASE \
-    \    WHEN c.id IS NULL THEN 1 \
-    \    WHEN c.quality IS NULL THEN 1 \
-    \    WHEN qp.cutoff_quality IS NULL THEN 0 \
-    \    ELSE CASE \
-    \      WHEN c.quality = 'FLAC' AND qp.cutoff_quality IN ('MP3', 'V0', 'FLAC') THEN 0 \
-    \      WHEN c.quality = 'V0' AND qp.cutoff_quality IN ('MP3', 'V0') THEN 0 \
-    \      WHEN c.quality = 'MP3' AND qp.cutoff_quality = 'MP3' THEN 0 \
-    \      ELSE 1 \
-    \    END \
-    \  END = 1"
+    \  AND " <> Utils.albumWantedSql <> " = 1"
 
   -- Merge artist and album counts per source
   let albumCountMap = Map.fromList albumCounts

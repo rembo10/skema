@@ -18,6 +18,7 @@ import Skema.Database.Repository.Catalog.Types
 import Skema.Database.Repository.Catalog.Artist (normalizeForSearch)
 
 import Skema.Database.Connection
+import Skema.Database.Utils (albumWantedSql)
 import Database.SQLite.Simple (Only(..))
 import Database.SQLite.Simple.ToField (toField)
 import qualified Database.SQLite.Simple as SQLite
@@ -128,17 +129,7 @@ getCatalogAlbumsOverview conn query = do
         \  ca.first_release_date, \
         \  ca.album_cover_url, \
         \  ca.album_cover_thumbnail_url, \
-        \  CASE \
-        \    WHEN ca.quality_profile_id IS NULL THEN 0 \
-        \    WHEN c.quality IS NULL THEN 1 \
-        \    WHEN qp.cutoff_quality IS NULL THEN 0 \
-        \    ELSE CASE \
-        \      WHEN c.quality = 'FLAC' AND qp.cutoff_quality IN ('MP3', 'V0', 'FLAC') THEN 0 \
-        \      WHEN c.quality = 'V0' AND qp.cutoff_quality IN ('MP3', 'V0') THEN 0 \
-        \      WHEN c.quality = 'MP3' AND qp.cutoff_quality = 'MP3' THEN 0 \
-        \      ELSE 1 \
-        \    END \
-        \  END AS wanted, \
+        \  " <> albumWantedSql <> " AS wanted, \
         \  c.id, \
         \  c.quality, \
         \  ca.quality_profile_id, \
@@ -200,17 +191,7 @@ getCatalogAlbumsOverview conn query = do
                          \  ca.first_release_date, \
                          \  ca.album_cover_url, \
                          \  ca.album_cover_thumbnail_url, \
-                         \  CASE \
-                         \    WHEN ca.quality_profile_id IS NULL THEN 0 \
-                         \    WHEN c.quality IS NULL THEN 1 \
-                         \    WHEN qp.cutoff_quality IS NULL THEN 0 \
-                         \    ELSE CASE \
-                         \      WHEN c.quality = 'FLAC' AND qp.cutoff_quality IN ('MP3', 'V0', 'FLAC') THEN 0 \
-                         \      WHEN c.quality = 'V0' AND qp.cutoff_quality IN ('MP3', 'V0') THEN 0 \
-                         \      WHEN c.quality = 'MP3' AND qp.cutoff_quality = 'MP3' THEN 0 \
-                         \      ELSE 1 \
-                         \    END \
-                         \  END AS wanted, \
+                         \  " <> albumWantedSql <> " AS wanted, \
                          \  c.id AS cluster_id, \
                          \  c.quality AS current_quality, \
                          \  ca.quality_profile_id, \
@@ -349,17 +330,7 @@ getCatalogAlbumsByArtistOverview conn artistId = do
         \  ca.first_release_date, \
         \  ca.album_cover_url, \
         \  ca.album_cover_thumbnail_url, \
-        \  CASE \
-        \    WHEN ca.quality_profile_id IS NULL THEN 0 \
-        \    WHEN c.quality IS NULL THEN 1 \
-        \    WHEN qp.cutoff_quality IS NULL THEN 0 \
-        \    ELSE CASE \
-        \      WHEN c.quality = 'FLAC' AND qp.cutoff_quality IN ('MP3', 'V0', 'FLAC') THEN 0 \
-        \      WHEN c.quality = 'V0' AND qp.cutoff_quality IN ('MP3', 'V0') THEN 0 \
-        \      WHEN c.quality = 'MP3' AND qp.cutoff_quality = 'MP3' THEN 0 \
-        \      ELSE 1 \
-        \    END \
-        \  END AS wanted, \
+        \  " <> albumWantedSql <> " AS wanted, \
         \  c.id, \
         \  c.quality, \
         \  ca.quality_profile_id, \
