@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatDate } from '../lib/formatters';
 import toast from 'react-hot-toast';
@@ -12,6 +12,7 @@ import { useAlbumsFilterState, QuickFilter } from '../hooks/useAlbumsFilterState
 import { TableRowSkeleton } from '../components/LoadingSkeleton';
 import { LoadingState } from '../components/LoadingState';
 import { AlbumReleasesModal } from '../components/AlbumReleasesModal';
+import { formatQuality, getQualityBadgeStyle, QUALITY_VALUES } from '../lib/quality';
 import {
   AlbumState,
   CatalogAlbumOverview,
@@ -59,6 +60,7 @@ const stateConfig: Record<AlbumState, { label: string; icon: typeof Music; color
 
 export default function Albums() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [albums, setAlbums] = useState<CatalogAlbumOverview[]>([]);
   const [loading, setLoading] = useState(true);
@@ -373,38 +375,6 @@ export default function Albums() {
     );
   };
 
-  const formatQuality = (quality: string | null) => {
-    if (!quality) return 'Unknown';
-    // Convert quality strings to readable format
-    const qualityMap: Record<string, string> = {
-      'unknown': 'Unknown',
-      'mp3_192': 'MP3 192',
-      'vbr2': 'VBR V2',
-      'mp3_256': 'MP3 256',
-      'vbr0': 'VBR V0',
-      'mp3_320': 'MP3 320',
-      'lossless': 'FLAC',
-      'hires_lossless': 'Hi-Res FLAC',
-    };
-    return qualityMap[quality] || quality;
-  };
-
-  const getQualityBadgeStyle = (quality: string | null): string => {
-    if (!quality) return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
-
-    const styleMap: Record<string, string> = {
-      'unknown': 'bg-gray-500/20 text-gray-400 border-gray-500/30',
-      'mp3_192': 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-      'vbr2': 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-      'mp3_256': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-      'vbr0': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-      'mp3_320': 'bg-lime-500/20 text-lime-400 border-lime-500/30',
-      'lossless': 'bg-green-500/20 text-green-400 border-green-500/30',
-      'hires_lossless': 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-    };
-    return styleMap[quality] || 'bg-gray-500/20 text-gray-400 border-gray-500/30';
-  };
-
   const QualityBadge = ({ quality }: { quality: string | null }) => (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getQualityBadgeStyle(quality)}`}>
       {formatQuality(quality)}
@@ -511,7 +481,7 @@ export default function Albums() {
           <div className="space-y-2">
             <label className="text-xs font-medium text-dark-text-secondary">Filter by Quality:</label>
               <div className="flex flex-wrap gap-3">
-                {(['unknown', 'mp3_192', 'vbr2', 'mp3_256', 'vbr0', 'mp3_320', 'lossless', 'hires_lossless'] as const).map((quality) => {
+                {QUALITY_VALUES.map((quality) => {
                   const isSelected = qualityFilter.includes(quality);
                   return (
                     <button
@@ -781,9 +751,12 @@ export default function Albums() {
                             </div>
                           )}
                           <div>
-                            <div className="text-sm font-medium text-dark-text">
+                            <button
+                              onClick={() => navigate(`/albums/${album.id}`)}
+                              className="text-sm font-medium text-dark-text hover:text-dark-accent transition-colors text-left"
+                            >
                               {album.title}
-                            </div>
+                            </button>
                             {album.type && (
                               <div className="text-xs text-dark-text-tertiary">
                                 {album.type}

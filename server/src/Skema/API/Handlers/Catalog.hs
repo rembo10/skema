@@ -6,7 +6,7 @@ module Skema.API.Handlers.Catalog
   ( catalogServer
   ) where
 
-import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryResponse(..), CatalogArtistResponse(..), ArtistsPagination(..), ArtistsResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), CatalogAlbumOverviewResponse(..), AlbumOverviewPagination(..), AlbumOverviewStats(..), AlbumOverviewResponse(..), BulkAlbumActionRequest(..), BulkAlbumAction(..), AlbumState(..), ActiveDownloadInfo(..), AlbumReleasesResponse(..), ReleaseResponse(..), SlskdFileResponse(..), ReleaseStreamEvent(..))
+import Skema.API.Types.Catalog (CatalogAPI, CatalogQueryResponse(..), CatalogArtistResponse(..), ArtistsPagination(..), ArtistsResponse(..), CatalogAlbumResponse(..), CreateCatalogArtistRequest(..), UpdateCatalogArtistRequest(..), CreateCatalogAlbumRequest(..), UpdateCatalogAlbumRequest(..), CatalogAlbumOverviewResponse(..), AlbumOverviewPagination(..), AlbumOverviewStats(..), AlbumOverviewResponse(..), BulkAlbumActionRequest(..), BulkAlbumAction(..), AlbumState(..), ActiveDownloadInfo(..), AlbumReleasesResponse(..), ReleaseResponse(..), SlskdFileResponse(..), ReleaseStreamEvent(..), AlbumTrackResponse(..), AlbumTracksResponse(..))
 import Skema.API.Types.Common (SourceIO)
 import Skema.Auth (checkAuthEnabled)
 import Skema.Auth.JWT (validateJWT)
@@ -22,8 +22,8 @@ import qualified Skema.Database.Types as DBTypes
 import Database.SQLite.Simple (Only(..))
 import qualified Skema.Config.Types as Cfg
 import Skema.Services.Registry (ServiceRegistry(..))
-import Skema.MusicBrainz.Client (searchArtists, searchReleaseGroups, getRelease, getReleaseGroup, prettyClientError)
-import Skema.MusicBrainz.Types (MBRelease(..), MBReleaseGroup(..), mbasArtists, mbasArtistId, mbrgsReleaseGroups, mbrgsReleaseGroupId, MBID(..), unMBID)
+import Skema.MusicBrainz.Client (searchArtists, searchReleaseGroups, getRelease, getReleaseGroup, getReleaseGroupReleases, pickRepresentativeRelease, prettyClientError)
+import Skema.MusicBrainz.Types (MBRelease(..), MBReleaseGroup(..), MBMedium(..), MBTrack(..), mbasArtists, mbasArtistId, mbrgsReleaseGroups, mbrgsReleaseGroupId, MBID(..), unMBID)
 import Skema.Domain.Converters (mbArtistSearchToCatalogResponse, mbReleaseGroupSearchToCatalogResponse)
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
@@ -63,6 +63,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
   :<|> deleteAlbumHandler
   :<|> searchAlbumReleasesHandler
   :<|> streamAlbumReleasesHandler
+  :<|> getAlbumTracksHandler
+  :<|> getAlbumHandler
   :<|> bulkActionHandler
   where
     taskHandler :: TaskRequest -> Handler TaskResponse
@@ -806,6 +808,83 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       "monitored" -> Just Monitored
       "upgrading" -> Just Upgrading
       _ -> Nothing
+
+    -- Get a single catalog album's overview by ID
+    getAlbumHandler :: Int64 -> Handler CatalogAlbumOverviewResponse
+    getAlbumHandler albumId = do
+      maybeRow <- liftIO $ withConnection connPool $ \conn -> do
+        rows <- DB.getCatalogAlbumsOverview conn DB.defaultAlbumQuery { DB.aqAlbumId = Just albumId, DB.aqLimit = 1 }
+        pure $ viaNonEmpty head rows
+      case maybeRow of
+        Nothing -> throw404 $ "Album not found: " <> show albumId
+        Just row -> pure $ rowToResponse row
+
+    -- Get an album's tracklist from MusicBrainz.
+    --
+    -- Uses the release actually matched in the library when available,
+    -- otherwise a representative release chosen from the release group.
+    getAlbumTracksHandler :: Int64 -> Handler AlbumTracksResponse
+    getAlbumTracksHandler albumId = do
+      let mbEnv = srMBClientEnv registry
+
+      maybeAlbum <- liftIO $ withConnection connPool $ \conn ->
+        DB.getCatalogAlbumById conn albumId
+
+      case maybeAlbum of
+        Nothing -> throw404 $ "Album not found: " <> show albumId
+        Just album -> do
+          let rgMbid = DBTypes.catalogAlbumReleaseGroupMBID album
+              firstReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
+
+          -- Prefer the release actually matched in the library
+          matchedReleaseId <- liftIO $ withConnection connPool $ \conn -> do
+            rows <- queryRows conn
+              "SELECT mb_release_id FROM clusters WHERE catalog_album_id = ? AND mb_release_id IS NOT NULL LIMIT 1"
+              (Only albumId) :: IO [Only Text]
+            pure $ case viaNonEmpty head rows of
+              Just (Only rid) -> Just rid
+              Nothing -> Nothing
+
+          -- Resolve which release (edition) to show the tracklist for
+          chosen <- case matchedReleaseId of
+            Just rid -> pure $ Just (rid, True)
+            Nothing -> do
+              releasesResult <- liftIO $ getReleaseGroupReleases mbEnv (MBID rgMbid)
+              case releasesResult of
+                Left _ -> pure Nothing
+                Right releases ->
+                  pure $ fmap (\r -> (unMBID (mbReleaseId r), False))
+                              (pickRepresentativeRelease firstReleaseDate releases)
+
+          case chosen of
+            Nothing -> pure $ AlbumTracksResponse
+              { albumTracksReleaseMbid = Nothing
+              , albumTracksReleaseTitle = Nothing
+              , albumTracksIsMatchedRelease = False
+              , albumTracksTracks = []
+              }
+            Just (releaseMbid, isMatched) -> do
+              relResult <- liftIO $ getRelease mbEnv (MBID releaseMbid)
+              case relResult of
+                Left err -> throw500 $ "Failed to fetch release tracklist: " <> prettyClientError err
+                Right rel -> do
+                  let tracks =
+                        [ AlbumTrackResponse
+                            { albumTrackPosition = mbTrackPosition t
+                            , albumTrackDiscNumber = mbMediumPosition m
+                            , albumTrackTitle = mbTrackTitle t
+                            , albumTrackArtist = mbTrackArtist t
+                            , albumTrackLengthMs = mbTrackLength t
+                            , albumTrackRecordingMbid = unMBID (mbTrackRecordingId t)
+                            }
+                        | m <- mbReleaseMedia rel, t <- mbMediumTracks m
+                        ]
+                  pure $ AlbumTracksResponse
+                    { albumTracksReleaseMbid = Just releaseMbid
+                    , albumTracksReleaseTitle = Just (mbReleaseTitle rel)
+                    , albumTracksIsMatchedRelease = isMatched
+                    , albumTracksTracks = tracks
+                    }
 
     -- Bulk operations on catalog albums
     bulkActionHandler :: BulkAlbumActionRequest -> Handler NoContent

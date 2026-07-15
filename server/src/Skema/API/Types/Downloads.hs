@@ -26,6 +26,7 @@ type DownloadsAPI = "downloads" :>
   ( "tasks" :> ReqBody '[JSON] TaskRequest :> PostCreated '[JSON] TaskResponse
   :<|> QueryParam "offset" Int
     :> QueryParam "limit" Int
+    :> QueryParam "catalogAlbumId" Int64
     :> Get '[JSON] DownloadsResponse
   :<|> Capture "downloadId" Int64 :> Get '[JSON] DownloadResponse
   :<|> "queue" :> ReqBody '[JSON] QueueDownloadRequest :> PostCreated '[JSON] QueueDownloadResponse

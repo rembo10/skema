@@ -13,6 +13,8 @@ module Skema.MusicBrainz.Client
   , searchRecordings
   , getRelease
   , getReleaseGroup
+  , getReleaseGroupReleases
+  , pickRepresentativeRelease
   , getArtist
   , getArtistConditional
   , searchArtists
@@ -147,6 +149,41 @@ getReleaseGroup env@MBClientEnv{..} (MBID mbid) = do
   pure $ case result of
     Left err -> Left $ MBHttpError err
     Right releaseGroup -> Right releaseGroup
+
+-- | List the releases (editions/pressings) belonging to a release group.
+--
+-- Uses the browse endpoint. Returns the releases with their media so a
+-- representative edition can be chosen for display.
+--
+-- Automatically retries with exponential backoff via centralized HTTP client.
+getReleaseGroupReleases :: MBClientEnv -> ReleaseGroupMBID -> IO (Either MBClientError [MBRelease])
+getReleaseGroupReleases env@MBClientEnv{..} (MBID mbid) = do
+  let includes = "media"
+      params = [ ("release-group", mbid)
+               , ("inc", includes)
+               , ("limit", "100")
+               , ("fmt", "json")
+               ]
+      url = buildMBUrl mbBaseUrl "release" params
+
+  result <- mbGetJSON env url
+  pure $ case result of
+    Left err -> Left $ MBHttpError err
+    Right browse -> Right (mbBrowseReleases browse)
+
+-- | Pick a representative release from a release group's releases.
+--
+-- Prefers the release whose date matches the group's first release date;
+-- otherwise the earliest dated release; otherwise the first available.
+pickRepresentativeRelease :: Maybe Text -> [MBRelease] -> Maybe MBRelease
+pickRepresentativeRelease firstReleaseDate releases =
+  let matchesFirstDate = case firstReleaseDate of
+        Just d | not (T.null d) -> find (\r -> mbReleaseDate r == Just d) releases
+        _ -> Nothing
+      dated = sortOn mbReleaseDate (filter (isJust . mbReleaseDate) releases)
+  in matchesFirstDate
+       <|> viaNonEmpty head dated
+       <|> viaNonEmpty head releases
 
 -- | Get an artist with their release groups.
 --

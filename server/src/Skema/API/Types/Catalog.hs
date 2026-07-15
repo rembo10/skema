@@ -30,6 +30,8 @@ module Skema.API.Types.Catalog
   , ReleaseResponse(..)
   , SlskdFileResponse(..)
   , ReleaseStreamEvent(..)
+  , AlbumTrackResponse(..)
+  , AlbumTracksResponse(..)
   ) where
 
 import Skema.API.Types.Tasks (TaskRequest, TaskResponse)
@@ -81,6 +83,8 @@ type CatalogAPI = "catalog" :>
   :<|> "albums" :> Capture "albumId" Int64 :> DeleteNoContent
   :<|> "albums" :> Capture "albumId" Int64 :> "releases" :> Get '[JSON] AlbumReleasesResponse
   :<|> "albums" :> Capture "albumId" Int64 :> "releases" :> "stream" :> QueryParam "token" Text :> ServerSentEvents (SourceIO ReleaseStreamEvent)
+  :<|> "albums" :> Capture "albumId" Int64 :> "tracks" :> Get '[JSON] AlbumTracksResponse
+  :<|> "albums" :> Capture "albumId" Int64 :> Get '[JSON] CatalogAlbumOverviewResponse
   :<|> "albums" :> "batch" :> ReqBody '[JSON] BulkAlbumActionRequest :> Patch '[JSON] NoContent
   )
 
@@ -477,6 +481,45 @@ instance FromJSON AlbumReleasesResponse where
 
 instance ToSchema AlbumReleasesResponse where
   declareNamedSchema = genericDeclareNamedSchema (schemaOptions 13)
+
+-- | A single track in an album's tracklist (sourced from MusicBrainz).
+data AlbumTrackResponse = AlbumTrackResponse
+  { albumTrackPosition :: Int
+  , albumTrackDiscNumber :: Int
+  , albumTrackTitle :: Text
+  , albumTrackArtist :: Maybe Text  -- Track-level artist if it differs from the album artist
+  , albumTrackLengthMs :: Maybe Int  -- Duration in milliseconds
+  , albumTrackRecordingMbid :: Text
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON AlbumTrackResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 10 }
+
+instance FromJSON AlbumTrackResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 10 }
+
+instance ToSchema AlbumTrackResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 10)
+
+-- | An album's tracklist, resolved from a specific MusicBrainz release.
+--
+-- The release chosen is the edition actually matched in the library when the
+-- album is present, otherwise a representative release for the group.
+data AlbumTracksResponse = AlbumTracksResponse
+  { albumTracksReleaseMbid :: Maybe Text  -- The MusicBrainz release the tracklist came from
+  , albumTracksReleaseTitle :: Maybe Text  -- Title of that release (edition)
+  , albumTracksIsMatchedRelease :: Bool  -- True if this is the release matched in the library
+  , albumTracksTracks :: [AlbumTrackResponse]
+  } deriving (Show, Eq, Generic)
+
+instance ToJSON AlbumTracksResponse where
+  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
+
+instance FromJSON AlbumTracksResponse where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 11 }
+
+instance ToSchema AlbumTracksResponse where
+  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 11)
 
 -- | Individual release information
 data ReleaseResponse = ReleaseResponse

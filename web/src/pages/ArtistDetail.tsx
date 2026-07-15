@@ -542,7 +542,10 @@ export default function ArtistDetail() {
                     className="card-hover overflow-hidden group"
                   >
                     {/* Album Cover */}
-                    <div className="aspect-square bg-dark-bg-subtle relative overflow-hidden">
+                    <div
+                      className={`aspect-square bg-dark-bg-subtle relative overflow-hidden ${album.id ? 'cursor-pointer' : ''}`}
+                      onClick={() => { if (album.id) navigate(`/albums/${album.id}`); }}
+                    >
                       {album.cover_thumbnail_url || album.cover_url ? (
                         <img
                           src={album.cover_thumbnail_url || album.cover_url || ''}
@@ -570,7 +573,11 @@ export default function ArtistDetail() {
 
                     {/* Album Info */}
                     <div className="p-4">
-                      <h4 className="font-semibold text-dark-text truncate group-hover:text-dark-accent transition-colors" title={album.title}>
+                      <h4
+                        className={`font-semibold text-dark-text truncate transition-colors ${album.id ? 'cursor-pointer hover:text-dark-accent' : 'group-hover:text-dark-accent'}`}
+                        title={album.title}
+                        onClick={() => { if (album.id) navigate(`/albums/${album.id}`); }}
+                      >
                         {album.title}
                       </h4>
                       <div className="mt-2 flex items-center justify-between text-sm">

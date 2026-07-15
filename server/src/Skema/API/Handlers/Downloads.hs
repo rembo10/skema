@@ -148,12 +148,16 @@ downloadsServer le bus _serverCfg registry tm connPool progressMap configVar =
 
         _ -> throwError err400 { errBody = "Unknown task type" }
 
-    getAllDownloadsHandler :: Maybe Int -> Maybe Int -> Handler DownloadsResponse
-    getAllDownloadsHandler maybeOffset maybeLimit = do
+    getAllDownloadsHandler :: Maybe Int -> Maybe Int -> Maybe Int64 -> Handler DownloadsResponse
+    getAllDownloadsHandler maybeOffset maybeLimit maybeCatalogAlbumId = do
       let (offset, limit) = parsePagination maybeOffset maybeLimit
 
       (allDownloads, responses) <- liftIO $ withConnection connPool $ \conn -> do
-        allDownloads <- DownloadsRepo.getAllDownloads conn
+        allDownloads' <- DownloadsRepo.getAllDownloads conn
+        -- Optionally scope to a single catalog album (for the album detail page)
+        let allDownloads = case maybeCatalogAlbumId of
+              Just albumId -> filter (\d -> DBTypes.downloadCatalogAlbumId d == albumId) allDownloads'
+              Nothing -> allDownloads'
 
         let paginated = take limit $ drop offset $ allDownloads
 

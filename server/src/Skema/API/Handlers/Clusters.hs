@@ -269,6 +269,7 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
               , clusterTrackTrackNumber = DBTypes.metaTrackNumber metadata
               , clusterTrackDiscNumber = DBTypes.metaDiscNumber metadata
               , clusterTrackDuration = DBTypes.metaDurationSeconds metadata
+              , clusterTrackFormat = DBTypes.metaFormat metadata
               , clusterTrackMBRecordingId = mbRecId
               , clusterTrackMBRecordingTitle = mbRecTitle
               }

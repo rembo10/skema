@@ -18,6 +18,7 @@ module Skema.MusicBrainz.Types
   , MBTrack (..)
   , MBRecording (..)
   , MBReleaseSearch (..)
+  , MBReleaseBrowse (..)
   , MBRecordingSearch (..)
   , MBArtistSearch (..)
   , MBReleaseGroupSearch (..)
@@ -273,6 +274,19 @@ instance FromJSON MBReleaseSearch where
     mbSearchReleases <- o .: "releases"
     mbSearchCount <- o .: "count"
     pure MBReleaseSearch{..}
+
+-- | Result of browsing releases within a release group.
+--
+-- The browse endpoint (@release?release-group=...@) returns a @release-count@
+-- field rather than the @count@ used by the search endpoint, so it needs its
+-- own wrapper.
+newtype MBReleaseBrowse = MBReleaseBrowse
+  { mbBrowseReleases :: [MBRelease]
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON MBReleaseBrowse where
+  parseJSON = withObject "MBReleaseBrowse" $ \o ->
+    MBReleaseBrowse <$> o .: "releases"
 
 -- | MusicBrainz recording search result.
 data MBRecordingSearch = MBRecordingSearch

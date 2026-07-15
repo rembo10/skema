@@ -1,4 +1,4 @@
-import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, AcquisitionSummary, WantedAlbum, Config, CatalogQueryResponse, CatalogArtist, ArtistsResponse, CatalogAlbum, Download, DownloadsResponse, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task, AlbumOverviewRequest, AlbumOverviewResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse, VersionInfo } from '../types/api';
+import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, AcquisitionSummary, WantedAlbum, Config, CatalogQueryResponse, CatalogArtist, ArtistsResponse, CatalogAlbum, Download, DownloadsResponse, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task, AlbumOverviewRequest, AlbumOverviewResponse, CatalogAlbumOverview, AlbumTracksResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse, VersionInfo } from '../types/api';
 import { buildQueryString } from './queryBuilder';
 
 // Base path configuration
@@ -360,6 +360,8 @@ export const api = {
       track_number: number | null;
       disc_number: number | null;
       duration: number | null;
+      format: string | null;
+      mb_recording_id: string | null;
     }>;
   }> {
     return fetchApi(`/clusters/${clusterId}`);
@@ -639,6 +641,18 @@ export const api = {
     });
   },
 
+  async getCatalogAlbumById(albumId: number): Promise<CatalogAlbumOverview> {
+    return fetchApi<CatalogAlbumOverview>(`/catalog/albums/${albumId}`, {
+      method: 'GET',
+    });
+  },
+
+  async getAlbumTracks(albumId: number): Promise<AlbumTracksResponse> {
+    return fetchApi<AlbumTracksResponse>(`/catalog/albums/${albumId}/tracks`, {
+      method: 'GET',
+    });
+  },
+
   async getAlbumReleases(albumId: number): Promise<AlbumReleasesResponse> {
     return fetchApi<AlbumReleasesResponse>(`/catalog/albums/${albumId}/releases`, {
       method: 'GET',
@@ -730,8 +744,8 @@ export const api = {
   },
 
   // Downloads
-  async getAllDownloads(offset: number = 0, limit: number = 50): Promise<DownloadsResponse> {
-    const query = buildQueryString({ offset, limit });
+  async getAllDownloads(offset: number = 0, limit: number = 50, catalogAlbumId?: number): Promise<DownloadsResponse> {
+    const query = buildQueryString({ offset, limit, catalogAlbumId });
     return fetchApi<DownloadsResponse>(`/downloads?${query}`);
   },
 

@@ -633,6 +633,22 @@ export interface CatalogAlbumOverview {
   imported_at: string | null;
 }
 
+export interface AlbumTrack {
+  position: number;
+  disc_number: number;
+  title: string;
+  artist: string | null;
+  length_ms: number | null;
+  recording_mbid: string;
+}
+
+export interface AlbumTracksResponse {
+  release_mbid: string | null;
+  release_title: string | null;
+  is_matched_release: boolean;
+  tracks: AlbumTrack[];
+}
+
 export interface AlbumOverviewRequest {
   offset?: number;
   limit?: number;

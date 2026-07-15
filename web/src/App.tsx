@@ -8,6 +8,7 @@ import Identification from './pages/Identification';
 import FollowedArtists from './pages/FollowedArtists';
 import ArtistDetail from './pages/ArtistDetail';
 import Albums from './pages/Albums';
+import AlbumDetail from './pages/AlbumDetail';
 import AcquisitionSources from './pages/AcquisitionSources';
 import Downloads from './pages/Downloads';
 import QualityProfiles from './pages/QualityProfiles';
@@ -161,7 +162,6 @@ const routeTitles: Record<string, string> = {
   '/identification/tracks': 'Tracks',
   '/artists': 'Artists',
   '/albums': 'Albums',
-  '/albums': 'Albums',
   '/downloads': 'Downloads',
   '/sources': 'Input Sources',
   '/quality': 'Quality Profiles',
@@ -192,6 +192,9 @@ function AppContent() {
     } else if (location.pathname.startsWith('/artists/')) {
       // Artist detail pages - title will be updated by the component
       document.title = 'artist :: skema';
+    } else if (location.pathname.startsWith('/albums/')) {
+      // Album detail pages - title will be updated by the component
+      document.title = 'album :: skema';
     } else {
       document.title = 'skema';
     }
@@ -291,7 +294,7 @@ function AppContent() {
               <Route path="/artists" element={<ProtectedRoute><FollowedArtists /></ProtectedRoute>} />
               <Route path="/artists/:id" element={<ProtectedRoute><ArtistDetail /></ProtectedRoute>} />
               <Route path="/albums" element={<ProtectedRoute><Albums /></ProtectedRoute>} />
-              <Route path="/albums" element={<ProtectedRoute><Albums /></ProtectedRoute>} />
+              <Route path="/albums/:id" element={<ProtectedRoute><AlbumDetail /></ProtectedRoute>} />
               <Route path="/sources" element={<ProtectedRoute><AcquisitionSources /></ProtectedRoute>} />
               <Route path="/downloads" element={<ProtectedRoute><Downloads /></ProtectedRoute>} />
               <Route path="/quality" element={<ProtectedRoute><QualityProfiles /></ProtectedRoute>} />

@@ -156,6 +156,7 @@ data ClusterTrackInfo = ClusterTrackInfo
   , clusterTrackTrackNumber :: Maybe Int
   , clusterTrackDiscNumber :: Maybe Int
   , clusterTrackDuration :: Maybe Double
+  , clusterTrackFormat :: Maybe Text  -- Audio format: "FLAC", "MP3", "OGG", "Opus"
   -- MusicBrainz recording mapping (from track matching)
   , clusterTrackMBRecordingId :: Maybe Text
   , clusterTrackMBRecordingTitle :: Maybe Text
