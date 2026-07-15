@@ -176,7 +176,7 @@ updateMatchInDatabase pool match = do
       releaseGroupId = mbReleaseGroupId release >>= Just . unMBID
       fileGroup = rmFileGroup match
 
-  withConnection pool $ \conn -> do
+  withConnection pool $ \conn -> SQLite.withImmediateTransaction conn $ do
     forM_ trackMatches $ \tm -> do
       let filePath = tmFilePath tm
           track = tmTrack tm
@@ -296,8 +296,8 @@ applyMetadataChanges pool diffIds = withConnection pool $ \conn -> do
             case writeResult of
               Left err -> pure $ Left $ "Failed to write metadata: " <> show err
               Right () -> do
-                -- Update database and create change history
-                changes <- forM trackDiffs $ \(fieldName, oldValue, newValue) -> do
+                -- Update database and create change history atomically per track
+                changes <- SQLite.withImmediateTransaction conn $ forM trackDiffs $ \(fieldName, oldValue, newValue) -> do
                   -- Update metadata in database
                   applyMetadataChange conn tid fieldName newValue
 

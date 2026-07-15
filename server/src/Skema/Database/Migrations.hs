@@ -30,7 +30,7 @@ runMigrations le connPool = do
       createMigrationsTable conn
 
       -- Create schema
-      createSchema conn
+      SQLite.withImmediateTransaction conn $ createSchema conn
 
       -- Run incremental migrations
       runIncrementalMigrations le conn
@@ -98,7 +98,7 @@ runIncrementalMigrations le conn = do
     applied <- liftIO $ migrationApplied conn "001_track_recording_and_provenance"
     unless applied $ do
       $(logTM) InfoS "Running migration: 001_track_recording_and_provenance"
-      liftIO $ do
+      liftIO $ SQLite.withImmediateTransaction conn $ do
         -- Add match provenance columns to clusters
         -- Check if columns exist before adding them to avoid errors
         matchSourceExists <- columnExists conn "clusters" "match_source"
@@ -164,7 +164,7 @@ runIncrementalMigrations le conn = do
     applied002 <- liftIO $ migrationApplied conn "002_quality_profiles_and_catalog"
     unless applied002 $ do
       $(logTM) InfoS "Running migration: 002_quality_profiles_and_catalog"
-      liftIO $ do
+      liftIO $ SQLite.withImmediateTransaction conn $ do
         -- Add RSS state tracking
         executeQuery_ conn
           "CREATE TABLE IF NOT EXISTS indexer_rss_state ( \
@@ -307,7 +307,7 @@ runIncrementalMigrations le conn = do
     applied003 <- liftIO $ migrationApplied conn "003_remove_legacy_wanted_tracked_tables"
     unless applied003 $ do
       $(logTM) InfoS "Running migration: 003_remove_legacy_wanted_tracked_tables"
-      liftIO $ do
+      liftIO $ SQLite.withImmediateTransaction conn $ do
         -- Drop wanted_albums table if it exists
         wantedExists <- tableExists conn "wanted_albums"
         when wantedExists $ do
@@ -325,7 +325,7 @@ runIncrementalMigrations le conn = do
     applied004 <- liftIO $ migrationApplied conn "004_drop_catalog_albums_matched_cluster_id"
     unless applied004 $ do
       $(logTM) InfoS "Running migration: 004_drop_catalog_albums_matched_cluster_id"
-      liftIO $ do
+      liftIO $ SQLite.withImmediateTransaction conn $ do
         -- Check if column still exists before attempting to drop
         matchedClusterExists <- columnExists conn "catalog_albums" "matched_cluster_id"
         when matchedClusterExists $ do
@@ -378,7 +378,7 @@ runIncrementalMigrations le conn = do
     applied005 <- liftIO $ migrationApplied conn "005_add_quality_to_clusters"
     unless applied005 $ do
       $(logTM) InfoS "Running migration: 005_add_quality_to_clusters"
-      liftIO $ do
+      liftIO $ SQLite.withImmediateTransaction conn $ do
         -- Check if column already exists
         qualityExists <- columnExists conn "clusters" "quality"
         unless qualityExists $ do
@@ -451,7 +451,7 @@ runIncrementalMigrations le conn = do
     applied006 <- liftIO $ migrationApplied conn "006_add_normalized_search_columns"
     unless applied006 $ do
       $(logTM) InfoS "Running migration: 006_add_normalized_search_columns"
-      liftIO $ do
+      liftIO $ SQLite.withImmediateTransaction conn $ do
         -- Add normalized search column to catalog_artists
         artistSearchExists <- columnExists conn "catalog_artists" "artist_name_normalized"
         unless artistSearchExists $ do
@@ -507,7 +507,7 @@ runIncrementalMigrations le conn = do
     applied007 <- liftIO $ migrationApplied conn "007_add_slskd_columns"
     unless applied007 $ do
       $(logTM) InfoS "Running migration: 007_add_slskd_columns"
-      liftIO $ do
+      liftIO $ SQLite.withImmediateTransaction conn $ do
         -- Add slskd_username column to track which user the files are from
         slskdUsernameExists <- columnExists conn "downloads" "slskd_username"
         unless slskdUsernameExists $ do
@@ -537,7 +537,7 @@ runIncrementalMigrations le conn = do
     applied008 <- liftIO $ migrationApplied conn "008_add_source_quality_profile"
     unless applied008 $ do
       $(logTM) InfoS "Running migration: 008_add_source_quality_profile"
-      liftIO $ do
+      liftIO $ SQLite.withImmediateTransaction conn $ do
         qpExists <- columnExists conn "acquisition_rules" "quality_profile_id"
         unless qpExists $
           executeQuery_ conn
@@ -550,7 +550,7 @@ runIncrementalMigrations le conn = do
     applied009 <- liftIO $ migrationApplied conn "009_add_catalog_artist_etag"
     unless applied009 $ do
       $(logTM) InfoS "Running migration: 009_add_catalog_artist_etag"
-      liftIO $ do
+      liftIO $ SQLite.withImmediateTransaction conn $ do
         etagExists <- columnExists conn "catalog_artists" "mb_etag"
         unless etagExists $
           executeQuery_ conn
@@ -563,7 +563,7 @@ runIncrementalMigrations le conn = do
     applied010 <- liftIO $ migrationApplied conn "010_add_source_last_seen_url"
     unless applied010 $ do
       $(logTM) InfoS "Running migration: 010_add_source_last_seen_url"
-      liftIO $ do
+      liftIO $ SQLite.withImmediateTransaction conn $ do
         lastSeenExists <- columnExists conn "acquisition_rules" "last_seen_url"
         unless lastSeenExists $
           executeQuery_ conn
@@ -576,7 +576,7 @@ runIncrementalMigrations le conn = do
     applied011 <- liftIO $ migrationApplied conn "011_add_artist_bio"
     unless applied011 $ do
       $(logTM) InfoS "Running migration: 011_add_artist_bio"
-      liftIO $ do
+      liftIO $ SQLite.withImmediateTransaction conn $ do
         bioExists <- columnExists conn "catalog_artists" "bio"
         unless bioExists $
           executeQuery_ conn
@@ -592,7 +592,7 @@ runIncrementalMigrations le conn = do
     applied012 <- liftIO $ migrationApplied conn "012_clusters_catalog_album_fk"
     unless applied012 $ do
       $(logTM) InfoS "Running migration: 012_clusters_catalog_album_fk"
-      liftIO $ do
+      liftIO $ SQLite.withImmediateTransaction conn $ do
         -- Add catalog_album_id column to clusters (if not already present)
         catalogAlbumIdExists <- columnExists conn "clusters" "catalog_album_id"
         unless catalogAlbumIdExists $ do
@@ -691,7 +691,7 @@ runIncrementalMigrations le conn = do
     applied013 <- liftIO $ migrationApplied conn "013_add_release_cache"
     unless applied013 $ do
       $(logTM) InfoS "Running migration: 013_add_release_cache"
-      liftIO $ do
+      liftIO $ SQLite.withImmediateTransaction conn $ do
         executeQuery_ conn
           "CREATE TABLE IF NOT EXISTS catalog_releases ( \
           \  id INTEGER PRIMARY KEY AUTOINCREMENT, \

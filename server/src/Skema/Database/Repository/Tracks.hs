@@ -227,59 +227,60 @@ upsertTrackWithMetadata conn path meta = do
   let quality = detectQualityFromAudio meta
       qualityText = qualityToText quality
 
-  -- Upsert track record using INSERT OR REPLACE (SQLite)
-  -- This handles both insert and update in one query
-  executeQuery conn
-    "INSERT INTO library_tracks (path, size, modified_at, added_at, updated_at, quality) \
-    \VALUES (?, ?, ?, ?, ?, ?) \
-    \ON CONFLICT(path) DO UPDATE SET \
-    \  size = excluded.size, \
-    \  modified_at = excluded.modified_at, \
-    \  quality = excluded.quality, \
-    \  updated_at = CURRENT_TIMESTAMP"
-    (pathStr :: String, fSize, modTime, now, now, qualityText)
+  SQLite.withImmediateTransaction conn $ do
+    -- Upsert track record using INSERT OR REPLACE (SQLite)
+    -- This handles both insert and update in one query
+    executeQuery conn
+      "INSERT INTO library_tracks (path, size, modified_at, added_at, updated_at, quality) \
+      \VALUES (?, ?, ?, ?, ?, ?) \
+      \ON CONFLICT(path) DO UPDATE SET \
+      \  size = excluded.size, \
+      \  modified_at = excluded.modified_at, \
+      \  quality = excluded.quality, \
+      \  updated_at = CURRENT_TIMESTAMP"
+      (pathStr :: String, fSize, modTime, now, now, qualityText)
 
-  -- Get track ID
-  results <- queryRows conn
-    "SELECT id FROM library_tracks WHERE path = ?"
-    (Only (pathStr :: String)) :: IO [Only Int64]
+    -- Get track ID
+    results <- queryRows conn
+      "SELECT id FROM library_tracks WHERE path = ?"
+      (Only (pathStr :: String)) :: IO [Only Int64]
 
-  tid <- case viaNonEmpty head results of
-    Just (Only tid) -> pure tid
-    Nothing -> fail "Failed to get track ID after upsert"  -- Should never happen with UPSERT
+    tid <- case viaNonEmpty head results of
+      Just (Only tid) -> pure tid
+      Nothing -> fail "Failed to get track ID after upsert"  -- Should never happen with UPSERT
 
-  -- Upsert metadata with MB IDs using custom ToRow instance
-  let mbIds = M.musicBrainzIds meta
-      audioProps = M.audioProperties meta
-  let metadataInsert = MetadataInsert
-        { miTrackId = tid
-        , miTitle = M.title meta
-        , miArtist = M.artist meta
-        , miAlbum = M.album meta
-        , miAlbumArtist = M.albumArtist meta
-        , miTrackNumber = M.trackNumber meta
-        , miDiscNumber = M.discNumber meta
-        , miYear = M.year meta
-        , miDurationSeconds = fmap (\ms -> (fromIntegral ms :: Double) / 1000.0) (M.duration audioProps)
-        , miGenre = M.genre meta
-        , miDate = M.date meta
-        , miBarcode = M.barcode meta
-        , miCatalogNumber = M.catalogNumber meta
-        , miLabel = M.recordLabel meta
-        , miCountry = M.releaseCountry meta
-        , miMBRecordingId = M.mbRecordingId mbIds
-        , miMBTrackId = M.mbTrackId mbIds
-        , miMBReleaseId = M.mbReleaseId mbIds
-        , miMBReleaseGroupId = M.mbReleaseGroupId mbIds
-        , miMBArtistId = M.mbArtistId mbIds
-        , miFormat = Just (audioFormatToText $ M.format meta)
-        , miBitrate = M.bitrate audioProps
-        , miSampleRate = M.sampleRate audioProps
-        , miBitsPerSample = M.bitsPerSample audioProps
-        }
+    -- Upsert metadata with MB IDs using custom ToRow instance
+    let mbIds = M.musicBrainzIds meta
+        audioProps = M.audioProperties meta
+    let metadataInsert = MetadataInsert
+          { miTrackId = tid
+          , miTitle = M.title meta
+          , miArtist = M.artist meta
+          , miAlbum = M.album meta
+          , miAlbumArtist = M.albumArtist meta
+          , miTrackNumber = M.trackNumber meta
+          , miDiscNumber = M.discNumber meta
+          , miYear = M.year meta
+          , miDurationSeconds = fmap (\ms -> (fromIntegral ms :: Double) / 1000.0) (M.duration audioProps)
+          , miGenre = M.genre meta
+          , miDate = M.date meta
+          , miBarcode = M.barcode meta
+          , miCatalogNumber = M.catalogNumber meta
+          , miLabel = M.recordLabel meta
+          , miCountry = M.releaseCountry meta
+          , miMBRecordingId = M.mbRecordingId mbIds
+          , miMBTrackId = M.mbTrackId mbIds
+          , miMBReleaseId = M.mbReleaseId mbIds
+          , miMBReleaseGroupId = M.mbReleaseGroupId mbIds
+          , miMBArtistId = M.mbArtistId mbIds
+          , miFormat = Just (audioFormatToText $ M.format meta)
+          , miBitrate = M.bitrate audioProps
+          , miSampleRate = M.sampleRate audioProps
+          , miBitsPerSample = M.bitsPerSample audioProps
+          }
 
-  executeQuery conn
-    "INSERT INTO library_track_metadata (track_id, title, artist, album, album_artist, track_number, disc_number, year, duration_seconds, genre, date, barcode, catalog_number, label, country, mb_recording_id, mb_track_id, mb_release_id, mb_release_group_id, mb_artist_id, format, bitrate, sample_rate, bits_per_sample) \
+    executeQuery conn
+      "INSERT INTO library_track_metadata (track_id, title, artist, album, album_artist, track_number, disc_number, year, duration_seconds, genre, date, barcode, catalog_number, label, country, mb_recording_id, mb_track_id, mb_release_id, mb_release_group_id, mb_artist_id, format, bitrate, sample_rate, bits_per_sample) \
     \VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
     \ON CONFLICT(track_id) DO UPDATE SET \
     \  title = excluded.title, \
@@ -306,9 +307,9 @@ upsertTrackWithMetadata conn path meta = do
     \  sample_rate = excluded.sample_rate, \
     \  bits_per_sample = excluded.bits_per_sample, \
     \  updated_at = CURRENT_TIMESTAMP"
-    metadataInsert
+      metadataInsert
 
-  pure tid
+    pure tid
 
 -- * Scan history
 

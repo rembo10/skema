@@ -189,22 +189,21 @@ setClusterMatchLock conn cid locked = do
 -- Returns the IDs of the clusters that were deleted.
 deleteEmptyClusters :: SQLite.Connection -> IO [Int64]
 deleteEmptyClusters conn = do
-  emptyRows <- queryRows_ conn
-    "SELECT id FROM clusters c WHERE NOT EXISTS \
-    \(SELECT 1 FROM library_tracks t WHERE t.cluster_id = c.id)"
-  let ids = map fromOnly (emptyRows :: [Only Int64])
-  forM_ ids $ \cid ->
-    executeQuery conn "DELETE FROM clusters WHERE id = ?" (Only cid)
-  pure ids
+  deletedRows <- queryRows_ conn
+    "DELETE FROM clusters WHERE NOT EXISTS \
+    \(SELECT 1 FROM library_tracks t WHERE t.cluster_id = clusters.id) \
+    \RETURNING id"
+  pure $ map fromOnly (deletedRows :: [Only Int64])
 
 -- | Update the cluster_id for tracks.
 -- Replaces the old junction table approach with direct FK assignment.
 updateTrackCluster :: SQLite.Connection -> Int64 -> [Int64] -> IO ()
-updateTrackCluster conn cid trackIds = do
-  forM_ trackIds $ \tid ->
-    executeQuery conn
-      "UPDATE library_tracks SET cluster_id = ? WHERE id = ?"
-      (cid, tid)
+updateTrackCluster conn cid trackIds =
+  SQLite.withImmediateTransaction conn $
+    forM_ trackIds $ \tid ->
+      executeQuery conn
+        "UPDATE library_tracks SET cluster_id = ? WHERE id = ?"
+        (cid, tid)
 
 -- | Get a cluster by ID.
 getClusterById :: SQLite.Connection -> Int64 -> IO (Maybe ClusterRecord)
