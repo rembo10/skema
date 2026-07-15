@@ -682,6 +682,43 @@ runIncrementalMigrations le conn = do
         recordMigration conn "012_clusters_catalog_album_fk"
       $(logTM) InfoS "Completed migration: 012_clusters_catalog_album_fk"
 
+    -- Migration 013: Cache indexer search results per catalog album. Populated by
+    -- both on-demand searches and the RSS monitor so the releases UI can render
+    -- instantly (with a manual refresh to re-search) and acquisition can reuse
+    -- them. Deduplicated by (catalog_album_id, download_url).
+    applied013 <- liftIO $ migrationApplied conn "013_add_release_cache"
+    unless applied013 $ do
+      $(logTM) InfoS "Running migration: 013_add_release_cache"
+      liftIO $ do
+        executeQuery_ conn
+          "CREATE TABLE IF NOT EXISTS catalog_releases ( \
+          \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
+          \  catalog_album_id INTEGER NOT NULL REFERENCES catalog_albums(id) ON DELETE CASCADE, \
+          \  indexer_name TEXT NOT NULL, \
+          \  guid TEXT, \
+          \  title TEXT NOT NULL, \
+          \  download_url TEXT NOT NULL, \
+          \  download_type TEXT NOT NULL, \
+          \  quality TEXT NOT NULL, \
+          \  size_bytes INTEGER, \
+          \  seeders INTEGER, \
+          \  peers INTEGER, \
+          \  publish_date TIMESTAMP, \
+          \  info_url TEXT, \
+          \  slskd_username TEXT, \
+          \  slskd_files TEXT, \
+          \  source TEXT NOT NULL, \
+          \  first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
+          \  last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
+          \  UNIQUE(catalog_album_id, download_url) \
+          \)"
+        executeQuery_ conn
+          "CREATE INDEX IF NOT EXISTS idx_catalog_releases_album_id \
+          \ON catalog_releases(catalog_album_id)"
+
+        recordMigration conn "013_add_release_cache"
+      $(logTM) InfoS "Completed migration: 013_add_release_cache"
+
 -- | Normalize text for search by:
 -- 1. Decomposing accented characters (NFD normalization)
 -- 2. Removing diacritical marks
@@ -966,6 +1003,32 @@ createSchema conn = do
     \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
     \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
     \)"
+
+  -- Create catalog_releases table (cache of indexer search / RSS results per album)
+  executeQuery_ conn
+    "CREATE TABLE IF NOT EXISTS catalog_releases ( \
+    \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
+    \  catalog_album_id INTEGER NOT NULL REFERENCES catalog_albums(id) ON DELETE CASCADE, \
+    \  indexer_name TEXT NOT NULL, \
+    \  guid TEXT, \
+    \  title TEXT NOT NULL, \
+    \  download_url TEXT NOT NULL, \
+    \  download_type TEXT NOT NULL, \
+    \  quality TEXT NOT NULL, \
+    \  size_bytes INTEGER, \
+    \  seeders INTEGER, \
+    \  peers INTEGER, \
+    \  publish_date TIMESTAMP, \
+    \  info_url TEXT, \
+    \  slskd_username TEXT, \
+    \  slskd_files TEXT, \
+    \  source TEXT NOT NULL, \
+    \  first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
+    \  last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
+    \  UNIQUE(catalog_album_id, download_url) \
+    \)"
+
+  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_catalog_releases_album_id ON catalog_releases(catalog_album_id)"
 
 -- | Create the default acquisition source if it doesn't exist.
 createDefaultAcquisitionSource :: SQLite.Connection -> IO ()

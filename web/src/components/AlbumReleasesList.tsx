@@ -1,44 +1,66 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
 import { formatDate } from '../lib/formatters';
 import toast from 'react-hot-toast';
 import { AlbumRelease } from '../types/api';
-import { Disc, Loader2, Download } from 'lucide-react';
+import { Disc, Loader2, Download, RefreshCw, Search as SearchIcon } from 'lucide-react';
 
 interface AlbumReleasesListProps {
   albumId: number;
   albumTitle: string;
   artistName: string;
+  // When the cache is empty on open, automatically kick off a live search.
+  // Used by the modal (opened explicitly to find releases); the always-visible
+  // detail-page section leaves it off so visiting an album never auto-hits
+  // indexers — the user searches on demand via the Refresh button.
+  autoSearchWhenEmpty?: boolean;
   // Called after a release has been queued successfully
   onQueued?: () => void;
 }
 
 /**
- * Streams available download releases for an album from all configured
- * indexers/slskd and lets the user queue one. Shared by the Albums table
+ * Shows available download releases for an album. On open it renders the cached
+ * releases (populated by prior searches and the RSS monitor) instantly, and a
+ * "Refresh" button runs a live streaming search across all configured
+ * indexers/slskd — which also refreshes the cache. Shared by the Albums table
  * modal and the album detail page.
  */
-export function AlbumReleasesList({ albumId, albumTitle, artistName, onQueued }: AlbumReleasesListProps) {
-  const [searchingReleases, setSearchingReleases] = useState(true);
+export function AlbumReleasesList({ albumId, albumTitle, artistName, autoSearchWhenEmpty = false, onQueued }: AlbumReleasesListProps) {
+  const [loadingCache, setLoadingCache] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [releases, setReleases] = useState<AlbumRelease[]>([]);
   const [searchingSources, setSearchingSources] = useState<Set<string>>(new Set());
   const [queueingRelease, setQueueingRelease] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  useEffect(() => {
-    // Track count via ref to avoid stale closure
-    let releaseCount = 0;
+  // Merge a streamed release into the list, deduplicated by download URL.
+  const mergeRelease = useCallback((release: AlbumRelease) => {
+    setReleases(prev => {
+      const idx = prev.findIndex(r => r.download_url === release.download_url);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = release;
+        return next;
+      }
+      return [...prev, release];
+    });
+  }, []);
 
-    // Start streaming search
+  // Start a live streaming search across indexers (also refreshes the cache).
+  const startSearch = useCallback(() => {
+    if (eventSourceRef.current) return; // already searching
+    let found = 0;
+    setSearching(true);
+
     const eventSource = api.streamAlbumReleases(albumId, {
       onStarted: (source) => {
         setSearchingSources(prev => new Set([...prev, source]));
       },
       onRelease: (_source, release) => {
-        releaseCount++;
-        setReleases(prev => [...prev, release]);
+        found++;
+        mergeRelease(release);
       },
-      onCompleted: (source, _count) => {
+      onCompleted: (source) => {
         setSearchingSources(prev => {
           const next = new Set(prev);
           next.delete(source);
@@ -54,33 +76,60 @@ export function AlbumReleasesList({ albumId, albumTitle, artistName, onQueued }:
         });
       },
       onDone: (totalTime) => {
-        setSearchingReleases(false);
+        setSearching(false);
         setSearchingSources(new Set());
-        if (releaseCount === 0) {
-          toast('No releases found', { icon: 'i' });
+        eventSourceRef.current = null;
+        if (found === 0) {
+          toast('No new releases found', { icon: 'ℹ️' });
         } else {
-          toast.success(`Found ${releaseCount} release(s) in ${totalTime.toFixed(1)}s`);
+          toast.success(`Found ${found} release(s) in ${totalTime.toFixed(1)}s`);
         }
       },
     });
 
     eventSourceRef.current = eventSource;
 
-    // Handle connection errors
     eventSource.onerror = () => {
-      setSearchingReleases(false);
+      setSearching(false);
       setSearchingSources(new Set());
+      eventSourceRef.current = null;
       toast.error('Connection lost while searching');
     };
+  }, [albumId, mergeRelease]);
 
-    // Cleanup on unmount
+  // On open: load cached releases instantly; if the cache is empty, kick off a
+  // live search automatically so the first visit still returns something.
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingCache(true);
+    setReleases([]);
+
+    api.getAlbumReleases(albumId)
+      .then(res => {
+        if (cancelled) return;
+        setReleases(res.releases);
+        setLoadingCache(false);
+        if (res.releases.length === 0 && autoSearchWhenEmpty) {
+          startSearch();
+        }
+      })
+      .catch(err => {
+        if (cancelled) return;
+        console.error('Failed to load cached releases:', err);
+        setLoadingCache(false);
+        if (autoSearchWhenEmpty) {
+          startSearch();
+        }
+      });
+
     return () => {
+      cancelled = true;
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
       }
     };
-  }, [albumId]);
+  }, [albumId, startSearch, autoSearchWhenEmpty]);
 
   const handleQueueDownload = async (release: AlbumRelease) => {
     if (queueingRelease !== null) return;
@@ -115,40 +164,66 @@ export function AlbumReleasesList({ albumId, albumTitle, artistName, onQueued }:
 
   return (
     <div>
-      {/* Search status bar */}
-      {searchingReleases && (
-        <div className="mb-4 flex items-center gap-2 text-sm text-dark-text-secondary">
-          <Loader2 className="h-4 w-4 animate-spin text-dark-accent" />
-          <span>Searching</span>
-          {searchingSources.size > 0 && (
-            <span className="flex gap-1">
-              {[...searchingSources].map(source => (
-                <span key={source} className="px-2 py-0.5 bg-dark-bg rounded text-xs">
-                  {source}
+      {/* Header: refresh control + search status */}
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm text-dark-text-secondary min-h-[2rem]">
+          {loadingCache ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin text-dark-accent" />
+              <span>Loading releases</span>
+            </>
+          ) : searching ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin text-dark-accent" />
+              <span>Searching</span>
+              {searchingSources.size > 0 && (
+                <span className="flex gap-1">
+                  {[...searchingSources].map(source => (
+                    <span key={source} className="px-2 py-0.5 bg-dark-bg rounded text-xs">
+                      {source}
+                    </span>
+                  ))}
                 </span>
-              ))}
-            </span>
-          )}
-          {releases.length > 0 && (
-            <span className="ml-2">- {releases.length} found</span>
-          )}
+              )}
+              {releases.length > 0 && <span className="ml-2">- {releases.length} shown</span>}
+            </>
+          ) : releases.length > 0 ? (
+            <span>{releases.length} release(s) cached</span>
+          ) : null}
         </div>
-      )}
 
-      {/* No results (only show after search is done) */}
-      {!searchingReleases && releases.length === 0 ? (
+        <button
+          onClick={startSearch}
+          disabled={searching || loadingCache}
+          className="flex items-center gap-2 px-3 py-1.5 bg-dark-bg-hover hover:bg-dark-accent-muted text-dark-text-secondary hover:text-dark-accent rounded transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Search indexers for new releases"
+        >
+          <RefreshCw className={`h-4 w-4 ${searching ? 'animate-spin' : ''}`} />
+          {searching ? 'Searching…' : 'Refresh'}
+        </button>
+      </div>
+
+      {/* No results (only show once the cache has loaded and no search is running) */}
+      {!loadingCache && !searching && releases.length === 0 ? (
         <div className="text-center py-12">
           <Disc className="mx-auto h-12 w-12 text-dark-text-tertiary" />
-          <h3 className="mt-4 text-sm font-medium text-dark-text">No releases found</h3>
+          <h3 className="mt-4 text-sm font-medium text-dark-text">No releases cached</h3>
           <p className="mt-2 text-sm text-dark-text-secondary">
-            No releases available for {albumTitle} by {artistName} at the moment
+            No releases cached for {albumTitle} by {artistName} yet.
           </p>
+          <button
+            onClick={startSearch}
+            className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-dark-bg-hover hover:bg-dark-accent-muted text-dark-text-secondary hover:text-dark-accent rounded transition-colors text-sm"
+          >
+            <SearchIcon className="h-4 w-4" />
+            Search indexers
+          </button>
         </div>
       ) : (
         <div className="space-y-3">
           {releases.map((release, index) => (
             <div
-              key={index}
+              key={release.download_url || index}
               className="card p-4 hover:bg-dark-bg-hover transition-colors"
             >
               <div className="flex items-start justify-between gap-4">

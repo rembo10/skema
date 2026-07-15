@@ -202,6 +202,13 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
 
               $(logTM) InfoS $ logStr $ ("Found " <> show totalResults <> " total releases across all indexers" :: Text)
 
+              -- Cache all found releases (pre-filter) so the album's releases
+              -- page can render them instantly without re-searching.
+              searchCacheNow <- liftIO getCurrentTime
+              liftIO $ forM_ releasesWithSource $ \(sourceName, release) ->
+                withConnection pool $ \conn ->
+                  upsertCachedRelease conn catalogAlbumId sourceName "search" searchCacheNow release
+
               -- Get quality profile and current quality for filtering
               qualityProfile <- liftIO $ getEffectiveQualityProfile pool catalogAlbumId
 

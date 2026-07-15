@@ -70,7 +70,6 @@ export default function AlbumDetail() {
 
   const [libraryTracks, setLibraryTracks] = useState<LibraryTrack[]>([]);
   const [downloads, setDownloads] = useState<Download[]>([]);
-  const [showReleasesSearch, setShowReleasesSearch] = useState(false);
 
   useEffect(() => {
     loadAll();
@@ -546,43 +545,20 @@ export default function AlbumDetail() {
         )}
       </div>
 
-      {/* Available releases (live indexer/slskd search) */}
+      {/* Available releases (cached; Refresh re-searches indexers/slskd) */}
       <div className="card p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-dark-text flex items-center gap-2">
             <DownloadIcon className="h-5 w-5" />
             Available Releases
           </h2>
-          {showReleasesSearch ? (
-            <button
-              onClick={() => setShowReleasesSearch(false)}
-              className="text-sm text-dark-text-secondary hover:text-dark-text transition-colors flex items-center gap-1.5"
-            >
-              <X className="h-4 w-4" />
-              Hide
-            </button>
-          ) : (
-            <button
-              onClick={() => setShowReleasesSearch(true)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-dark-bg-hover hover:bg-dark-accent-muted text-dark-text-secondary hover:text-dark-accent rounded transition-colors text-sm"
-            >
-              <SearchIcon className="h-4 w-4" />
-              Search indexers
-            </button>
-          )}
         </div>
-        {showReleasesSearch ? (
-          <AlbumReleasesList
-            albumId={album.id}
-            albumTitle={album.title}
-            artistName={album.artist_name}
-            onQueued={() => { setShowReleasesSearch(false); loadDownloads(); reloadAlbum(); }}
-          />
-        ) : (
-          <p className="text-sm text-dark-text-secondary">
-            Search configured indexers and Soulseek for downloadable releases of this album.
-          </p>
-        )}
+        <AlbumReleasesList
+          albumId={album.id}
+          albumTitle={album.title}
+          artistName={album.artist_name}
+          onQueued={() => { loadDownloads(); reloadAlbum(); }}
+        />
       </div>
 
       {/* Download history */}

@@ -33,6 +33,7 @@ export function AlbumReleasesModal({ album, onClose }: AlbumReleasesModalProps) 
             albumId={album.id}
             albumTitle={album.title}
             artistName={album.artist_name}
+            autoSearchWhenEmpty
             onQueued={onClose}
           />
         </div>

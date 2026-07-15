@@ -38,6 +38,7 @@ import qualified Database.SQLite.Simple as SQLite
 import Skema.Domain.Quality (Quality, QualityProfile, textToQuality, meetsProfile, isBetterQuality)
 import qualified Skema.Domain.Quality as Qual
 import Skema.Database.Repository.Quality (getEffectiveQualityProfile)
+import Skema.Database.Repository.Releases (upsertCachedRelease)
 import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
 
 -- | RSS state for an indexer
@@ -234,19 +235,21 @@ resyncRSSFeed httpClient indexer rssState thresholdHours = do
             Left err -> pure $ Left err
 
 -- | Check if a release matches an album and meets quality requirements
+-- | Basic title/artist match: does the release title contain both the album
+-- title and the artist name? Used for both quality-gated submission and for
+-- populating the release cache (where quality is not yet filtered).
+titleArtistMatches :: ReleaseInfo -> WantedAlbumInfo -> Bool
+titleArtistMatches release album =
+  let releaseTitle = T.toLower (riTitle release)
+  in T.isInfixOf (T.toLower (waiTitle album)) releaseTitle
+     && T.isInfixOf (T.toLower (waiArtistName album)) releaseTitle
+
 matchesAndMeetsQuality :: ReleaseInfo -> WantedAlbumInfo -> Bool
 matchesAndMeetsQuality release album =
-  let releaseTitle = T.toLower (riTitle release)
-      albumTitle = T.toLower (waiTitle album)
-      artistName = T.toLower (waiArtistName album)
-
-      -- Check basic title/artist match
-      titleMatches = T.isInfixOf albumTitle releaseTitle && T.isInfixOf artistName releaseTitle
-
-      -- Parse quality from release
+  let -- Parse quality from release
       releaseQuality = riQuality release  -- Already parsed from title
 
-  in if not titleMatches
+  in if not (titleArtistMatches release album)
      then False
      else case waiQualityProfile album of
        -- No quality profile: accept any match
@@ -392,6 +395,16 @@ runRSSMonitor le bus pool httpClient clock config = do
                       matches <- liftIO $ processRSSReleases pool releases wanted
 
                       $(logTM) InfoS $ logStr $ "Found " <> T.pack (show (length matches)) <> " matches for wanted albums"
+
+                      -- Cache every feed release that matches a wanted album (by
+                      -- title + artist, regardless of quality) so it appears on
+                      -- the album's releases page. This is how the RSS feed keeps
+                      -- the release cache fresh between explicit searches.
+                      cacheNow <- liftIO (getNow clock)
+                      liftIO $ forM_ wanted $ \wantedAlbum ->
+                        forM_ (filter (`titleArtistMatches` wantedAlbum) releases) $ \release ->
+                          withConnection pool $ \conn ->
+                            upsertCachedRelease conn (waiAlbumId wantedAlbum) (indexerName indexer) "rss" cacheNow release
 
                       -- Submit matched releases to download queue
                       let downloadConfig = download config

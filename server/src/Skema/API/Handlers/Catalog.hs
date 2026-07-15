@@ -32,12 +32,11 @@ import Skema.Indexer.Client (searchIndexer)
 import Skema.Indexer.Types (SearchQuery(..), ReleaseInfo(..), IndexerResult(..), DownloadType(..))
 import qualified Skema.Indexer.Types as Indexer
 import Skema.Slskd.Client (createSlskdClient)
-import Skema.Slskd.Search (searchSlskd, searchSlskdStreaming, slskdCandidateToReleaseInfo)
+import Skema.Slskd.Search (searchSlskdStreaming, slskdCandidateToReleaseInfo)
 import Skema.Domain.Quality (qualityToText, textToQuality)
 import qualified Skema.Domain.Quality as Qual
-import Control.Concurrent.Async (async, mapConcurrently, race, concurrently, wait)
-import Control.Concurrent (threadDelay)
-import Data.Aeson (toJSON, object, (.=))
+import Control.Concurrent.Async (async, wait)
+import Data.Aeson (toJSON, object, (.=), decodeStrict)
 import Servant hiding (SourceIO)
 import Servant.Types.SourceT (SourceT(..), StepT(..))
 import Katip
@@ -45,6 +44,7 @@ import Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan, readTChan)
 import qualified Data.IORef as IORef
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as TE
 import qualified Control.Concurrent.STM as STM
 
 -- | Catalog API handlers.
@@ -960,80 +960,49 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           let albumTitle = DBTypes.catalogAlbumTitle album
           let artistName = DBTypes.catalogAlbumArtistName album
 
-          -- Read current config to get indexers
-          config <- liftIO $ readConfig configVar
-          let indexerCfg = Cfg.indexers config
-          let enabledIndexers = filter Cfg.indexerEnabled (Cfg.indexerList indexerCfg)
+          -- Read cached releases from the database. The cache is populated by
+          -- the streaming search endpoint (on-demand) and the RSS monitor, so
+          -- this returns instantly without hitting any indexer.
+          cached <- liftIO $ withConnection connPool $ \conn ->
+            DB.getCachedReleasesForAlbum conn albumId
+          let releases = map cachedReleaseToResponse cached
 
-          when (null enabledIndexers) $ do
-            throw400 "No enabled indexers configured"
+          -- Compute wanted status using Core.Catalog logic
+          -- Use effective profile (album's own, or inherited from artist)
+          maybeProfile <- liftIO $ case DBTypes.catalogAlbumId album of
+            Nothing -> pure Nothing
+            Just albumId' -> DB.getEffectiveQualityProfile connPool albumId'
 
-          -- Build search query
-          let searchQuery = SearchQuery
-                { sqArtist = Just artistName
-                , sqAlbum = Just albumTitle
-                , sqYear = Nothing
-                , sqQuery = Nothing
-                , sqCategories = [3000, 3010, 3020]  -- Audio categories
-                , sqLimit = 50
-                , sqOffset = 0
+          let albumContext = Core.AlbumContext
+                { Core.acQualityProfile = maybeProfile
+                , Core.acCurrentQuality = DBTypes.catalogAlbumCurrentQuality album >>= textToQuality
+                , Core.acInLibrary = isJust (DBTypes.catalogAlbumCurrentQuality album)
+                , Core.acActiveDownloadStatus = Nothing
                 }
+              wanted = Core.isAlbumWanted albumContext
 
-          -- Search all indexers concurrently with 30s timeout
-          startTime <- liftIO getCurrentTime
-
-          searchResult <- liftIO $ race
-            (threadDelay (90 * 1000000))  -- 90 seconds timeout (slskd searches can take 60+ seconds)
-            (searchAllIndexers enabledIndexers searchQuery)
-
-          endTime <- liftIO getCurrentTime
-          let searchDuration = realToFrac $ diffUTCTime endTime startTime :: Double
-
-          case searchResult of
-            Left () -> do
-              -- Timeout occurred
-              throw500 "Search timed out after 90 seconds"
-
-            Right results -> do
-              -- Convert results to response format
-              let releases = concatMap convertIndexerResult results
-
-              -- Compute wanted status using Core.Catalog logic
-              -- Use effective profile (album's own, or inherited from artist)
-              maybeProfile <- liftIO $ case DBTypes.catalogAlbumId album of
-                Nothing -> pure Nothing
-                Just albumId' -> DB.getEffectiveQualityProfile connPool albumId'
-
-              let albumContext = Core.AlbumContext
-                    { Core.acQualityProfile = maybeProfile
-                    , Core.acCurrentQuality = DBTypes.catalogAlbumCurrentQuality album >>= textToQuality
-                    , Core.acInLibrary = isJust (DBTypes.catalogAlbumCurrentQuality album)
-                    , Core.acActiveDownloadStatus = Nothing
-                    }
-                  wanted = Core.isAlbumWanted albumContext
-
-              pure AlbumReleasesResponse
-                { albumReleasesAlbum = CatalogAlbumResponse
-                    { catalogAlbumResponseId = DBTypes.catalogAlbumId album
-                    , catalogAlbumResponseReleaseGroupMBID = DBTypes.catalogAlbumReleaseGroupMBID album
-                    , catalogAlbumResponseTitle = albumTitle
-                    , catalogAlbumResponseArtistMBID = DBTypes.catalogAlbumArtistMBID album
-                    , catalogAlbumResponseArtistName = artistName
-                    , catalogAlbumResponseType = DBTypes.catalogAlbumType album
-                    , catalogAlbumResponseFirstReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
-                    , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
-                    , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
-                    , catalogAlbumResponseWanted = wanted
-                    , catalogAlbumResponseMatchedClusterId = Nothing
-            , catalogAlbumResponseCurrentQuality = DBTypes.catalogAlbumCurrentQuality album
-                    , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
-                    , catalogAlbumResponseScore = Nothing
-                    , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
-                    , catalogAlbumResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumUpdatedAt album)
-                    }
-                , albumReleasesReleases = releases
-                , albumReleasesSearchTime = searchDuration
+          pure AlbumReleasesResponse
+            { albumReleasesAlbum = CatalogAlbumResponse
+                { catalogAlbumResponseId = DBTypes.catalogAlbumId album
+                , catalogAlbumResponseReleaseGroupMBID = DBTypes.catalogAlbumReleaseGroupMBID album
+                , catalogAlbumResponseTitle = albumTitle
+                , catalogAlbumResponseArtistMBID = DBTypes.catalogAlbumArtistMBID album
+                , catalogAlbumResponseArtistName = artistName
+                , catalogAlbumResponseType = DBTypes.catalogAlbumType album
+                , catalogAlbumResponseFirstReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
+                , catalogAlbumResponseCoverUrl = DBTypes.catalogAlbumCoverUrl album
+                , catalogAlbumResponseCoverThumbnailUrl = DBTypes.catalogAlbumCoverThumbnailUrl album
+                , catalogAlbumResponseWanted = wanted
+                , catalogAlbumResponseMatchedClusterId = Nothing
+                , catalogAlbumResponseCurrentQuality = DBTypes.catalogAlbumCurrentQuality album
+                , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
+                , catalogAlbumResponseScore = Nothing
+                , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
+                , catalogAlbumResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumUpdatedAt album)
                 }
+            , albumReleasesReleases = releases
+            , albumReleasesSearchTime = 0
+            }
 
     -- Stream album releases via SSE (results sent as they arrive)
     streamAlbumReleasesHandler :: Int64 -> Maybe Text -> Handler (SourceIO ReleaseStreamEvent)
@@ -1080,7 +1049,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
                 }
 
           -- Return the streaming source
-          pure $ streamSearchResults le registry configVar enabledIndexers maybeSlskdConfig searchQuery
+          pure $ streamSearchResults le registry configVar enabledIndexers maybeSlskdConfig searchQuery albumId
 
     -- Stream search results from all sources
     streamSearchResults ::
@@ -1090,8 +1059,9 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       [Cfg.Indexer] ->
       Maybe Cfg.SlskdConfig ->
       SearchQuery ->
+      Int64 ->
       SourceIO ReleaseStreamEvent
-    streamSearchResults logEnv svcRegistry _cfgVar indexers maybeSlskd query = SourceT $ \k -> k $ Effect $ do
+    streamSearchResults logEnv svcRegistry _cfgVar indexers maybeSlskd query albumId = SourceT $ \k -> k $ Effect $ do
       -- Create a channel for results
       chan <- newTChanIO
 
@@ -1111,7 +1081,11 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
               STM.atomically $ writeTChan chan (SearchError indexerName (show err))
             Right indexerResult -> do
               let releases = irReleases indexerResult
+              now <- getCurrentTime
               forM_ releases $ \release -> do
+                -- Cache the release so the UI can render it instantly next time
+                withConnection connPool $ \conn ->
+                  DB.upsertCachedRelease conn albumId indexerName "search" now release
                 let response = releaseInfoToResponse indexerName release
                 STM.atomically $ writeTChan chan (ReleaseFound response indexerName)
               STM.atomically $ writeTChan chan (SearchCompleted indexerName (length releases))
@@ -1130,6 +1104,9 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             resultCountRef <- IORef.newIORef (0 :: Int)
             result <- searchSlskdStreaming logEnv client artistName albumName 60 minTrackCount $ \candidate -> do
               let release = slskdCandidateToReleaseInfo candidate
+              now <- getCurrentTime
+              withConnection connPool $ \conn ->
+                DB.upsertCachedRelease conn albumId indexerName "search" now release
               let response = releaseInfoToResponse indexerName release
               STM.atomically $ writeTChan chan (ReleaseFound response indexerName)
               IORef.modifyIORef' resultCountRef (+1)
@@ -1162,55 +1139,26 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         SearchDone _ -> pure $ Yield evt Stop
         _ -> pure $ Yield evt (eventLoop chan)
 
-    -- Search all indexers and slskd concurrently
-    searchAllIndexers :: [Cfg.Indexer] -> SearchQuery -> IO [IndexerResult]
-    searchAllIndexers indexers query = do
-      let httpClient = srHttpClient registry
-
-      -- Get slskd config
-      config <- readConfig configVar
-      let maybeSlskdConfig = Cfg.downloadSlskdClient (Cfg.download config)
-
-      -- Search indexers
-      let searchIndexersIO = do
-            results <- mapConcurrently (\indexer -> searchIndexer httpClient indexer query) indexers
-            pure $ rights results
-
-      -- Search slskd if configured and enabled
-      let searchSlskdIO = case maybeSlskdConfig of
-            Just slskdConfig | Cfg.slskdEnabled slskdConfig -> do
-              runKatipContextT le () "catalog.search" $ do
-                $(logTM) InfoS $ logStr $ ("Searching slskd at: " <> Cfg.slskdUrl slskdConfig :: Text)
-              let client = createSlskdClient slskdConfig httpClient
-              let artistName = fromMaybe "" (sqArtist query)
-              let albumName = fromMaybe "" (sqAlbum query)
-              let minTrackCount = Cfg.slskdMinTrackCount slskdConfig
-              result <- searchSlskd le client artistName albumName minTrackCount
-              case result of
-                Left err -> do
-                  runKatipContextT le () "catalog.search" $ do
-                    $(logTM) ErrorS $ logStr $ ("slskd search failed: " <> err :: Text)
-                  pure []
-                Right candidates -> do
-                  runKatipContextT le () "catalog.search" $ do
-                    $(logTM) InfoS $ logStr $ ("slskd returned " <> show (length candidates) <> " candidates" :: Text)
-                  -- Convert slskd candidates to ReleaseInfo, then wrap as IndexerResult
-                  let releases = map slskdCandidateToReleaseInfo candidates
-                  pure [IndexerResult
-                    { irIndexerName = "slskd"
-                    , irReleases = releases
-                    , irSearchTime = 0  -- Not tracked here
-                    }]
-            _ -> pure []
-
-      -- Run both searches in parallel
-      (indexerResults, slskdResults) <- concurrently searchIndexersIO searchSlskdIO
-      pure $ indexerResults ++ slskdResults
-
-    -- Convert IndexerResult to list of ReleaseResponse
-    convertIndexerResult :: IndexerResult -> [ReleaseResponse]
-    convertIndexerResult indexerResult =
-      map (releaseInfoToResponse (irIndexerName indexerResult)) (irReleases indexerResult)
+    -- Convert a cached release row (catalog_releases) to a ReleaseResponse
+    cachedReleaseToResponse :: DBTypes.CachedReleaseRecord -> ReleaseResponse
+    cachedReleaseToResponse r = ReleaseResponse
+      { releaseResponseTitle = DBTypes.cachedReleaseTitle r
+      , releaseResponseSource = DBTypes.cachedReleaseIndexerName r
+      , releaseResponseQuality = DBTypes.cachedReleaseQuality r
+      , releaseResponseSize = DBTypes.cachedReleaseSizeBytes r
+      , releaseResponseSeeders = DBTypes.cachedReleaseSeeders r
+      , releaseResponsePeers = DBTypes.cachedReleasePeers r
+      , releaseResponseDownloadType = DBTypes.cachedReleaseDownloadType r
+      , releaseResponseDownloadUrl = DBTypes.cachedReleaseDownloadUrl r
+      , releaseResponsePublishDate = fmap (show :: UTCTime -> Text) (DBTypes.cachedReleasePublishDate r)
+      , releaseResponseSlskdUsername = DBTypes.cachedReleaseSlskdUsername r
+      , releaseResponseSlskdFiles = decodeCachedSlskdFiles (DBTypes.cachedReleaseSlskdFiles r)
+      }
+      where
+        decodeCachedSlskdFiles Nothing = Nothing
+        decodeCachedSlskdFiles (Just json) =
+          fmap (map toSlskdFileResponse)
+            (decodeStrict (TE.encodeUtf8 json) :: Maybe [Indexer.SlskdFile])
 
     -- Convert ReleaseInfo to ReleaseResponse
     releaseInfoToResponse :: Text -> ReleaseInfo -> ReleaseResponse

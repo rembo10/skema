@@ -31,6 +31,7 @@ module Skema.Database.Types
   , CatalogAlbumRecord (..)
     -- * Download Models
   , DownloadRecord (..)
+  , CachedReleaseRecord (..)
   , DownloadStatus (..)
   , downloadStatusToText
   , textToDownloadStatus
@@ -320,6 +321,28 @@ data DownloadRecord = DownloadRecord
   , downloadLibraryPath :: Maybe Text
   } deriving (Show, Eq)
 
+-- | Cached indexer release record (row of catalog_releases).
+data CachedReleaseRecord = CachedReleaseRecord
+  { cachedReleaseId :: Maybe Int64
+  , cachedReleaseCatalogAlbumId :: Int64
+  , cachedReleaseIndexerName :: Text
+  , cachedReleaseGuid :: Maybe Text
+  , cachedReleaseTitle :: Text
+  , cachedReleaseDownloadUrl :: Text
+  , cachedReleaseDownloadType :: Text
+  , cachedReleaseQuality :: Text
+  , cachedReleaseSizeBytes :: Maybe Int64
+  , cachedReleaseSeeders :: Maybe Int
+  , cachedReleasePeers :: Maybe Int
+  , cachedReleasePublishDate :: Maybe UTCTime
+  , cachedReleaseInfoUrl :: Maybe Text
+  , cachedReleaseSlskdUsername :: Maybe Text
+  , cachedReleaseSlskdFiles :: Maybe Text  -- JSON-encoded [SlskdFile]
+  , cachedReleaseSource :: Text  -- "search" or "rss"
+  , cachedReleaseFirstSeenAt :: Maybe UTCTime
+  , cachedReleaseLastSeenAt :: Maybe UTCTime
+  } deriving (Show, Eq)
+
 -- | Quality profile record.
 data QualityProfileRecord = QualityProfileRecord
   { qualityProfileId :: Maybe Int64
@@ -599,6 +622,27 @@ instance SQLite.FromRow DownloadRecord where
     libraryPath <- SQLite.field
     let status = fromMaybe DownloadQueued (textToDownloadStatus statusText)
     pure $ DownloadRecord dId dlCatalogAlbumId indexerName url client clientId status path title sizeBytes quality format seeders progress errorMsg queuedAt startedAt completedAt importedAt updatedAt matchedClusterId libraryPath
+
+instance SQLite.FromRow CachedReleaseRecord where
+  fromRow = CachedReleaseRecord
+    <$> SQLite.field  -- id
+    <*> SQLite.field  -- catalog_album_id
+    <*> SQLite.field  -- indexer_name
+    <*> SQLite.field  -- guid
+    <*> SQLite.field  -- title
+    <*> SQLite.field  -- download_url
+    <*> SQLite.field  -- download_type
+    <*> SQLite.field  -- quality
+    <*> SQLite.field  -- size_bytes
+    <*> SQLite.field  -- seeders
+    <*> SQLite.field  -- peers
+    <*> SQLite.field  -- publish_date
+    <*> SQLite.field  -- info_url
+    <*> SQLite.field  -- slskd_username
+    <*> SQLite.field  -- slskd_files
+    <*> SQLite.field  -- source
+    <*> SQLite.field  -- first_seen_at
+    <*> SQLite.field  -- last_seen_at
 
 instance SQLite.FromRow QualityProfileRecord where
   fromRow = do

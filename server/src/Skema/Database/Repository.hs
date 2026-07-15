@@ -60,6 +60,9 @@ module Skema.Database.Repository
   , getFailedDownloadUrlsForAlbum
   , getFailedDownloadCountForAlbum
   , getDownloadById
+    -- * Cached release operations
+  , upsertCachedRelease
+  , getCachedReleasesForAlbum
     -- * Acquisition rule operations
   , createAcquisitionRule
   , getAllAcquisitionRules
@@ -182,6 +185,12 @@ import Skema.Database.Repository.Downloads
   , getFailedDownloadUrlsForAlbum
   , getFailedDownloadCountForAlbum
   , getDownloadById
+  )
+
+-- Re-export cached release operations
+import Skema.Database.Repository.Releases
+  ( upsertCachedRelease
+  , getCachedReleasesForAlbum
   )
 
 -- Re-export quality profile operations
