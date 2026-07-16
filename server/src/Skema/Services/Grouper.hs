@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -10,6 +11,7 @@ module Skema.Services.Grouper
   ) where
 
 import Skema.Services.Dependencies (GrouperDeps(..))
+import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Domain.Metadata (metadataRecordToMonatone)
 import Skema.Events.Bus
 import Skema.Events.Types
@@ -20,10 +22,7 @@ import Skema.Domain.Identification (mkIdentifyConfig, partitionClusters)
 import Skema.Config.Types (Config(..))
 import Skema.Domain.Matching (groupFilesByRelease)
 import Skema.MusicBrainz.Types (FileGroup(..))
-import Control.Concurrent.Async (Async, async)
-import qualified Control.Concurrent.STM as STM
-import Control.Concurrent.STM (readTChan)
-import Control.Exception (try)
+import Control.Concurrent.Async (Async)
 import Skema.Clock (getNow)
 import Katip
 
@@ -31,26 +30,15 @@ import Katip
 --
 -- This service listens for METADATA_READ_COMPLETE events and groups files by album.
 -- It runs after metadata has been read and stored in the database.
+-- Grouping runs sequentially: a regroup reassigns cluster_ids and prunes
+-- empty clusters across the whole library, so two running concurrently
+-- would race against each other.
 -- Returns the async handle for graceful shutdown.
 startGrouperService :: GrouperDeps -> IO (Async ())
-startGrouperService deps = do
-  chan <- STM.atomically $ subscribe (groupEventBus deps)
-  async $ forever $ do
-    envelope <- STM.atomically $ readTChan chan
-    case envelopeEvent envelope of
-      MetadataReadComplete{..} -> do
-        -- Process grouping requests sequentially in this thread: a regroup
-        -- reassigns cluster_ids and prunes empty clusters across the whole
-        -- library, so two running concurrently race against each other.
-        -- Later events simply queue on the channel until this one finishes.
-        result <- try $ handleMetadataReadComplete deps filesProcessed
-        case result of
-          Left (e :: SomeException) -> do
-            let le = groupLogEnv deps
-            runKatipContextT le () "grouper.error" $ do
-              $(logTM) ErrorS $ logStr $ ("Exception during grouping: " <> show e :: Text)
-          Right () -> pure ()
-      _ -> pure ()  -- Ignore other events
+startGrouperService deps =
+  runEventService (groupLogEnv deps) (groupEventBus deps) "services.grouper" Sequential $ \case
+    MetadataReadComplete{..} -> Just $ handleMetadataReadComplete deps filesProcessed
+    _ -> Nothing
 
 -- | Handle metadata read complete event.
 -- Groups all files in the library by album (not just changed files, since

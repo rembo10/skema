@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -23,6 +24,7 @@ module Skema.Services.Importer
   ) where
 
 import Skema.Services.Dependencies (ImporterDeps(..))
+import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
@@ -51,9 +53,8 @@ import Skema.Domain.Import
   )
 import Skema.Config.Types (Config(..), LibraryConfig(..), DownloadConfig(..), download)
 import qualified Monatone.Metadata as M
-import Control.Concurrent.Async (Async, async)
+import Control.Concurrent.Async (Async)
 import qualified Control.Concurrent.STM as STM
-import Control.Concurrent.STM (readTChan)
 import Control.Exception (try, throwIO)
 import Skema.Clock (Clock, getNow)
 import Database.SQLite.Simple (Only(..))
@@ -75,23 +76,12 @@ instance Exception ImportException
 --
 -- Listens for DownloadCompleted events and imports them into the library.
 startImporterService :: ImporterDeps -> IO (Async ())
-startImporterService deps = do
-  chan <- STM.atomically $ subscribe (impEventBus deps)
-  async $ forever $ do
-    envelope <- STM.atomically $ readTChan chan
-    case envelopeEvent envelope of
-      DownloadCompleted{..} -> do
-        -- Process each import asynchronously
-        _ <- async $ do
-          result <- try $ handleDownloadCompleted deps downloadId
-          case result of
-            Left (e :: SomeException) -> do
-              let le = impLogEnv deps
-              runKatipContextT le () "importer" $ do
-                $(logTM) ErrorS $ logStr $ ("Exception importing download: " <> show e :: Text)
-            Right () -> pure ()
-        pure ()
-      _ -> pure ()  -- Ignore other events
+startImporterService deps =
+  -- Imports run sequentially: they move files and rewrite cluster rows, so
+  -- two concurrent imports would race in the library directory and database
+  runEventService (impLogEnv deps) (impEventBus deps) "importer" Sequential $ \case
+    DownloadCompleted{..} -> Just $ handleDownloadCompleted deps downloadId
+    _ -> Nothing
 
 -- | Handle a download completed event by importing it into the library.
 handleDownloadCompleted :: ImporterDeps -> Int64 -> IO ()

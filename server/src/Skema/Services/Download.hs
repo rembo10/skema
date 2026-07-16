@@ -17,7 +17,7 @@ module Skema.Services.Download
 
 import Skema.Services.Dependencies (DownloadDeps)
 import Skema.Services.Download.Client (DownloadClientInstance(..))
-import Skema.Services.Download.Search (runSearchOrchestrator)
+import Skema.Services.Download.Search (startSearchOrchestrator)
 import Skema.Services.Download.Monitor (runDownloadMonitor)
 import Control.Concurrent.Async (Async, async)
 
@@ -29,6 +29,6 @@ import Control.Concurrent.Async (Async, async)
 -- Returns both async handles for graceful shutdown.
 startDownloadService :: DownloadDeps -> IO (Async (), Async ())
 startDownloadService deps = do
-  searchHandle <- async $ runSearchOrchestrator deps
+  searchHandle <- startSearchOrchestrator deps
   monitorHandle <- async $ runDownloadMonitor deps
   pure (searchHandle, monitorHandle)

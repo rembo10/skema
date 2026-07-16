@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -16,6 +17,7 @@ module Skema.Services.Acquisition
   ) where
 
 import Skema.Services.Dependencies (AcquisitionDeps(..))
+import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Domain.Acquisition (shouldProcessArtistById, parseSourceFilters, SourceFilters(..), evaluateLibraryArtistsAlbumFilters)
 import Skema.Events.Bus
 import Skema.Events.Types
@@ -24,11 +26,9 @@ import Skema.Database.Repository
 import Skema.Database.Types (AcquisitionSourceRecord(..), SourceType(..))
 import qualified Skema.Database.Types as DB
 import Skema.Config.Types (Config(..), LibraryConfig(..))
-import Control.Concurrent.Async (Async, async)
+import Control.Concurrent.Async (Async)
 import qualified Control.Concurrent.STM as STM
-import Control.Concurrent.STM (readTChan)
 import Control.Monad ()
-import Control.Exception (try)
 import Skema.Clock (getNow)
 import qualified Data.Text as T
 import Katip
@@ -39,34 +39,14 @@ import Katip
 -- - LibraryArtistFound events to follow artists based on rules
 -- - CatalogAlbumAdded events to evaluate if albums should be wanted
 startAcquisitionService :: AcquisitionDeps -> IO (Async ())
-startAcquisitionService deps = do
-  chan <- STM.atomically $ subscribe (acqEventBus deps)
-  async $ forever $ do
-    envelope <- STM.atomically $ readTChan chan
-    case envelopeEvent envelope of
-      LibraryArtistFound{..} -> do
-        -- Process each event asynchronously to avoid blocking the event loop
-        _ <- async $ do
-          result <- try $ handleLibraryArtistFound deps foundArtistMBID foundArtistName foundClusterId foundReleaseGroupId
-          case result of
-            Left (e :: SomeException) -> do
-              let le = acqLogEnv deps
-              runKatipContextT le () "acquisition.error" $ do
-                $(logTM) ErrorS $ logStr $ ("Exception processing artist " <> foundArtistName <> ": " <> show e :: Text)
-            Right () -> pure ()
-        pure ()
-      CatalogAlbumAdded{..} -> do
-        -- Process album additions from catalog service
-        _ <- async $ do
-          result <- try $ handleCatalogAlbumAdded deps catalogAlbumReleaseGroupMBID catalogAlbumTitle catalogAlbumArtistMBID catalogAlbumId
-          case result of
-            Left (e :: SomeException) -> do
-              let le = acqLogEnv deps
-              runKatipContextT le () "acquisition.error" $ do
-                $(logTM) ErrorS $ logStr $ ("Exception evaluating album " <> catalogAlbumTitle <> ": " <> show e :: Text)
-            Right () -> pure ()
-        pure ()
-      _ -> pure ()  -- Ignore other events
+startAcquisitionService deps =
+  -- Source evaluation writes artist/album wanted state; run sequentially
+  runEventService (acqLogEnv deps) (acqEventBus deps) "services.acquisition" Sequential $ \case
+    LibraryArtistFound{..} ->
+      Just $ handleLibraryArtistFound deps foundArtistMBID foundArtistName foundClusterId foundReleaseGroupId
+    CatalogAlbumAdded{..} ->
+      Just $ handleCatalogAlbumAdded deps catalogAlbumReleaseGroupMBID catalogAlbumTitle catalogAlbumArtistMBID catalogAlbumId
+    _ -> Nothing
 
 -- | Handle a library artist found event.
 --

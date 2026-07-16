@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -12,6 +13,7 @@ module Skema.Services.Stats
   ) where
 
 import Skema.Services.Dependencies (StatsDeps(..))
+import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
@@ -35,44 +37,35 @@ debounceIntervalMicros = 2000000
 -- Exceptions are caught and logged to prevent the service from crashing.
 startStatsService :: StatsDeps -> Maybe Text -> IO (Async (), Async ())
 startStatsService deps libraryPath = do
-  chan <- STM.atomically $ subscribe (statsEventBus deps)
-
   -- TVar to track whether a stats update is pending
   updatePending <- STM.newTVarIO False
+  let markPending = STM.atomically $ writeTVar updatePending True
 
-  -- Event listener thread - marks stats as needing update
-  listenerHandle <- async $ forever $ do
-    envelope <- STM.atomically $ readTChan chan
-    case envelopeEvent envelope of
-      -- Events that change stats - mark as needing update
-      MetadataReadComplete{} -> STM.atomically $ writeTVar updatePending True
-      ClustersGenerated{} -> STM.atomically $ writeTVar updatePending True
-      ClusterIdentified{} -> STM.atomically $ writeTVar updatePending True
-      TrackDiffsGenerated{} -> STM.atomically $ writeTVar updatePending True
-      MetadataDiffApplied{} -> STM.atomically $ writeTVar updatePending True
-      GroupedDiffsApplied{} -> STM.atomically $ writeTVar updatePending True
-      MetadataWriteCompleted{} -> STM.atomically $ writeTVar updatePending True
-      _ -> pure ()  -- Ignore other events
+  -- Event listener - marks stats as needing update
+  listenerHandle <- runEventService (statsLogEnv deps) (statsEventBus deps) "services.stats" Sequential $ \case
+    MetadataReadComplete{} -> Just markPending
+    ClustersGenerated{} -> Just markPending
+    ClusterIdentified{} -> Just markPending
+    TrackDiffsGenerated{} -> Just markPending
+    MetadataDiffApplied{} -> Just markPending
+    GroupedDiffsApplied{} -> Just markPending
+    MetadataWriteCompleted{} -> Just markPending
+    _ -> Nothing
 
-  -- Stats updater thread - checks periodically and emits if needed
+  -- Stats updater thread - blocks until an update is pending, then lets a
+  -- burst of events coalesce for the debounce interval before recomputing
   updaterHandle <- async $ forever $ do
+    STM.atomically $ readTVar updatePending >>= flip unless STM.retry
     threadDelay debounceIntervalMicros
+    STM.atomically $ writeTVar updatePending False
 
-    -- Check if update is needed
-    needsUpdate <- STM.atomically $ do
-      pending <- readTVar updatePending
-      when pending $ writeTVar updatePending False
-      pure pending
-
-    -- Emit stats update if needed
-    when needsUpdate $ do
-      result <- try $ emitStatsUpdate deps libraryPath
-      case result of
-        Left (e :: SomeException) -> do
-          let le = statsLogEnv deps
-          runKatipContextT le () "stats.error" $ do
-            $(logTM) ErrorS $ logStr $ ("Exception in stats service: " <> show e :: Text)
-        Right () -> pure ()
+    result <- try $ emitStatsUpdate deps libraryPath
+    case result of
+      Left (e :: SomeException) -> do
+        let le = statsLogEnv deps
+        runKatipContextT le () "stats.error" $ do
+          $(logTM) ErrorS $ logStr $ ("Exception in stats service: " <> show e :: Text)
+      Right () -> pure ()
 
   pure (listenerHandle, updaterHandle)
 

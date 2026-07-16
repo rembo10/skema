@@ -2,6 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- | Scanner service - handles file system scanning.
 module Skema.Services.Scanner
@@ -10,6 +11,7 @@ module Skema.Services.Scanner
   ) where
 
 import Skema.Services.Dependencies (ScannerDeps(..))
+import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Domain.Library (FileSystemDiff(..), LibrarySnapshot(..))
@@ -19,7 +21,7 @@ import Monatone.Common (parseMetadata)
 import Skema.Database.Connection
 import Skema.Database.Repository (upsertTrackWithMetadata, getLibrarySnapshot, getTrackByPath, deleteTrack)
 import qualified Skema.Database.Types as DBTypes
-import Control.Concurrent.Async (Async, async, mapConcurrently)
+import Control.Concurrent.Async (Async, mapConcurrently)
 import Control.Concurrent.QSem (newQSem, waitQSem, signalQSem)
 import qualified Control.Concurrent.STM as STM
 import Control.Exception (try, bracket_)
@@ -38,25 +40,14 @@ pooledMapConcurrently maxWorkers f xs = do
 -- | Start the scanner service.
 --
 -- This service listens for LIBRARY_SCAN_REQUESTED events and processes them.
+-- Scans run sequentially: two concurrent full scans would race on the
+-- library snapshot and track upserts.
 -- Returns the async handle for graceful shutdown.
 startScannerService :: ScannerDeps -> IO (Async ())
-startScannerService deps = do
-  chan <- STM.atomically $ subscribe (scanEventBus deps)
-  async $ forever $ do
-    envelope <- STM.atomically $ STM.readTChan chan
-    case envelopeEvent envelope of
-      LibraryScanRequested{..} -> do
-        -- Process each scan request asynchronously with error handling
-        _ <- async $ do
-          result <- try $ handleScanRequest deps scanPath forceRescan
-          case result of
-            Left (e :: SomeException) -> do
-              let le = scanLogEnv deps
-              runKatipContextT le () "scanner.error" $ do
-                $(logTM) ErrorS $ logStr $ ("Exception during scan: " <> toText (displayException e) :: Text)
-            Right () -> pure ()
-        pure ()
-      _ -> pure ()  -- Ignore other events
+startScannerService deps =
+  runEventService (scanLogEnv deps) (scanEventBus deps) "services.scanner" Sequential $ \case
+    LibraryScanRequested{..} -> Just $ handleScanRequest deps scanPath forceRescan
+    _ -> Nothing
 
 -- | Handle a library scan request.
 handleScanRequest :: ScannerDeps -> Text -> Bool -> IO ()

@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -14,6 +15,7 @@ module Skema.Services.Notifications
   ) where
 
 import Skema.Services.Dependencies (NotificationDeps(..))
+import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus (subscribe)
 import Skema.Events.Types (Event(..), EventEnvelope(..), envelopeEvent)
 import Skema.Config.Types (Config(..), NotificationConfig(..), NotificationProvider(..))
@@ -38,35 +40,14 @@ import Data.Time.Format (parseTimeM, defaultTimeLocale)
 -- - DownloadCompleted (when albums are downloaded)
 -- - DownloadImported (when albums are imported to library)
 startNotificationService :: NotificationDeps -> IO (Async ())
-startNotificationService deps = do
-  chan <- STM.atomically $ subscribe (notifEventBus deps)
-  async $ forever $ do
-    envelope <- STM.atomically $ readTChan chan
-    case envelopeEvent envelope of
-      WantedAlbumAdded{..} -> do
-        -- Process asynchronously to avoid blocking event loop
-        _ <- async $ do
-          result <- try $ handleWantedAlbumAdded deps wantedReleaseGroupId wantedAlbumTitle wantedArtistName
-          logResult deps result "WantedAlbumAdded"
-        pure ()
-
-      DownloadImported{..} -> do
-        _ <- async $ do
-          result <- try $ handleDownloadImported deps downloadTitle
-          logResult deps result "DownloadImported"
-        pure ()
-
-      _ -> pure ()  -- Ignore other events
-
--- | Log the result of handling an event.
-logResult :: NotificationDeps -> Either SomeException () -> Text -> IO ()
-logResult deps result eventType = do
-  let le = notifLogEnv deps
-  case result of
-    Left (e :: SomeException) -> do
-      runKatipContextT le () "notifications.error" $ do
-        $(logTM) ErrorS $ logStr $ ("Exception handling " <> eventType <> " event: " <> show e :: Text)
-    Right () -> pure ()
+startNotificationService deps =
+  -- Notifications are independent HTTP calls; overlap is safe
+  runEventService (notifLogEnv deps) (notifEventBus deps) "services.notifications" Concurrent $ \case
+    WantedAlbumAdded{..} ->
+      Just $ handleWantedAlbumAdded deps wantedReleaseGroupId wantedAlbumTitle wantedArtistName
+    DownloadImported{..} ->
+      Just $ handleDownloadImported deps downloadTitle
+    _ -> Nothing
 
 -- | Handle a wanted album added event (sends notifications for upcoming wanted albums).
 handleWantedAlbumAdded :: NotificationDeps -> Text -> Text -> Text -> IO ()

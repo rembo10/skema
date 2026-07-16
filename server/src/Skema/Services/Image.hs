@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -11,6 +12,7 @@ module Skema.Services.Image
   ) where
 
 import Skema.Services.Dependencies (ImageDeps(..))
+import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
@@ -25,8 +27,7 @@ import qualified Skema.Media.Providers.LastFM as LastFM
 import Skema.Media.Storage (downloadAndStoreImages)
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
-import Control.Concurrent.STM (readTChan)
-import Control.Exception (try, finally)
+import Control.Exception (catch, try, finally)
 import Database.SQLite.Simple (Only(..))
 import qualified Data.Set as Set
 import qualified Data.Text as T
@@ -46,86 +47,62 @@ mediaSourceToText Deezer = "Deezer"
 -- This service listens for events and fetches/stores images as needed.
 startImageService :: ImageDeps -> IO (Async ())
 startImageService deps = do
-  chan <- STM.atomically $ subscribe (imgEventBus deps)
   -- Tracks image re-fetches currently in flight (keyed by "artist:<mbid>" /
   -- "album:<mbid>") so a burst of 404s for the same missing file only triggers
   -- one re-fetch, avoiding concurrent writers to the same cache path.
   repairing <- STM.newTVarIO Set.empty
-  async $ forever $ do
-    envelope <- STM.atomically $ readTChan chan
-    case envelopeEvent envelope of
-      CatalogArtistFollowed{..} -> do
-        -- Fetch image for followed catalog artist
-        -- Get the artist ID from the database using the MBID
-        maybeArtistRecord <- withConnection (imgDbPool deps) $ \conn ->
-          getCatalogArtistByMBID conn catalogArtistMBID
-        case maybeArtistRecord of
-          Nothing -> pure ()  -- Artist not found, skip
-          Just artistRecord -> do
-            -- Skip if artist already has an image to avoid duplicate fetches
-            case (catalogArtistId artistRecord, catalogArtistImageUrl artistRecord) of
-              (Just artistId, Nothing) -> do
-                -- Artist has ID but no image - fetch it
-                _ <- async $ do
-                  result <- try $ handleArtistImageFetch deps artistId catalogArtistMBID catalogArtistName
-                  case result of
-                    Left (e :: SomeException) -> do
-                      let le = imgLogEnv deps
-                      runKatipContextT le () "image.error" $ do
-                        $(logTM) ErrorS $ logStr $ ("Exception fetching image for catalog artist " <> catalogArtistName <> ": " <> show e :: Text)
-                    Right () -> pure ()
-                -- Also fetch bio
-                _ <- async $ do
-                  result <- try $ handleArtistBioFetch deps artistId catalogArtistMBID
-                  case result of
-                    Left (e :: SomeException) -> do
-                      let le = imgLogEnv deps
-                      runKatipContextT le () "bio.error" $ do
-                        $(logTM) ErrorS $ logStr $ ("Exception fetching bio for catalog artist " <> catalogArtistName <> ": " <> show e :: Text)
-                    Right () -> pure ()
-                pure ()
-              _ -> pure ()  -- Artist already has image or no ID, skip
+  -- Image and bio fetches are independent HTTP downloads; overlap is safe and
+  -- the repair lock deduplicates per key
+  runEventService (imgLogEnv deps) (imgEventBus deps) "services.image" Concurrent $ \case
+    CatalogArtistFollowed{..} ->
+      Just $ handleArtistFollowed deps catalogArtistMBID catalogArtistName
+    CatalogAlbumAdded{..} ->
+      Just $ handleAlbumCoverFetch deps catalogAlbumReleaseGroupMBID catalogAlbumTitle catalogAlbumId
+    ArtistImageMissing{..} ->
+      Just $ withRepairLock (imgLogEnv deps) repairing ("artist:" <> missingArtistMBID) $
+        repairArtistImage deps missingArtistMBID
+    AlbumCoverMissing{..} ->
+      Just $ withRepairLock (imgLogEnv deps) repairing ("album:" <> missingReleaseGroupMBID) $
+        repairAlbumCover deps missingReleaseGroupMBID
+    ArtistDiscographyRequested{..} ->
+      Just $ handleDiscographyRequested deps requestedArtistId requestedArtistMBID
+    _ -> Nothing
 
-      CatalogAlbumAdded{..} -> do
-        -- Fetch cover for newly added catalog album
-        _ <- async $ do
-          result <- try $ handleAlbumCoverFetch deps catalogAlbumReleaseGroupMBID catalogAlbumTitle catalogAlbumId
-          case result of
-            Left (e :: SomeException) -> do
-              let le = imgLogEnv deps
-              runKatipContextT le () "image.error" $ do
-                $(logTM) ErrorS $ logStr $ ("Exception fetching cover for album " <> catalogAlbumTitle <> ": " <> show e :: Text)
-            Right () -> pure ()
-        pure ()
+-- | Fetch image and bio for a newly followed artist that has neither yet.
+handleArtistFollowed :: ImageDeps -> Text -> Text -> IO ()
+handleArtistFollowed deps artistMBID artistName = do
+  maybeArtistRecord <- withConnection (imgDbPool deps) $ \conn ->
+    getCatalogArtistByMBID conn artistMBID
+  case maybeArtistRecord of
+    Nothing -> pure ()  -- Artist not found, skip
+    Just artistRecord ->
+      -- Skip if artist already has an image to avoid duplicate fetches
+      case (catalogArtistId artistRecord, catalogArtistImageUrl artistRecord) of
+        (Just artistId, Nothing) -> do
+          -- A failed image fetch should not prevent the bio fetch
+          handleArtistImageFetch deps artistId artistMBID artistName
+            `catch` \(e :: SomeException) ->
+              runKatipContextT (imgLogEnv deps) () "services.image" $
+                $(logTM) ErrorS $ logStr $
+                  ("Exception fetching image for catalog artist " <> artistName <> ": " <> show e :: Text)
+          handleArtistBioFetch deps artistId artistMBID
+        _ -> pure ()  -- Artist already has image or no ID, skip
 
-      ArtistImageMissing{..} ->
-        withRepairLock (imgLogEnv deps) repairing ("artist:" <> missingArtistMBID) $
-          repairArtistImage deps missingArtistMBID
-
-      AlbumCoverMissing{..} ->
-        withRepairLock (imgLogEnv deps) repairing ("album:" <> missingReleaseGroupMBID) $
-          repairAlbumCover deps missingReleaseGroupMBID
-
-      ArtistDiscographyRequested{..} -> do
-        -- User is viewing this artist's page - prioritize fetching covers for their albums
-        _ <- async $ handleArtistDiscographyImageRequest deps requestedArtistId requestedArtistMBID
-        -- Lazy backfill: fetch bio if artist doesn't have one yet
-        _ <- async $ do
-          maybeArtist <- withConnection (imgDbPool deps) $ \conn ->
-            getCatalogArtistById conn requestedArtistId
-          case maybeArtist of
-            Just artist | isNothing (catalogArtistBio artist) -> do
-              result <- try $ handleArtistBioFetch deps requestedArtistId requestedArtistMBID
-              case result of
-                Left (e :: SomeException) -> do
-                  let le = imgLogEnv deps
-                  runKatipContextT le () "bio.error" $ do
-                    $(logTM) ErrorS $ logStr $ ("Exception backfilling bio for artist " <> show requestedArtistId <> ": " <> show e :: Text)
-                Right () -> pure ()
-            _ -> pure ()
-        pure ()
-
-      _ -> pure ()  -- Ignore other events
+-- | User is viewing this artist's page: prioritize fetching covers for their
+-- albums and lazily backfill the bio if it is missing.
+handleDiscographyRequested :: ImageDeps -> Int64 -> Text -> IO ()
+handleDiscographyRequested deps artistId artistMBID = do
+  maybeArtist <- withConnection (imgDbPool deps) $ \conn ->
+    getCatalogArtistById conn artistId
+  case maybeArtist of
+    Just artist | isNothing (catalogArtistBio artist) ->
+      handleArtistBioFetch deps artistId artistMBID
+        `catch` \(e :: SomeException) ->
+          runKatipContextT (imgLogEnv deps) () "services.image" $
+            $(logTM) ErrorS $ logStr $
+              ("Exception backfilling bio for artist " <> show artistId <> ": " <> show e :: Text)
+    _ -> pure ()
+  handleArtistDiscographyImageRequest deps artistId artistMBID
 
 -- | Run a repair action in the background, deduplicated by key.
 --

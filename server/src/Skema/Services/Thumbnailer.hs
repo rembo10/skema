@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -9,6 +10,7 @@ module Skema.Services.Thumbnailer
   ) where
 
 import Skema.Services.Dependencies (ThumbnailerDeps(..))
+import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
@@ -31,53 +33,18 @@ thumbnailSize = 256
 --
 -- This service listens for image events and generates thumbnails as needed.
 startThumbnailerService :: ThumbnailerDeps -> IO (Async ())
-startThumbnailerService deps = do
-  chan <- STM.atomically $ subscribe (thumbEventBus deps)
-  async $ forever $ do
-    envelope <- STM.atomically $ readTChan chan
-    case envelopeEvent envelope of
-      ArtistImageFetched{..} -> do
-        -- Generate thumbnail for artist image if not already present
-        when (isNothing artistImageThumbnailUrl) $ do
-          -- Run asynchronously to avoid blocking other thumbnail generation
-          _ <- async $ do
-            result <- try $ handleThumbnailGeneration
-              deps
-              "artists"
-              artistImageMBID
-              artistImageUrl
-              "catalog_artists"
-              "artist_mbid"
-              "thumbnail_url"
-            case result of
-              Left (e :: SomeException) -> do
-                let le = thumbLogEnv deps
-                runKatipContextT le () "thumbnailer.error" $ do
-                  $(logTM) ErrorS $ logStr $ ("Exception generating artist thumbnail: " <> show e :: Text)
-              Right () -> pure ()
-          pure ()
-
-      AlbumCoverFetched{..} -> do
-        -- Generate thumbnail for album cover if not already present
-        when (isNothing albumCoverThumbnailUrl) $ do
-          _ <- async $ do
-            result <- try $ handleThumbnailGeneration
-              deps
-              "albums"
-              albumCoverReleaseGroupMBID
-              albumCoverUrl
-              "catalog_albums"
-              "release_group_mbid"
-              "album_cover_thumbnail_url"
-            case result of
-              Left (e :: SomeException) -> do
-                let le = thumbLogEnv deps
-                runKatipContextT le () "thumbnailer.error" $ do
-                  $(logTM) ErrorS $ logStr $ ("Exception generating album thumbnail: " <> show e :: Text)
-              Right () -> pure ()
-          pure ()
-
-      _ -> pure ()  -- Ignore other events
+startThumbnailerService deps =
+  -- Thumbnails are generated per image with no shared state; overlap is safe
+  runEventService (thumbLogEnv deps) (thumbEventBus deps) "services.thumbnailer" Concurrent $ \case
+    ArtistImageFetched{..}
+      | isNothing artistImageThumbnailUrl ->
+          Just $ handleThumbnailGeneration deps "artists" artistImageMBID artistImageUrl
+            "catalog_artists" "artist_mbid" "thumbnail_url"
+    AlbumCoverFetched{..}
+      | isNothing albumCoverThumbnailUrl ->
+          Just $ handleThumbnailGeneration deps "albums" albumCoverReleaseGroupMBID albumCoverUrl
+            "catalog_albums" "release_group_mbid" "album_cover_thumbnail_url"
+    _ -> Nothing
 
 -- | Handle thumbnail generation for an image.
 handleThumbnailGeneration

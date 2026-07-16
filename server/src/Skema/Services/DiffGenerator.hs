@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -12,6 +13,7 @@ module Skema.Services.DiffGenerator
   ) where
 
 import Skema.Services.Dependencies (DiffGeneratorDeps(..))
+import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Domain.Metadata (metadataRecordToMonatone)
 import Skema.Events.Bus
 import Skema.Events.Types
@@ -20,44 +22,21 @@ import Skema.Database.Repository (getClusterWithTracks, getClusterById, insertMe
 import Skema.Database.Types (LibraryTrackMetadataRecord(..), ClusterRecord(..))
 import Skema.MusicBrainz.Client (getRelease)
 import Skema.MusicBrainz.Types (MBTrack(..), MBID(..), mbReleaseTracks)
-import Control.Concurrent.Async (Async, async)
-import qualified Control.Concurrent.STM as STM
-import Control.Concurrent.STM (readTChan)
+import Control.Concurrent.Async (Async)
 import Control.Monad ()
-import Control.Exception (try)
 import Katip
 
 -- | Start the diff generator service.
 --
 -- This service listens for CLUSTER_IDENTIFIED and TRACKS_REMATCHED events and generates metadata diffs.
 startDiffGeneratorService :: DiffGeneratorDeps -> IO (Async ())
-startDiffGeneratorService deps = do
-  chan <- STM.atomically $ subscribe (diffEventBus deps)
-  async $ forever $ do
-    envelope <- STM.atomically $ readTChan chan
-    -- Process each event asynchronously to avoid blocking the event loop
-    case envelopeEvent envelope of
-      ClusterIdentified cid releaseId _ _confidence _trackCount -> do
-        _ <- async $ do
-          result <- try $ handleClusterIdentified deps cid releaseId
-          case result of
-            Left (e :: SomeException) -> do
-              let le = diffLogEnv deps
-              runKatipContextT le () "diff-generator.error" $ do
-                $(logTM) ErrorS $ logStr $ ("Exception processing cluster " <> show cid <> ": " <> show e :: Text)
-            Right () -> pure ()
-        pure ()
-      TracksRematched cid _trackCount -> do
-        _ <- async $ do
-          result <- try $ handleTracksRematched deps cid
-          case result of
-            Left (e :: SomeException) -> do
-              let le = diffLogEnv deps
-              runKatipContextT le () "diff-generator.error" $ do
-                $(logTM) ErrorS $ logStr $ ("Exception processing tracks rematched for cluster " <> show cid <> ": " <> show e :: Text)
-            Right () -> pure ()
-        pure ()
-      _ -> pure ()  -- Ignore other events
+startDiffGeneratorService deps =
+  runEventService (diffLogEnv deps) (diffEventBus deps) "services.diff-generator" Sequential $ \case
+    ClusterIdentified cid releaseId _ _confidence _trackCount ->
+      Just $ handleClusterIdentified deps cid releaseId
+    TracksRematched cid _trackCount ->
+      Just $ handleTracksRematched deps cid
+    _ -> Nothing
 
 -- | Handle a cluster identified event.
 handleClusterIdentified :: DiffGeneratorDeps -> Int64 -> Text -> IO ()

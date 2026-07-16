@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -8,11 +9,12 @@
 -- This module handles searching across multiple indexers to find the best
 -- release for a wanted album, then submitting it to a download client.
 module Skema.Services.Download.Search
-  ( runSearchOrchestrator
+  ( startSearchOrchestrator
   , handleWantedAlbumAdded
   ) where
 
 import Skema.Services.Dependencies (DownloadDeps(..))
+import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Domain.Scoring (scoreRelease, rankReleases)
 import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
 import Skema.Events.Bus
@@ -29,11 +31,9 @@ import Skema.Domain.Quality (meetsProfile, isBetterQuality, textToQuality)
 import Skema.Slskd.Client (createSlskdClient)
 import Skema.Slskd.Search (searchSlskd, slskdCandidateToReleaseInfo)
 import Database.SQLite.Simple (Only(..))
-import Control.Concurrent.Async (async, race, mapConcurrently, concurrently)
+import Control.Concurrent.Async (Async, race, mapConcurrently, concurrently)
 import qualified Control.Concurrent.STM as STM
-import Control.Concurrent.STM (readTChan)
 import Control.Concurrent (threadDelay)
-import Control.Exception (try)
 import Data.Time (getCurrentTime, diffUTCTime)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as Set
@@ -52,40 +52,20 @@ audioCategories = [3000, 3010, 3020]
 -- SEARCH ORCHESTRATOR
 -- ============================================================================
 
--- | Run the search orchestrator sub-process.
+-- | Start the search orchestrator sub-process.
 --
 -- Listens for WantedAlbumAdded events and coordinates searching across
--- all indexers to find the best release.
-runSearchOrchestrator :: DownloadDeps -> IO ()
-runSearchOrchestrator deps = do
-  chan <- STM.atomically $ subscribe (dlEventBus deps)
-  -- Run the loop in this thread: the caller's async handle is registered for
-  -- shutdown, so the loop must live in it rather than an orphaned inner async
-  forever $ do
-    envelope <- STM.atomically $ readTChan chan
-    case envelopeEvent envelope of
-      WantedAlbumAdded{..} -> do
-        -- Process each event asynchronously to avoid blocking the event loop
-        _ <- async $ do
-          result <- try $ handleWantedAlbumAdded deps wantedCatalogAlbumId wantedReleaseGroupId wantedAlbumTitle wantedArtistName Set.empty
-          case result of
-            Left (e :: SomeException) -> do
-              let le = dlLogEnv deps
-              runKatipContextT le () "download.search" $ do
-                $(logTM) ErrorS $ logStr $ ("Exception searching for album " <> wantedAlbumTitle <> ": " <> show e :: Text)
-            Right () -> pure ()
-        pure ()
-      DownloadFailed{..} -> do
-        _ <- async $ do
-          result <- try $ handleDownloadFailed deps downloadId
-          case result of
-            Left (e :: SomeException) -> do
-              let le = dlLogEnv deps
-              runKatipContextT le () "download.search" $ do
-                $(logTM) ErrorS $ logStr $ ("Exception during auto-retry for download " <> show downloadId <> ": " <> show e :: Text)
-            Right () -> pure ()
-        pure ()
-      _ -> pure ()  -- Ignore other events
+-- all indexers to find the best release. Searches for different albums are
+-- independent and slow (a slskd search alone can take a minute), so they
+-- run concurrently.
+startSearchOrchestrator :: DownloadDeps -> IO (Async ())
+startSearchOrchestrator deps =
+  runEventService (dlLogEnv deps) (dlEventBus deps) "download.search" Concurrent $ \case
+    WantedAlbumAdded{..} ->
+      Just $ handleWantedAlbumAdded deps wantedCatalogAlbumId wantedReleaseGroupId wantedAlbumTitle wantedArtistName Set.empty
+    DownloadFailed{..} ->
+      Just $ handleDownloadFailed deps downloadId
+    _ -> Nothing
 
 -- | Handle a download failure by looking up the album and auto-retrying with a new search.
 handleDownloadFailed :: DownloadDeps -> Int64 -> IO ()

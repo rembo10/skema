@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -17,6 +18,7 @@ module Skema.Services.Catalog
   ) where
 
 import Skema.Services.Dependencies (CatalogDeps(..))
+import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
@@ -29,9 +31,7 @@ import qualified Skema.Media.Providers.LastFM as LastFM
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
-import Control.Concurrent.STM (readTChan)
 import Control.Monad ()
-import Control.Exception (try)
 import Data.Time (formatTime, defaultTimeLocale, UTCTime, NominalDiffTime, diffUTCTime, nominalDay)
 import Skema.Clock (getNow)
 import Data.Time.Format (parseTimeM)
@@ -47,34 +47,15 @@ import Katip
 -- - CatalogArtistFollowed events (initial discography fetch)
 -- - CatalogArtistRefreshRequested events (refresh to check for new releases)
 startCatalogService :: CatalogDeps -> IO (Async ())
-startCatalogService deps = do
-  chan <- STM.atomically $ subscribe (catEventBus deps)
-  async $ forever $ do
-    envelope <- STM.atomically $ readTChan chan
-    case envelopeEvent envelope of
-      CatalogArtistFollowed{..} -> do
-        -- Process each event asynchronously to avoid blocking the event loop
-        _ <- async $ do
-          result <- try $ handleCatalogArtistFollowed deps catalogArtistMBID catalogArtistName
-          case result of
-            Left (e :: SomeException) -> do
-              let le = catLogEnv deps
-              runKatipContextT le () "catalog.error" $ do
-                $(logTM) ErrorS $ logStr $ ("Exception syncing artist catalog " <> catalogArtistName <> ": " <> show e :: Text)
-            Right () -> pure ()
-        pure ()
-      CatalogArtistRefreshRequested{..} -> do
-        -- Process refresh request asynchronously
-        _ <- async $ do
-          result <- try $ handleCatalogArtistRefresh deps refreshArtistMBID
-          case result of
-            Left (e :: SomeException) -> do
-              let le = catLogEnv deps
-              runKatipContextT le () "catalog.error" $ do
-                $(logTM) ErrorS $ logStr $ ("Exception refreshing artist catalog: " <> show e :: Text)
-            Right () -> pure ()
-        pure ()
-      _ -> pure ()  -- Ignore other events
+startCatalogService deps =
+  -- Discography syncs run sequentially; they upsert artist/album rows and
+  -- MusicBrainz serializes the requests at one per second regardless
+  runEventService (catLogEnv deps) (catEventBus deps) "services.catalog" Sequential $ \case
+    CatalogArtistFollowed{..} ->
+      Just $ handleCatalogArtistFollowed deps catalogArtistMBID catalogArtistName
+    CatalogArtistRefreshRequested{..} ->
+      Just $ handleCatalogArtistRefresh deps refreshArtistMBID
+    _ -> Nothing
 
 -- | Handle a catalog artist followed event.
 --

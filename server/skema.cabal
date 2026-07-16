@@ -158,6 +158,7 @@ library
     Skema.Notifications.Types
     Skema.Notifications.Pushover
     Skema.Services.Types
+    Skema.Services.EventLoop
     Skema.Services.Dependencies
     Skema.Services.AsyncRegistry
     Skema.Services.Scanner

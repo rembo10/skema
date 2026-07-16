@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -12,15 +13,14 @@ module Skema.Services.MetadataWriter
   ) where
 
 import Skema.Services.Dependencies (MetadataWriterDeps(..))
+import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
-import Control.Concurrent.Async (Async, async)
-import qualified Control.Concurrent.STM as STM
-import Control.Concurrent.STM (readTChan)
-import Control.Exception (try)
+import Control.Concurrent.Async (Async)
+import Control.Exception (catch, throwIO)
 import Katip
 import Database.SQLite.Simple (Only(..))
 import qualified Data.Text as T
@@ -31,27 +31,21 @@ import qualified Data.Map.Strict as Map
 -- This service listens for MetadataWriteRequested events and writes
 -- metadata changes to audio files asynchronously.
 startMetadataWriterService :: MetadataWriterDeps -> IO (Async ())
-startMetadataWriterService deps = do
-  chan <- STM.atomically $ subscribe (writerEventBus deps)
+startMetadataWriterService deps =
+  -- File writes run sequentially
+  runEventService (writerLogEnv deps) (writerEventBus deps) "services.metadata-writer" Sequential $ \case
+    MetadataWriteRequested{..} -> Just $ writeAndReportFailure deps writeDiffIds
+    _ -> Nothing
 
-  async $ forever $ do
-    envelope <- STM.atomically $ readTChan chan
-    case envelopeEvent envelope of
-      MetadataWriteRequested{..} -> do
-        result <- try $ processMetadataWrite deps writeDiffIds
-        case result of
-          Left (e :: SomeException) -> do
-            let le = writerLogEnv deps
-            runKatipContextT le () "writer.error" $ do
-              $(logTM) ErrorS $ logStr $ ("Exception in metadata writer: " <> show e :: Text)
-
-            -- Emit failure event
-            let bus = writerEventBus deps
-            publishAndLog bus le "writer" $ MetadataWriteFailed
-              { writeErrorMessage = show e
-              }
-          Right () -> pure ()
-      _ -> pure ()  -- Ignore other events
+-- | Run the write, emitting MetadataWriteFailed (for the UI) on exceptions
+-- before rethrowing so the event loop logs them.
+writeAndReportFailure :: MetadataWriterDeps -> [Int64] -> IO ()
+writeAndReportFailure deps diffIds =
+  processMetadataWrite deps diffIds `catch` \(e :: SomeException) -> do
+    publishAndLog (writerEventBus deps) (writerLogEnv deps) "writer" $ MetadataWriteFailed
+      { writeErrorMessage = show e
+      }
+    throwIO e
 
 -- | Process a metadata write request.
 -- Groups diffs by file and processes them in batches, emitting progress events as each file is written.

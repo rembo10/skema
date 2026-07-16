@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -10,6 +11,7 @@ module Skema.Services.Identifier
   ) where
 
 import Skema.Services.Dependencies (IdentifierDeps(..))
+import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
@@ -20,37 +22,26 @@ import Skema.Domain.Identification (mkIdentifyConfig, clusterNeedsIdentification
 import Skema.MusicBrainz.Types (FileGroup(..), ReleaseMatch(..), TrackMatch(..), IdentificationResult(..), MBID(..), unMBID, MBRelease(..), MBTrack(..))
 import Skema.Config.Types (Config(..))
 import Skema.FileSystem.Utils (osPathToString)
-import Control.Concurrent.Async (Async, async)
+import Control.Concurrent.Async (Async)
 import qualified Control.Concurrent.STM as STM
-import Control.Concurrent.STM (readTChan)
 import Control.Monad (foldM)
-import Control.Exception (try)
 import Skema.Clock (getNow)
 import qualified Database.SQLite.Simple as SQLite
 import Katip
 
 -- | Start the identifier service.
 --
--- This service listens for CLUSTERS_GENERATED events and identifies them with MusicBrainz.
+-- This service listens for CLUSTERS_GENERATED events and identifies them with
+-- MusicBrainz. Identification runs sequentially: concurrent runs would write
+-- competing matches, and MusicBrainz is rate limited to one request per
+-- second anyway.
 -- Returns the async handle for graceful shutdown.
 startIdentifierService :: IdentifierDeps -> IO (Async ())
-startIdentifierService deps = do
-  chan <- STM.atomically $ subscribe (identEventBus deps)
-  async $ forever $ do
-    envelope <- STM.atomically $ readTChan chan
-    case envelopeEvent envelope of
-      ClustersGenerated{ affectedClusterIds = affectedIds } -> do
-        -- Process each event asynchronously with error handling
-        _ <- async $ do
-          result <- try $ handleClustersGenerated deps affectedIds
-          case result of
-            Left (e :: SomeException) -> do
-              let le = identLogEnv deps
-              runKatipContextT le () "identifier.error" $ do
-                $(logTM) ErrorS $ logStr $ ("Exception identifying clusters: " <> show e :: Text)
-            Right () -> pure ()
-        pure ()
-      _ -> pure ()  -- Ignore other events
+startIdentifierService deps =
+  runEventService (identLogEnv deps) (identEventBus deps) "services.identifier" Sequential $ \case
+    ClustersGenerated{ affectedClusterIds = affectedIds } ->
+      Just $ handleClustersGenerated deps affectedIds
+    _ -> Nothing
 
 -- | Handle a clusters generated event.
 handleClustersGenerated :: IdentifierDeps -> [Int64] -> IO ()
