@@ -145,9 +145,9 @@ getCatalogAlbumsOverview conn query = do
         \  d_active.error_message, \
         \  COALESCE(d_count.download_count, 0), \
         \  d_count.last_download_at, \
-        \  CURRENT_TIMESTAMP, \
-        \  CURRENT_TIMESTAMP, \
-        \  NULL \
+        \  ca.created_at, \
+        \  ca.updated_at, \
+        \  c.created_at \
         \FROM catalog_albums ca \
         \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
         \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
@@ -207,9 +207,9 @@ getCatalogAlbumsOverview conn query = do
                          \  d_active.error_message, \
                          \  COALESCE(d_count.download_count, 0) AS download_count, \
                          \  d_count.last_download_at, \
-                         \  CURRENT_TIMESTAMP AS created_at, \
-                         \  CURRENT_TIMESTAMP AS updated_at, \
-                         \  NULL AS imported_at, \
+                         \  ca.created_at AS created_at, \
+                         \  ca.updated_at AS updated_at, \
+                         \  c.created_at AS imported_at, \
                          \  CASE \
                          \    WHEN ca.quality_profile_id IS NULL AND c.quality IS NULL THEN 'NotWanted' \
                          \    WHEN ca.quality_profile_id IS NULL AND c.quality IS NOT NULL THEN 'InLibrary' \
@@ -346,9 +346,9 @@ getCatalogAlbumsByArtistOverview conn artistId = do
         \  d_active.error_message, \
         \  COALESCE(d_count.download_count, 0), \
         \  d_count.last_download_at, \
-        \  CURRENT_TIMESTAMP, \
-        \  CURRENT_TIMESTAMP, \
-        \  NULL \
+        \  ca.created_at, \
+        \  ca.updated_at, \
+        \  c.created_at \
         \FROM catalog_albums ca \
         \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
         \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
