@@ -23,6 +23,38 @@ import Helpers.MockHttp (respond, hostIs, pathIs, pathStartsWith, (.&.), jsonRes
 tests :: TestTree
 tests = testGroup "Unit.MusicBrainz"
   [ searchReleasesTests
+  , releaseRoundTripTests
+  ]
+
+releaseRoundTripTests :: TestTree
+releaseRoundTripTests = testGroup "MBRelease JSON round-trip"
+  [ testCase "multi-artist credit survives encode/decode" $ do
+      let creditJson = object
+            [ "id" .= ("release-1" :: Text)
+            , "title" .= ("Watch the Throne" :: Text)
+            , "artist-credit" .=
+                [ object
+                    [ "name" .= ("JAY-Z" :: Text)
+                    , "joinphrase" .= (" & " :: Text)
+                    , "artist" .= object [ "id" .= ("artist-jz" :: Text) ]
+                    ]
+                , object
+                    [ "name" .= ("Kanye West" :: Text)
+                    , "joinphrase" .= ("" :: Text)
+                    , "artist" .= object [ "id" .= ("artist-kw" :: Text) ]
+                    ]
+                ]
+            , "media" .= ([] :: [Aeson.Value])
+            ]
+      case Aeson.fromJSON creditJson :: Aeson.Result MBRelease of
+        Aeson.Error err -> assertFailure $ "decode failed: " <> err
+        Aeson.Success release -> do
+          assertEqual "joined artist" "JAY-Z & Kanye West" (mbReleaseArtist release)
+          assertEqual "credit count" 2 (length (mbReleaseArtists release))
+          -- Re-encode and decode: nothing may be lost
+          case Aeson.fromJSON (Aeson.toJSON release) :: Aeson.Result MBRelease of
+            Aeson.Error err -> assertFailure $ "re-decode failed: " <> err
+            Aeson.Success roundTripped -> assertEqual "round-trip" release roundTripped
   ]
 
 searchReleasesTests :: TestTree

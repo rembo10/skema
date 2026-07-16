@@ -13,6 +13,7 @@ module Skema.MusicBrainz.Types
   , ArtistMBID
     -- * MusicBrainz Entities
   , MBRelease (..)
+  , MBArtistCredit (..)
   , mbReleaseTracks
   , MBMedium (..)
   , MBTrack (..)
@@ -53,6 +54,13 @@ type RecordingMBID = MBID
 type ReleaseGroupMBID = MBID
 type ArtistMBID = MBID
 
+-- | One element of a MusicBrainz artist credit.
+data MBArtistCredit = MBArtistCredit
+  { mbCreditArtistId :: Maybe ArtistMBID
+  , mbCreditName :: Text
+  , mbCreditJoinPhrase :: Text
+  } deriving (Show, Eq, Generic)
+
 -- | MusicBrainz Release (album).
 data MBRelease = MBRelease
   { mbReleaseId :: ReleaseMBID
@@ -61,8 +69,9 @@ data MBRelease = MBRelease
     -- ^ Full artist credit string (e.g., "JAY-Z & Kanye West")
   , mbReleaseArtistId :: Maybe ArtistMBID
     -- ^ Primary artist ID (first in credit)
-  , mbReleaseArtists :: [(ArtistMBID, Text)]
-    -- ^ All artists in the credit (for collaborative albums)
+  , mbReleaseArtists :: [MBArtistCredit]
+    -- ^ The full artist credit (for collaborative albums), including join
+    -- phrases so serialization round-trips losslessly
   , mbReleaseDate :: Maybe Text
   , mbReleaseYear :: Maybe Int  -- Extracted from date
   , mbReleaseCountry :: Maybe Text
@@ -103,8 +112,7 @@ instance FromJSON MBRelease where
         let primaryArtistId = case viaNonEmpty head credits of
               Just (_, _, aid) -> aid
               Nothing -> Nothing
-        -- Collect all artists with IDs (filter out features without IDs)
-        let allArtists = [(aid, name) | (name, _, Just aid) <- credits]
+        let allArtists = [MBArtistCredit aid name joinphrase | (name, joinphrase, aid) <- credits]
         pure (artistName, primaryArtistId, allArtists)
       _ -> pure ("", Nothing, [])
     mbReleaseDate <- o .:? "date"
@@ -142,13 +150,20 @@ instance FromJSON MBRelease where
 -- Custom ToJSON to match FromJSON format (for round-trip serialization)
 instance ToJSON MBRelease where
   toJSON release =
-    -- Use mbReleaseArtist for the full artist string (with join phrases)
-    -- and mbReleaseArtistId for the primary artist ID
-    let artistCredits = toJSON [object
-          [ "name" .= mbReleaseArtist release
-          , "joinphrase" .= ("" :: Text)
-          , "artist" .= maybe Null (\aid -> object ["id" .= aid]) (mbReleaseArtistId release)
-          ]]
+    -- Serialize the full credit list; fall back to the joined artist string
+    -- for values constructed without individual credits
+    let creditToJSON c = object
+          [ "name" .= mbCreditName c
+          , "joinphrase" .= mbCreditJoinPhrase c
+          , "artist" .= maybe Null (\aid -> object ["id" .= aid]) (mbCreditArtistId c)
+          ]
+        artistCredits = case mbReleaseArtists release of
+          [] -> toJSON [object
+            [ "name" .= mbReleaseArtist release
+            , "joinphrase" .= ("" :: Text)
+            , "artist" .= maybe Null (\aid -> object ["id" .= aid]) (mbReleaseArtistId release)
+            ]]
+          credits -> toJSON (map creditToJSON credits)
         mediaArray = toJSON (mbReleaseMedia release)
         labelInfo = case (mbReleaseLabel release, mbReleaseCatalogNumber release) of
           (Nothing, Nothing) -> Null
