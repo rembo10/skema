@@ -919,7 +919,7 @@ systemSchema = schema "system" "System and paths configuration"
 serverSchema :: Schema
 serverSchema = schema "server" "HTTP server configuration"
   [ "host" .:: "Server bind address"
-      & example "0.0.0.0"
+      & example "127.0.0.1"
   , "port" .:: "Server port"
       & intField
       & example "8182"

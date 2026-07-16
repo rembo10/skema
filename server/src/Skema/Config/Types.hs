@@ -389,7 +389,7 @@ data DownloadConfig = DownloadConfig
   , downloadUseTrash :: Bool
     -- ^ Move deleted files to trash instead of permanently deleting them
   , downloadTrashRetentionDays :: Int
-    -- ^ Number of days to keep files in trash before permanent deletion (default: 30)
+    -- ^ Number of days to keep files in trash before permanent deletion (default: 7)
   , downloadMaxSearchRetries :: Int
     -- ^ Maximum automatic re-search attempts per album after a failed grab (default: 5)
   } deriving (Show, Eq, Generic)
@@ -399,13 +399,13 @@ instance FromJSON DownloadConfig where
     nzbClient <- o .:? "nzb_client"
     torrentClient <- o .:? "torrent_client"
     slskdClient <- o .:? "slskd_client"
-    checkInterval <- o .:? "check_interval" .!= 60
+    checkInterval <- o .:? "check_interval" .!= 5
     autoImport <- o .:? "auto_import" .!= True
     minSeeders <- o .:? "min_seeders"
     maxSize <- o .:? "max_size_mb"
     replaceFiles <- o .:? "replace_library_files" .!= False
     useTrash <- o .:? "use_trash" .!= True
-    trashRetentionDays <- o .:? "trash_retention_days" .!= 30
+    trashRetentionDays <- o .:? "trash_retention_days" .!= 7
     maxSearchRetries <- o .:? "max_search_retries" .!= 5
     pure $ DownloadConfig nzbClient torrentClient slskdClient checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays maxSearchRetries
 
@@ -457,7 +457,7 @@ data MusicBrainzConfig = MusicBrainzConfig
     -- ^ Password for Headphones VIP (required if using VIP)
   , mbAlbumTypes :: [Text]
     -- ^ Primary album types to fetch (e.g., ["Album", "EP"])
-    -- Default: [] (all types - filtering is done per-source)
+    -- Default: ["Album"] (studio albums only; [] disables the filter)
   , mbExcludeSecondaryTypes :: [Text]
     -- ^ Secondary types to exclude (e.g., ["Live", "Compilation"])
     -- Default: ["Live", "Compilation"] (no live or compilation albums)
@@ -475,7 +475,7 @@ instance FromJSON MusicBrainzConfig where
     serverVal <- parseJSON (Object o)
     username <- o .:? "username"
     password <- o .:? "password"
-    albumTypes <- o .:? "album_types" .!= []
+    albumTypes <- o .:? "album_types" .!= ["Album"]
     excludeSecondaryTypes <- o .:? "exclude_secondary_types" .!= ["Live", "Compilation"]
     matchMinConfidence <- o .:? "match_min_confidence" .!= 35
     maxCandidates <- o .:? "max_candidates" .!= 5
