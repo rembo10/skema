@@ -10,7 +10,7 @@ import Skema.API.Types.Downloads (DownloadsAPI, DownloadResponse(..), DownloadsP
 import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..))
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
-import Skema.API.Handlers.Utils (throw404, readConfig, parsePagination)
+import Skema.API.Handlers.Utils (throw400, throw404, readConfig, parsePagination)
 import Skema.Database.Connection
 import Skema.Domain.Converters (downloadRecordToResponse)
 import qualified Skema.Database.Types as DBTypes
@@ -225,18 +225,18 @@ downloadsServer le bus _serverCfg registry tm connPool progressMap configVar =
           slskdFiles = queueDownloadSlskdFiles req
 
       -- Parse quality from text
-      let quality = case qualityText of
-            Just qt -> case textToQuality qt of
-              Just q -> q
-              Nothing -> error $ "Invalid quality: " <> show qt
-            Nothing -> error "Quality is required"
+      quality <- case qualityText of
+        Nothing -> throw400 "Quality is required"
+        Just qt -> case textToQuality qt of
+          Nothing -> throw400 $ "Invalid quality: " <> qt
+          Just q -> pure q
 
       -- Determine download type from format
-      let downloadType = case format of
-            Just "NZB" -> NZB
-            Just "TORRENT" -> Torrent
-            Just "SLSKD" -> Slskd
-            _ -> error $ "Invalid download format: " <> show format
+      downloadType <- case format of
+        Just "NZB" -> pure NZB
+        Just "TORRENT" -> pure Torrent
+        Just "SLSKD" -> pure Slskd
+        _ -> throw400 $ "Invalid download format: " <> fromMaybe "(missing)" format
 
       -- Convert slskd files if present
       let convertSlskdFile f = SlskdFile
