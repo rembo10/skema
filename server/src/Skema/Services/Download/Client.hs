@@ -96,48 +96,7 @@ createClientInstance httpClient DownloadClient{..} = do
 -- | Create download client instances from configuration
 createClientInstances :: HttpClient -> DownloadConfig -> IO [(Text, DownloadClientInstance)]
 createClientInstances httpClient DownloadConfig{..} = do
-  let clients = catMaybes [downloadNzbClient, downloadTorrentClient]
-  catMaybes <$> forM clients (\client -> do
-    if not (dcEnabled client)
-      then pure Nothing
-      else do
-        instance' <- case dcType client of
-          SABnzbd -> do
-            let apiKey = fromMaybe "" (dcApiKey client)
-            pure $ Just $ SABInstance $ createSABnzbdClient
-              (dcUrl client)
-              apiKey
-              httpClient
-              (dcDownloadDir client)
-              (dcCategory client)
-
-          NZBGet -> do
-            let username = fromMaybe "" (dcUsername client)
-                password = fromMaybe "" (dcPassword client)
-            pure $ Just $ NZBGetInstance $ createNZBGetClient
-              (dcUrl client)
-              username
-              password
-              httpClient
-              (dcCategory client)
-
-          Transmission -> do
-            client' <- createTransmissionClient
-              (dcUrl client)
-              (dcUsername client)
-              (dcPassword client)
-              httpClient
-            pure $ Just $ TransmissionInstance client'
-
-          QBittorrent -> do
-            let username = fromMaybe "" (dcUsername client)
-                password = fromMaybe "" (dcPassword client)
-            client' <- createQBittorrentClient
-              (dcUrl client)
-              username
-              password
-              httpClient
-            pure $ Just $ QBittorrentInstance client'
-
-        pure $ fmap (\inst -> (downloadClientTypeName (dcType client), inst)) instance'
-    )
+  let clients = filter dcEnabled $ catMaybes [downloadNzbClient, downloadTorrentClient]
+  forM clients $ \client -> do
+    instance' <- createClientInstance httpClient client
+    pure (downloadClientTypeName (dcType client), instance')

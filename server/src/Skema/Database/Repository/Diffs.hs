@@ -8,7 +8,6 @@ module Skema.Database.Repository.Diffs
   , deleteMetadataDiffsForTrack
   , getAllMetadataDiffs
   , applyMetadataChange
-  , applyGroupedMetadataDiff
   , computeMetadataDiffs
   , updateMatchInDatabase
     -- * Metadata change operations (for undo)
@@ -88,20 +87,6 @@ applyMetadataChange conn tid fieldName newValue = do
   executeQuery conn
     "DELETE FROM metadata_diffs WHERE track_id = ? AND field_name = ?"
     (tid, fieldName)
-
--- | Apply a grouped metadata diff to all matching tracks.
-applyGroupedMetadataDiff :: SQLite.Connection -> Text -> Maybe Text -> Maybe Text -> IO Int
-applyGroupedMetadataDiff conn fieldName fileValue mbValue = do
-  -- Find all diffs matching this group
-  diffs <- queryRows conn
-    "SELECT track_id FROM metadata_diffs WHERE field_name = ? AND file_value IS ? AND mb_value IS ?"
-    (fieldName, fileValue, mbValue) :: IO [Only Int64]
-
-  -- Apply to each track
-  forM_ diffs $ \(Only tid) -> do
-    applyMetadataChange conn tid fieldName mbValue
-
-  pure $ length diffs
 
 -- | Compute metadata differences between file and MusicBrainz data.
 computeMetadataDiffs :: Metadata -> MBTrack -> MBRelease -> [(Text, Maybe Text, Maybe Text)]

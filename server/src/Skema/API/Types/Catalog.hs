@@ -15,7 +15,6 @@ module Skema.API.Types.Catalog
   , CatalogAlbumResponse(..)
   , CatalogAlbumOverviewResponse(..)
   , AlbumOverviewResponse(..)
-  , CatalogAlbumOverviewRequest(..)
   , AlbumOverviewPagination(..)
   , AlbumOverviewStats(..)
   , AlbumState(..)
@@ -366,26 +365,6 @@ instance FromJSON CatalogAlbumOverviewResponse where
 
 instance ToSchema CatalogAlbumOverviewResponse where
   declareNamedSchema = genericDeclareNamedSchema (schemaOptions 20)
-
--- | Request for catalog albums overview (with filtering, sorting, pagination).
-data CatalogAlbumOverviewRequest = CatalogAlbumOverviewRequest
-  { catalogAlbumOverviewReqPage :: Maybe Int
-  , catalogAlbumOverviewReqLimit :: Maybe Int
-  , catalogAlbumOverviewReqState :: Maybe [AlbumState]
-  , catalogAlbumOverviewReqQuality :: Maybe [Text]
-  , catalogAlbumOverviewReqArtistId :: Maybe Int64
-  , catalogAlbumOverviewReqSearch :: Maybe Text
-  , catalogAlbumOverviewReqSort :: Maybe Text  -- ^ title, artist, date, quality, state
-  } deriving (Show, Eq, Generic)
-
-instance ToJSON CatalogAlbumOverviewRequest where
-  toJSON = genericToJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 23 }
-
-instance FromJSON CatalogAlbumOverviewRequest where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = camelTo2 '_' . drop 23 }
-
-instance ToSchema CatalogAlbumOverviewRequest where
-  declareNamedSchema = genericDeclareNamedSchema (schemaOptions 23)
 
 -- | Pagination info.
 data AlbumOverviewPagination = AlbumOverviewPagination

@@ -35,15 +35,13 @@ import Network.HTTP.Types.URI (urlEncode)
 import Katip
 
 -- | MusicBrainz client error
-data MBClientError
+newtype MBClientError
   = MBHttpError HttpError      -- ^ HTTP error from centralized client
-  | MBInvalidResponse Text     -- ^ Response parsing failed or was unexpected
   deriving (Show, Eq)
 
 -- | Pretty print a MusicBrainz client error
 prettyClientError :: MBClientError -> Text
 prettyClientError (MBHttpError err) = prettyHttpError err
-prettyClientError (MBInvalidResponse msg) = "Invalid MusicBrainz response: " <> msg
 
 -- | Client environment for MusicBrainz API
 data MBClientEnv = MBClientEnv

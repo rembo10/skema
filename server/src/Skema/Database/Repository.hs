@@ -6,7 +6,6 @@
 module Skema.Database.Repository
   ( -- * Library track operations
     insertTrack
-  , updateTrack
   , deleteTrack
   , getTrackByPath
   , getAllTracks
@@ -24,7 +23,6 @@ module Skema.Database.Repository
   , getMetadataDiffsForTrack
   , deleteMetadataDiffsForTrack
   , getAllMetadataDiffs
-  , applyGroupedMetadataDiff
   , computeMetadataDiffs
     -- * Metadata change operations (for undo)
   , applyMetadataChanges
@@ -115,7 +113,6 @@ module Skema.Database.Repository
 -- Re-export track operations
 import Skema.Database.Repository.Tracks
   ( insertTrack
-  , updateTrack
   , deleteTrack
   , getTrackByPath
   , getAllTracks
@@ -156,7 +153,6 @@ import Skema.Database.Repository.Diffs
   , getMetadataDiffsForTrack
   , deleteMetadataDiffsForTrack
   , getAllMetadataDiffs
-  , applyGroupedMetadataDiff
   , computeMetadataDiffs
   , applyMetadataChange
   , applyMetadataChanges

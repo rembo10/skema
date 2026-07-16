@@ -6,7 +6,6 @@ module Skema.Database.Repository.Tracks
     MetadataInsert(..)
     -- * Track operations
   , insertTrack
-  , updateTrack
   , deleteTrack
   , getTrackByPath
   , getAllTracks
@@ -120,12 +119,6 @@ insertTrack conn path size modTime = do
   pure Nothing
 
 -- | Update an existing track record.
-updateTrack :: SQLite.Connection -> Int64 -> Integer -> UTCTime -> IO ()
-updateTrack conn tid size modTime =
-  executeQuery conn
-    "UPDATE library_tracks SET size = ?, modified_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-    (size, modTime, tid)
-
 -- | Delete a track record.
 deleteTrack :: SQLite.Connection -> Int64 -> IO ()
 deleteTrack conn tid =

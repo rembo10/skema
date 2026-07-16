@@ -11,8 +11,6 @@
 module Skema.Services.Slskd
   ( -- * Dependencies
     SlskdDeps (..)
-    -- * Download Submission
-  , submitSlskdDownload
     -- * Progress Monitoring
   , runSlskdMonitor
     -- * Path Resolution
@@ -21,22 +19,18 @@ module Skema.Services.Slskd
 
 import Control.Concurrent (threadDelay)
 import qualified Control.Concurrent.STM as STM
-import Skema.Clock (Clock, getNow)
+import Skema.Clock (Clock)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Katip
 
 import Skema.Config.Types (Config (..), DownloadConfig (..), SlskdConfig (..))
 import Skema.Database.Connection (ConnectionPool, withConnection, queryRows, executeQuery)
-import Skema.Database.Repository (insertDownload)
 import Database.SQLite.Simple (Only(..))
 import Skema.Events.Bus (EventBus, publishAndLog)
 import Skema.Events.Types (Event (..))
 import Skema.HTTP.Client (HttpClient)
-import qualified Skema.Indexer.Types as Indexer
-import Skema.Indexer.Types (ReleaseInfo (..))
 import Skema.Slskd.Client
-import qualified Skema.Slskd.Types as Slskd
 import Skema.Slskd.Types (SlskdTransfer (..), SlskdTransferState (..))
 import qualified System.Directory as Dir
 
@@ -50,165 +44,6 @@ data SlskdDeps = SlskdDeps
   , slskdProgressMap :: TVar (Map.Map Int64 (Double, Text))
   , slskdClock :: Clock
   }
-
--- | Convert Indexer.SlskdFile to Slskd.SlskdFile for API calls.
-convertToSlskdFile :: Indexer.SlskdFile -> Slskd.SlskdFile
-convertToSlskdFile f = Slskd.SlskdFile
-  { Slskd.sfFilename = Indexer.sfFilename f
-  , Slskd.sfSize = Indexer.sfSize f
-  , Slskd.sfBitRate = Indexer.sfBitRate f
-  , Slskd.sfSampleRate = Indexer.sfSampleRate f
-  , Slskd.sfBitDepth = Indexer.sfBitDepth f
-  , Slskd.sfLength = Indexer.sfLength f
-  , Slskd.sfIsLocked = Indexer.sfIsLocked f
-  }
-
--- | Submit a slskd download.
---
--- This function:
--- 1. Queues all files with slskd
--- 2. Creates a download record in the database
--- 3. Emits a DownloadStarted event
---
--- Returns the download ID if successful.
-submitSlskdDownload ::
-  SlskdDeps ->
-  ReleaseInfo ->
-  Int64 -> -- Catalog album ID
-  IO (Maybe Int64)
-submitSlskdDownload SlskdDeps {..} release catalogAlbumId = do
-  let le = slskdLogEnv
-  let pool = slskdDbPool
-  let bus = slskdEventBus
-
-  -- Get slskd config
-  config <- STM.atomically $ STM.readTVar slskdConfigVar
-  let maybeSlskdConfig = downloadSlskdClient (download config)
-
-  case maybeSlskdConfig of
-    Nothing -> do
-      runKatipContextT le () "slskd.submission" $ do
-        $(logTM) ErrorS $
-          logStr
-            ("No slskd client configured, cannot submit download" :: Text)
-      pure Nothing
-    Just slskdConfig | not (slskdEnabled slskdConfig) -> do
-      runKatipContextT le () "slskd.submission" $ do
-        $(logTM) ErrorS $
-          logStr
-            ("slskd client is disabled" :: Text)
-      pure Nothing
-    Just slskdConfig -> do
-      -- Extract slskd-specific fields from release
-      case (riSlskdUsername release, riSlskdFiles release) of
-        (Just username, Just files) | not (null files) -> do
-          runKatipContextT le () "slskd.submission" $ do
-            $(logTM) InfoS $
-              logStr $
-                ( "Submitting "
-                    <> show (length files)
-                    <> " files to slskd from user: "
-                    <> username
-                    :: Text
-                )
-
-          -- Create slskd client
-          let client = createSlskdClient slskdConfig slskdHttpClient
-
-          -- Convert files from Indexer type to Slskd type for API
-          let slskdFiles = map convertToSlskdFile files
-
-          -- Queue all files
-          result <- queueDownloads client username slskdFiles
-          case result of
-            Left err -> do
-              runKatipContextT le () "slskd.submission" $ do
-                $(logTM) ErrorS $
-                  logStr $
-                    ("Failed to queue downloads: " <> err :: Text)
-
-              -- Insert failed download record
-              now <- getNow slskdClock
-              downloadId <-
-                withConnection pool $ \conn ->
-                  insertDownload
-                    conn
-                    (Just catalogAlbumId)
-                    "slskd"
-                    (username <> ":" <> riTitle release)
-                    "slskd"
-                    Nothing -- No client ID for failed
-                    "failed"
-                    Nothing -- download_path
-                    (riTitle release)
-                    (riSize release)
-                    Nothing -- quality (stored separately)
-                    (Just "Slskd")
-                    Nothing -- seeders
-                    0.0 -- progress
-                    (Just err) -- error_message
-                    now
-
-              -- Emit download failed event
-              publishAndLog bus le "slskd" $
-                DownloadFailed
-                  { downloadId = downloadId
-                  , downloadTitle = riTitle release
-                  , downloadError = Just err
-                  }
-
-              pure Nothing
-            Right () -> do
-              runKatipContextT le () "slskd.submission" $ do
-                $(logTM) InfoS $
-                  logStr $
-                    ("Successfully queued " <> show (length files) <> " files" :: Text)
-
-              -- Insert download record
-              now <- getNow slskdClock
-              downloadId <-
-                withConnection pool $ \conn ->
-                  insertDownload
-                    conn
-                    (Just catalogAlbumId)
-                    "slskd"
-                    (username <> ":" <> riTitle release)
-                    "slskd"
-                    (Just $ username <> ":" <> riTitle release) -- client_id
-                    "downloading"
-                    Nothing -- download_path
-                    (riTitle release)
-                    (riSize release)
-                    Nothing -- quality
-                    (Just "Slskd")
-                    Nothing -- seeders
-                    0.0 -- progress
-                    Nothing -- error_message
-                    now
-
-              -- Emit download started event
-              publishAndLog bus le "slskd" $
-                DownloadStarted
-                  { downloadId = downloadId
-                  , downloadTitle = riTitle release
-                  }
-
-              -- Emit slskd-specific event
-              publishAndLog bus le "slskd" $
-                SlskdFilesQueued
-                  { slskdQueuedDownloadId = downloadId
-                  , slskdQueuedUsername = username
-                  , slskdQueuedFileCount = length files
-                  , slskdQueuedTotalSize = sum $ map Indexer.sfSize files
-                  }
-
-              pure $ Just downloadId
-        _ -> do
-          runKatipContextT le () "slskd.submission" $ do
-            $(logTM) ErrorS $
-              logStr
-                ("Release missing slskd username or files" :: Text)
-          pure Nothing
 
 -- | Run the slskd progress monitor.
 --
