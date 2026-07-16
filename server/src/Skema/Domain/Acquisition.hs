@@ -9,15 +9,8 @@
 -- - PitchforkFilters: Filter albums from Pitchfork by genre and score
 -- - MetacriticFilters: Filter albums from Metacritic by genre and scores
 module Skema.Domain.Acquisition
-  ( -- * Legacy types (for backward compatibility during migration)
-    RuleFilters(..)
-  , ArtistFilter(..)
-  , ReviewFilter(..)
-  , ReviewCriteria(..)
-  , FilterOperator(..)
-  , parseFilters
-    -- * Provider-specific filter types
-  , LibraryArtistsFilters(..)
+  ( -- * Provider-specific filter types
+    LibraryArtistsFilters(..)
   , ReleaseStatusFilter(..)
   , PitchforkFilters(..)
   , PitchforkGenre(..)
@@ -31,10 +24,7 @@ module Skema.Domain.Acquisition
   , SourceFilters(..)
   , parseSourceFilters
     -- * Evaluation functions
-  , shouldProcessArtist
   , shouldProcessArtistById
-  , shouldIncludeReleaseGroup
-  , mbReleaseGroupIsUpcoming
   , releaseDateIsUpcoming
   , matchesMetacriticFilters
   , matchesPitchforkFilters
@@ -44,102 +34,13 @@ module Skema.Domain.Acquisition
   , matchesGenreFilter
   ) where
 
-import Data.Aeson (FromJSON(..), ToJSON(..), withObject, withText, (.:), (.:?), (.!=), eitherDecode)
+import Data.Aeson (FromJSON(..), ToJSON(..), withObject, withText, (.:?), eitherDecode)
 import qualified Data.Text as T
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text.Encoding as TE
 import Data.Int ()
 import Skema.Database.Types (AcquisitionSourceRecord(..), SourceType(..), CatalogAlbumRecord(..))
-import Skema.MusicBrainz.Types (MBReleaseGroup(..))
 import Data.Time (UTCTime)
-
--- | Logical operator for combining filter criteria.
-data FilterOperator = AND | OR
-  deriving (Show, Eq, Generic)
-
-instance FromJSON FilterOperator where
-  parseJSON = withObject "FilterOperator" $ \o -> do
-    op <- o .: "operator"
-    case op :: Text of
-      "AND" -> pure AND
-      "OR" -> pure OR
-      _ -> fail "Invalid operator, must be 'AND' or 'OR'"
-
-instance ToJSON FilterOperator
-
--- | Artist filter criteria.
-data ArtistFilter = ArtistFilter
-  { afInclude :: Maybe [Text]  -- ^ Include only these artist MBIDs
-  , afExclude :: Maybe [Text]  -- ^ Exclude these artist MBIDs
-  } deriving (Show, Eq, Generic)
-
-instance FromJSON ArtistFilter where
-  parseJSON = withObject "ArtistFilter" $ \o ->
-    ArtistFilter
-      <$> o .:? "include"
-      <*> o .:? "exclude"
-
-instance ToJSON ArtistFilter
-
--- | Review score criteria for a single platform.
-data ReviewCriteria = ReviewCriteria
-  { rcMinScore :: Maybe Double  -- ^ Minimum score threshold
-  , rcMaxScore :: Maybe Double  -- ^ Maximum score threshold
-  } deriving (Show, Eq, Generic)
-
-instance FromJSON ReviewCriteria where
-  parseJSON = withObject "ReviewCriteria" $ \o ->
-    ReviewCriteria
-      <$> o .:? "min_score"
-      <*> o .:? "max_score"
-
-instance ToJSON ReviewCriteria
-
--- | Review filter criteria.
-data ReviewFilter = ReviewFilter
-  { rfMetacritic :: Maybe ReviewCriteria  -- ^ Metacritic score filter
-  , rfPitchfork :: Maybe ReviewCriteria   -- ^ Pitchfork score filter
-  , rfOperator :: FilterOperator          -- ^ How to combine scores (AND/OR)
-  } deriving (Show, Eq, Generic)
-
-instance FromJSON ReviewFilter where
-  parseJSON = withObject "ReviewFilter" $ \o ->
-    ReviewFilter
-      <$> o .:? "metacritic"
-      <*> o .:? "pitchfork"
-      <*> o .:? "operator" .!= OR
-
-instance ToJSON ReviewFilter
-
--- | Complete filter configuration for an acquisition rule.
-data RuleFilters = RuleFilters
-  { filtersArtists :: Maybe ArtistFilter      -- ^ Artist inclusion/exclusion
-  , filtersReviews :: Maybe ReviewFilter      -- ^ Review score filters
-  , filtersGenres :: Maybe [Text]             -- ^ Genre filters
-  , filtersAlbumTypes :: Maybe [Text]         -- ^ Album types (Album, EP, Single, etc.)
-  , filtersReleaseStatus :: Maybe [Text]      -- ^ Release status (upcoming, released)
-  , filtersOperator :: FilterOperator         -- ^ Top-level operator for combining filters
-  } deriving (Show, Eq, Generic)
-
-instance FromJSON RuleFilters where
-  parseJSON = withObject "RuleFilters" $ \o ->
-    RuleFilters
-      <$> o .:? "artists"
-      <*> o .:? "reviews"
-      <*> o .:? "genres"
-      <*> o .:? "album_types"
-      <*> o .:? "release_status"
-      <*> o .:? "operator" .!= AND
-
-instance ToJSON RuleFilters
-
--- | Parse filters from JSON text (legacy).
-parseFilters :: Maybe Text -> Maybe RuleFilters
-parseFilters Nothing = Nothing
-parseFilters (Just jsonText) =
-  case eitherDecode (BSL.fromStrict $ TE.encodeUtf8 jsonText) of
-    Left _ -> Nothing
-    Right filters -> Just filters
 
 -- ============================================================================
 -- Provider-Specific Filter Types
@@ -364,37 +265,6 @@ parseSourceFilters st (Just jsonText) =
         Left _ -> Nothing
         Right filters -> Just (MetacriticSourceFilters filters)
 
--- | Check if we should process this artist based on the source and filters.
-shouldProcessArtist :: AcquisitionSourceRecord -> Text -> Bool
-shouldProcessArtist source artistMBID = case sourceType source of
-  LibraryArtists ->
-    -- For library artists, check if artist passes filters
-    case parseFilters (sourceFilters source) of
-      Nothing -> True  -- No filters, process all library artists
-      Just filters -> checkArtistFilters filters artistMBID
-
-  Metacritic ->
-    -- Metacritic sources don't use artist matching
-    False
-
-  Pitchfork ->
-    -- Pitchfork sources don't use artist matching
-    False
-
--- | Check if an artist passes the artist filters (legacy MBID-based).
-checkArtistFilters :: RuleFilters -> Text -> Bool
-checkArtistFilters filters artistMBID =
-  case filtersArtists filters of
-    Nothing -> True  -- No artist filter, pass all
-    Just af ->
-      let includePass = case afInclude af of
-            Nothing -> True  -- No include list, pass all
-            Just includeList -> artistMBID `elem` includeList
-          excludePass = case afExclude af of
-            Nothing -> True  -- No exclude list, pass all
-            Just excludeList -> artistMBID `notElem` excludeList
-      in includePass && excludePass
-
 -- | Check if we should process this artist by ID (for LibraryArtists source type).
 -- Uses the new LibraryArtistsFilters which filters by catalog_artist.id instead of MBID.
 shouldProcessArtistById :: AcquisitionSourceRecord -> Int64 -> Bool
@@ -419,73 +289,6 @@ checkLibraryArtistFilters filters artistId =
         Nothing -> True  -- No exclude list, pass all
         Just excludeList -> artistId `notElem` excludeList
   in includePass && excludePass
-
--- | Check if a release group should be included based on filters.
-shouldIncludeReleaseGroup
-  :: AcquisitionSourceRecord
-  -> UTCTime
-  -> MBReleaseGroup
-  -> Maybe Double  -- ^ Metacritic score (if available)
-  -> Maybe Double  -- ^ Pitchfork score (if available)
-  -> Bool
-shouldIncludeReleaseGroup source now rg metacriticScore pitchforkScore =
-  case parseFilters (sourceFilters source) of
-    Nothing -> False  -- No filters configured, don't mark as wanted
-    Just filters -> evaluateFilters filters
-  where
-    isUpcoming = mbReleaseGroupIsUpcoming now rg
-
-    -- Evaluate all filters based on the operator
-    evaluateFilters filters = case filtersOperator filters of
-      AND -> checkAlbumType filters && checkReleaseStatus filters && checkReviews filters && checkGenres filters
-      OR -> checkAlbumType filters || checkReleaseStatus filters || checkReviews filters || checkGenres filters
-
-    -- Check if album type matches filter
-    checkAlbumType filters = case filtersAlbumTypes filters of
-      Nothing -> True  -- No album type filter specified, accept all types
-      Just types -> case mbrgType rg of
-        Just rgType -> rgType `elem` types
-        Nothing -> True  -- If no type, include by default
-
-    -- Check if release status matches filter
-    checkReleaseStatus filters = case filtersReleaseStatus filters of
-      Nothing -> True  -- No release status filter specified, accept all statuses
-      Just statuses ->
-        let isReleased = not isUpcoming
-        in ("upcoming" `elem` statuses && isUpcoming) ||
-           ("released" `elem` statuses && isReleased)
-
-    -- Check if reviews meet criteria
-    checkReviews filters = case filtersReviews filters of
-      Nothing -> True  -- No review filter
-      Just rf ->
-        let metacriticPass = case rfMetacritic rf of
-              Nothing -> True
-              Just criteria -> checkReviewCriteria criteria metacriticScore
-            pitchforkPass = case rfPitchfork rf of
-              Nothing -> True
-              Just criteria -> checkReviewCriteria criteria pitchforkScore
-        in case rfOperator rf of
-             AND -> metacriticPass && pitchforkPass
-             OR -> metacriticPass || pitchforkPass
-
-    -- Check if genres match (Note: MusicBrainz doesn't provide genre in release groups directly)
-    -- This would need to be fetched separately or we'd need to enhance the MB client
-    checkGenres filters = case filtersGenres filters of
-      Nothing -> True  -- No genre filter
-      Just _genres -> True  -- TODO: Implement genre checking when we have genre data
-
--- | Check if a score meets review criteria.
-checkReviewCriteria :: ReviewCriteria -> Maybe Double -> Bool
-checkReviewCriteria _criteria Nothing = False  -- No score available
-checkReviewCriteria ReviewCriteria{..} (Just score) =
-  let minPass = case rcMinScore of
-        Nothing -> True
-        Just minScore -> score >= minScore
-      maxPass = case rcMaxScore of
-        Nothing -> True
-        Just maxScore -> score <= maxScore
-  in minPass && maxPass
 
 -- | Check if Metacritic critic and user scores satisfy the filter's thresholds.
 --
@@ -527,12 +330,6 @@ releaseDateIsUpcoming now dateStr =
         7 -> dateStr <> "-31"
         _ -> dateStr
   in padded > today
-
--- | Check if a release group is upcoming (release date in the future).
-mbReleaseGroupIsUpcoming :: UTCTime -> MBReleaseGroup -> Bool
-mbReleaseGroupIsUpcoming now rg = case mbrgFirstReleaseDate rg of
-  Nothing -> False  -- No release date, not upcoming
-  Just dateStr -> releaseDateIsUpcoming now dateStr
 
 -- | Evaluate LibraryArtists filters against a catalog album to decide
 -- whether it should be wanted. Combines an album-type check with a
