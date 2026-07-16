@@ -72,17 +72,14 @@ getLibraryStats conn = do
   -- Catalog library completion stats
   -- Albums in library = catalog albums matched to a cluster
   -- Wanted albums = catalog albums with quality_profile_id but no cluster match
+  -- "In library" is defined by the clusters.catalog_album_id FK (migration 012),
+  -- not the old release-group string match
   catalogCompletionResult <- queryRows_ conn
     "SELECT \
-    \  COALESCE(SUM(CASE WHEN c.id IS NOT NULL THEN 1 ELSE 0 END), 0), \
-    \  COALESCE(SUM(CASE WHEN ca.quality_profile_id IS NOT NULL AND c.id IS NULL THEN 1 ELSE 0 END), 0) \
-    \FROM catalog_albums ca \
-    \LEFT JOIN ( \
-    \  SELECT mb_release_group_id, MIN(id) as id \
-    \  FROM clusters \
-    \  WHERE mb_release_group_id IS NOT NULL \
-    \  GROUP BY mb_release_group_id \
-    \) c ON c.mb_release_group_id = ca.release_group_mbid" :: IO [(Int, Int)]
+    \  COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM clusters c WHERE c.catalog_album_id = ca.id) THEN 1 ELSE 0 END), 0), \
+    \  COALESCE(SUM(CASE WHEN ca.quality_profile_id IS NOT NULL \
+    \    AND NOT EXISTS (SELECT 1 FROM clusters c WHERE c.catalog_album_id = ca.id) THEN 1 ELSE 0 END), 0) \
+    \FROM catalog_albums ca" :: IO [(Int, Int)]
   let (catalogInLibrary, catalogWanted) = case viaNonEmpty head catalogCompletionResult of
         Just row -> row
         Nothing -> (0, 0)
