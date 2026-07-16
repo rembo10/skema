@@ -75,37 +75,26 @@ runDownloadMonitor DownloadDeps{..} = do
     -- Store clients in a TVar so they can be updated when config changes
     clientsVar <- liftIO $ STM.atomically $ STM.newTVar initialClients
 
-    -- Check initial state: are there any active downloads?
-    initialCount <- liftIO $ withConnection pool $ \conn -> do
-      results <- queryRows conn
-        "SELECT COUNT(*) FROM downloads WHERE status IN ('queued', 'downloading')"
-        () :: IO [Only Int]
-      case results of
-        [Only count] -> pure count
-        _ -> pure 0
+    -- The number of active downloads is read from the database each polling
+    -- cycle. It was previously derived from bus events, but double-emitted
+    -- failure events made the counter drift to zero and polling stopped
+    -- while downloads were still running.
+    let countActiveDownloads = withConnection pool $ \conn -> do
+          results <- queryRows conn
+            "SELECT COUNT(*) FROM downloads WHERE status IN ('queued', 'downloading')"
+            () :: IO [Only Int]
+          case results of
+            [Only count] -> pure count
+            _ -> pure 0
 
+    initialCount <- liftIO countActiveDownloads
     $(logTM) InfoS $ logStr $ ("Found " <> show initialCount <> " active downloads on startup" :: Text)
 
-    -- Create a TVar to track the count of active downloads
-    activeCountVar <- liftIO $ STM.atomically $ STM.newTVar initialCount
-
-    -- Subscribe to events to maintain the count and reload clients on config changes
+    -- Subscribe to events to reload clients on config changes
     eventChan <- liftIO $ STM.atomically $ subscribe bus
     let eventLoop = forever $ do
           envelope <- STM.atomically $ readTChan eventChan
           case envelopeEvent envelope of
-            DownloadStarted{} -> do
-              -- Increment active download count
-              STM.atomically $ STM.modifyTVar' activeCountVar (+1)
-
-            DownloadCompleted{} -> do
-              -- Decrement active download count
-              STM.atomically $ STM.modifyTVar' activeCountVar (\n -> max 0 (n - 1))
-
-            DownloadFailed{} -> do
-              -- Decrement active download count
-              STM.atomically $ STM.modifyTVar' activeCountVar (\n -> max 0 (n - 1))
-
             ConfigUpdated{} -> do
               -- Config changed - recreate download client instances
               runKatipContextT dlLogEnv () "download.monitor" $ do
@@ -124,7 +113,7 @@ runDownloadMonitor DownloadDeps{..} = do
           clients <- liftIO $ STM.atomically $ STM.readTVar clientsVar
 
           -- Check if there are active downloads
-          activeCount <- liftIO $ STM.atomically $ STM.readTVar activeCountVar
+          activeCount <- liftIO countActiveDownloads
 
           $(logTM) DebugS $ logStr $ ("Monitor loop: activeCount=" <> show activeCount <> ", clients=" <> show (length clients) :: Text)
 
