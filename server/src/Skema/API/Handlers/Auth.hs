@@ -14,8 +14,8 @@ import qualified Skema.Config.Types as Cfg
 import Servant
 
 -- | Auth API handlers.
-authServer :: AuthStore -> JWTSecret -> TVar Cfg.Config -> Clock -> Server AuthAPI
-authServer _authStore jwtSecret configVar clock =
+authServer :: JWTSecret -> TVar Cfg.Config -> Clock -> Server AuthAPI
+authServer jwtSecret configVar clock =
   statusHandler :<|> credentialsHandler
   where
     statusHandler :: Handler AuthStatusResponse
@@ -37,7 +37,6 @@ authServer _authStore jwtSecret configVar clock =
       case result of
         Left InvalidCredentials -> throw401 "Invalid username or password"
         Left AuthenticationDisabled -> throw401 "Authentication is not configured"
-        Left InvalidApiKey -> throw500 "Internal error during authentication"
         Right () -> do
           -- Generate JWT for the authenticated user
           let expHours = Cfg.serverJwtExpirationHours serverCfg

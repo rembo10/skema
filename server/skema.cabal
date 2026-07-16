@@ -115,7 +115,6 @@ library
     Skema.API.Handlers.Version
     Skema.API.Handlers.Utils
     Skema.Auth.Types
-    Skema.Auth.Store
     Skema.Auth
     Skema.Auth.JWT
     Skema.Logging
@@ -130,10 +129,8 @@ library
     Skema.Domain.Import
     Skema.Domain.Converters
     Skema.Domain.ConfigJSON
-    Skema.Domain.Errors
     Skema.Domain.Metadata
     Skema.Domain.Quality
-    Skema.Adapters.Crypto
     Skema.Media.Types
     Skema.Media.Utils
     Skema.Media.Client
@@ -162,13 +159,11 @@ library
     Skema.Notifications.Pushover
     Skema.Services.Types
     Skema.Services.Dependencies
-    Skema.Services.Supervisor
     Skema.Services.AsyncRegistry
     Skema.Services.Scanner
     Skema.Services.Grouper
     Skema.Services.Identifier
     Skema.Services.DiffGenerator
-    Skema.Services.Persister
     Skema.Services.Catalog
     Skema.Services.Acquisition
     Skema.Services.Image

@@ -19,8 +19,6 @@ import Control.Concurrent.STM (dupTChan, TChan, newBroadcastTChanIO, writeTChan,
 import qualified Control.Concurrent.STM as STM
 import Katip (LogEnv, Severity(..), logStr, logTM)
 import qualified Katip
-import Control.Monad ()
-import Control.Concurrent.Async (async)
 import System.Timeout (timeout)
 
 -- | Event bus using STM broadcast channels with sequence numbering.
@@ -111,18 +109,3 @@ waitForEvent chan predicate timeoutMicros = do
         then pure (envelopeEvent envelope)
         else go
 
--- | Start a background worker that logs all events (for debugging).
---
--- This is useful during development to see all events flowing through
--- the system. In production, you might want to be more selective.
-_startEventLogger :: EventBus -> LogEnv -> IO ()
-_startEventLogger bus le = do
-  chan <- STM.atomically $ subscribe bus
-  _ <- async $ forever $ do
-    envelope <- STM.atomically $ readTChan chan
-    let initialContext = ()
-    let initialNamespace = "event-logger"
-    Katip.runKatipContextT le initialContext initialNamespace $ do
-      $(Katip.logTM) DebugS $ logStr $
-        "[EVENT-LOG] " <> (show envelope :: Text)
-  pure ()

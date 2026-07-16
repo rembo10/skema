@@ -20,7 +20,6 @@ import Skema.Domain.ConfigJSON (configToAPIJSON, applyConfigJSONUpdate)
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
-import qualified Skema.Adapters.Crypto as Crypto
 import Servant
 import Katip
 import Data.Aeson (Value(..), object, (.=))
@@ -41,9 +40,12 @@ configServer le bus _serverCfg _connPool configVar configPath =
     updateConfigHandler updateValue = do
       currentCfg <- liftIO $ readConfig configVar
 
-      -- Extract password from update if present, and hash it
+      -- Extract password from update if present, and hash it unless it
+      -- already is a bcrypt hash
       maybeHashedPassword <- case extractPassword updateValue of
-        Just plaintext -> liftIO $ Crypto.hashPasswordIfNeeded plaintext
+        Just plaintext
+          | Cfg.isHashedPassword plaintext -> pure (Just plaintext)
+          | otherwise -> liftIO $ Cfg.hashPassword plaintext
         Nothing -> pure Nothing
 
       -- Apply JSON merge-based update

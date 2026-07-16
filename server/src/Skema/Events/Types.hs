@@ -51,10 +51,6 @@ data Event
       , needsIdentification :: Int
       , affectedClusterIds :: [Int64]  -- Cluster IDs touched during this grouping
       }
-  | ResultsPersisted
-      { filesUpdated :: Int
-      }
-
   -- Identification events
   | IdentificationStarted
       { groupCount :: Int
@@ -419,9 +415,6 @@ eventToJSON = \case
     , "already_matched" .= alreadyMatched
     , "needs_identification" .= needsIdentification
     , "affected_cluster_ids" .= affectedClusterIds
-    ]
-  ResultsPersisted{..} -> object
-    [ "files_updated" .= filesUpdated
     ]
   IdentificationStarted{..} -> object
     [ "group_count" .= groupCount

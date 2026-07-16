@@ -27,7 +27,7 @@ import Skema.API.Handlers.Version (versionServer, LatestRelease)
 import Skema.API.Handlers.Static (staticFileServer, frontendServer)
 import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
-import Skema.Auth (AuthStore, newAuthStore, checkAuthEnabled)
+import Skema.Auth (checkAuthEnabled)
 import Skema.Auth.JWT (JWTSecret, getJWTSecret, validateJWT)
 import Skema.Database.Connection (ConnectionPool)
 import Skema.Config.Types (Config, ServerConfig)
@@ -147,16 +147,16 @@ authMiddleware configVar jwtSecret application req responseHandler = do
       decodeUtf8 <$> (lookup hAuthorization (requestHeaders req) >>= BS.stripPrefix "Bearer ")
 
 -- | WAI application with logging and central authentication middleware.
-app :: LogEnv -> EventBus -> AuthStore -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> FilePath -> TVar (Maybe LatestRelease) -> Application
-app le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir configPath latestVar =
+app :: LogEnv -> EventBus -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> FilePath -> TVar (Maybe LatestRelease) -> Application
+app le bus serverCfg jwtSecret registry tm connPool libPath cacheDir configPath latestVar =
   requestLoggingMiddleware le $
   authMiddleware (srConfigVar registry) jwtSecret $
-    serve (Proxy :: Proxy API) (server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir (srConfigVar registry) configPath latestVar)
+    serve (Proxy :: Proxy API) (server le bus serverCfg jwtSecret registry tm connPool libPath cacheDir (srConfigVar registry) configPath latestVar)
 
 -- | Servant server.
-server :: LogEnv -> EventBus -> AuthStore -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> TVar Config -> FilePath -> TVar (Maybe LatestRelease) -> Server API
-server le bus authStore serverCfg jwtSecret registry tm connPool libPath cacheDir configVar configPath latestVar =
-  ((authServer authStore jwtSecret configVar (srClock registry)
+server :: LogEnv -> EventBus -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> TVar Config -> FilePath -> TVar (Maybe LatestRelease) -> Server API
+server le bus serverCfg jwtSecret registry tm connPool libPath cacheDir configVar configPath latestVar =
+  ((authServer jwtSecret configVar (srClock registry)
    :<|> libraryServer le bus serverCfg registry tm connPool configVar
    :<|> configServer le bus serverCfg connPool configVar configPath
    :<|> configSchemaServer
@@ -206,9 +206,6 @@ startServer le bus serverCfg registry connPool libPath cacheDir configPath cliPo
 
     $(logTM) InfoS "JWT secret loaded successfully"
 
-    -- Create auth store
-    authStore <- liftIO newAuthStore
-
     -- Create task manager
     taskManager <- liftIO $ TM.newTaskManager bus le (srClock registry)
     $(logTM) InfoS $ logStr ("Task manager initialized" :: Text)
@@ -237,7 +234,7 @@ startServer le bus serverCfg registry connPool libPath cacheDir configPath cliPo
                  $ defaultSettings
 
     -- Run server with exception handling
-    liftIO (runSettings settings (app le bus authStore serverCfg jwtSecret registry taskManager connPool libPath cacheDir configPath latestVar)) `catch` handleStartupException host port
+    liftIO (runSettings settings (app le bus serverCfg jwtSecret registry taskManager connPool libPath cacheDir configPath latestVar)) `catch` handleStartupException host port
   where
     handleStartupException :: Text -> Int -> E.SomeException -> KatipContextT IO ()
     handleStartupException _h p ex =

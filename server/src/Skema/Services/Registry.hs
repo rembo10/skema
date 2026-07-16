@@ -9,7 +9,7 @@ module Skema.Services.Registry
   ) where
 
 import Skema.Services.Types
-import Skema.Services.Dependencies (ScannerDeps(..), GrouperDeps(..), IdentifierDeps(..), DiffGeneratorDeps(..), PersisterDeps(..), DownloadDeps(..), ThumbnailerDeps(..), ImageDeps(..), ImporterDeps(..), CatalogDeps(..), AcquisitionDeps(..), StatsDeps(..), SourceEvaluatorDeps(..), MetadataWriterDeps(..), NotificationDeps(..))
+import Skema.Services.Dependencies (ScannerDeps(..), GrouperDeps(..), IdentifierDeps(..), DiffGeneratorDeps(..), DownloadDeps(..), ThumbnailerDeps(..), ImageDeps(..), ImporterDeps(..), CatalogDeps(..), AcquisitionDeps(..), StatsDeps(..), SourceEvaluatorDeps(..), MetadataWriterDeps(..), NotificationDeps(..))
 import Skema.Services.Slskd (SlskdDeps(..), runSlskdMonitor)
 import Skema.Clock (Clock, systemClock)
 import Skema.Services.AsyncRegistry (AsyncRegistry, newAsyncRegistry, registerAsync)
@@ -18,7 +18,6 @@ import Skema.FileSystem.Watcher (watchDirectoryWithEvents, defaultDebounceMs)
 import Skema.Services.Grouper (startGrouperService)
 import Skema.Services.Identifier (startIdentifierService)
 import Skema.Services.DiffGenerator (startDiffGeneratorService)
-import Skema.Services.Persister (startPersisterService)
 import Skema.Services.Catalog (startCatalogService, startCatalogRefreshScheduler)
 import Skema.Services.Acquisition (startAcquisitionService)
 import Skema.Services.Image (startImageService)
@@ -256,15 +255,6 @@ startAllServices le bus pool config cacheDir configPath = do
           }
     diffGeneratorHandle <- liftIO $ startDiffGeneratorService diffGeneratorDeps
     liftIO $ registerAsync asyncRegistry "DiffGenerator" diffGeneratorHandle
-
-    $(logTM) InfoS $ logStr ("Starting Persister service..." :: Text)
-    let persisterDeps = PersisterDeps
-          { persistEventBus = scEventBus ctx
-          , persistLogEnv = scLogEnv ctx
-          , persistDbPool = scDbPool ctx
-          }
-    persisterHandle <- liftIO $ startPersisterService persisterDeps
-    liftIO $ registerAsync asyncRegistry "Persister" persisterHandle
 
     $(logTM) InfoS $ logStr ("Starting Catalog service..." :: Text)
     let catalogDeps = CatalogDeps

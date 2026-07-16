@@ -20,8 +20,6 @@ module Skema.Services.Dependencies
   , ImporterDeps(..)
     -- * DiffGenerator Dependencies
   , DiffGeneratorDeps(..)
-    -- * Persister Dependencies
-  , PersisterDeps(..)
     -- * Stats Dependencies
   , StatsDeps(..)
     -- * Catalog Dependencies
@@ -116,14 +114,6 @@ data DiffGeneratorDeps = DiffGeneratorDeps
   , diffLogEnv :: LogEnv
   , diffDbPool :: ConnectionPool
   , diffMBClient :: MBClientEnv
-  }
-
--- | Dependencies for the Persister service.
--- Persists metadata changes to audio files.
-data PersisterDeps = PersisterDeps
-  { persistEventBus :: EventBus
-  , persistLogEnv :: LogEnv
-  , persistDbPool :: ConnectionPool
   }
 
 -- | Dependencies for the Stats service.
