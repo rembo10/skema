@@ -12,6 +12,7 @@ module Skema.FileSystem.Browser
   ) where
 
 import Skema.API.Types.Filesystem (FilesystemBrowseResponse(..), FilesystemEntry(..))
+import Skema.Domain.Converters (timestampToText)
 import System.FilePath ((</>), takeDirectory)
 import System.Directory
   ( listDirectory
@@ -122,7 +123,7 @@ listDirectoryWithInfo path = do
         else do
           fileSize <- getFileSize fullPath
           modTimeUTC <- getModificationTime fullPath
-          pure (Just fileSize, Just $ show modTimeUTC)
+          pure (Just fileSize, Just $ timestampToText modTimeUTC)
 
       pure $ FilesystemEntry
         { filesystemEntryName = toText name

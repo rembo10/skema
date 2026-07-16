@@ -25,7 +25,7 @@ import Skema.Services.Registry (ServiceRegistry(..))
 import Skema.Services.Download.Cancel (cancelDownload)
 import Skema.MusicBrainz.Client (searchArtists, searchReleaseGroups, getRelease, getReleaseGroup, getReleaseGroupReleases, pickRepresentativeRelease, prettyClientError)
 import Skema.MusicBrainz.Types (MBRelease(..), MBReleaseGroup(..), MBMedium(..), MBTrack(..), mbasArtists, mbasArtistId, mbrgsReleaseGroups, mbrgsReleaseGroupId, MBID(..), unMBID)
-import Skema.Domain.Converters (mbArtistSearchToCatalogResponse, mbReleaseGroupSearchToCatalogResponse)
+import Skema.Domain.Converters (mbArtistSearchToCatalogResponse, mbReleaseGroupSearchToCatalogResponse, timestampToText)
 import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
@@ -43,7 +43,7 @@ import Servant.Types.SourceT (SourceT(..), StepT(..))
 import Katip
 import Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan, readTChan)
 import qualified Data.IORef as IORef
-import Data.Time (UTCTime, getCurrentTime, diffUTCTime)
+import Data.Time (getCurrentTime, diffUTCTime)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TE
 import qualified Control.Concurrent.STM as STM
@@ -209,9 +209,9 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             , catalogArtistResponseFollowed = DBTypes.catalogArtistFollowed artist
             , catalogArtistResponseQualityProfileId = DBTypes.catalogArtistQualityProfileId artist
             , catalogArtistResponseScore = Nothing  -- No score in database records
-            , catalogArtistResponseLastCheckedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistLastCheckedAt artist)
-            , catalogArtistResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistCreatedAt artist)
-            , catalogArtistResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistUpdatedAt artist)
+            , catalogArtistResponseLastCheckedAt = fmap timestampToText (DBTypes.catalogArtistLastCheckedAt artist)
+            , catalogArtistResponseCreatedAt = fmap timestampToText (DBTypes.catalogArtistCreatedAt artist)
+            , catalogArtistResponseUpdatedAt = fmap timestampToText (DBTypes.catalogArtistUpdatedAt artist)
             , catalogArtistResponseAlbums = maybeAlbums
             }
         pure (allArtists', responses)
@@ -257,9 +257,9 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             , catalogArtistResponseFollowed = DBTypes.catalogArtistFollowed artist
             , catalogArtistResponseQualityProfileId = DBTypes.catalogArtistQualityProfileId artist
             , catalogArtistResponseScore = Nothing
-            , catalogArtistResponseLastCheckedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistLastCheckedAt artist)
-            , catalogArtistResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistCreatedAt artist)
-            , catalogArtistResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistUpdatedAt artist)
+            , catalogArtistResponseLastCheckedAt = fmap timestampToText (DBTypes.catalogArtistLastCheckedAt artist)
+            , catalogArtistResponseCreatedAt = fmap timestampToText (DBTypes.catalogArtistCreatedAt artist)
+            , catalogArtistResponseUpdatedAt = fmap timestampToText (DBTypes.catalogArtistUpdatedAt artist)
             , catalogArtistResponseAlbums = maybeAlbums
             }
 
@@ -321,9 +321,9 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           , catalogArtistResponseFollowed = DBTypes.catalogArtistFollowed artist
           , catalogArtistResponseQualityProfileId = DBTypes.catalogArtistQualityProfileId artist
           , catalogArtistResponseScore = Nothing
-          , catalogArtistResponseLastCheckedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistLastCheckedAt artist)
-          , catalogArtistResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistCreatedAt artist)
-          , catalogArtistResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistUpdatedAt artist)
+          , catalogArtistResponseLastCheckedAt = fmap timestampToText (DBTypes.catalogArtistLastCheckedAt artist)
+          , catalogArtistResponseCreatedAt = fmap timestampToText (DBTypes.catalogArtistCreatedAt artist)
+          , catalogArtistResponseUpdatedAt = fmap timestampToText (DBTypes.catalogArtistUpdatedAt artist)
           , catalogArtistResponseAlbums = Nothing  -- Not needed for create response
           }
 
@@ -352,9 +352,9 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           , catalogArtistResponseFollowed = DBTypes.catalogArtistFollowed artist
           , catalogArtistResponseQualityProfileId = DBTypes.catalogArtistQualityProfileId artist
           , catalogArtistResponseScore = Nothing
-          , catalogArtistResponseLastCheckedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistLastCheckedAt artist)
-          , catalogArtistResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistCreatedAt artist)
-          , catalogArtistResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogArtistUpdatedAt artist)
+          , catalogArtistResponseLastCheckedAt = fmap timestampToText (DBTypes.catalogArtistLastCheckedAt artist)
+          , catalogArtistResponseCreatedAt = fmap timestampToText (DBTypes.catalogArtistCreatedAt artist)
+          , catalogArtistResponseUpdatedAt = fmap timestampToText (DBTypes.catalogArtistUpdatedAt artist)
           , catalogArtistResponseAlbums = Nothing  -- Not needed for update response
           }
 
@@ -497,8 +497,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             , catalogAlbumResponseCurrentQuality = DBTypes.catalogAlbumCurrentQuality album
             , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
             , catalogAlbumResponseScore = Nothing
-            , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
-            , catalogAlbumResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumUpdatedAt album)
+            , catalogAlbumResponseCreatedAt = fmap timestampToText (DBTypes.catalogAlbumCreatedAt album)
+            , catalogAlbumResponseUpdatedAt = fmap timestampToText (DBTypes.catalogAlbumUpdatedAt album)
             }
 
     -- Update catalog album (wanted status and quality profile)
@@ -652,8 +652,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             , catalogAlbumResponseCurrentQuality = DBTypes.catalogAlbumCurrentQuality album
                 , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
                 , catalogAlbumResponseScore = Nothing
-                , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
-                , catalogAlbumResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumUpdatedAt album)
+                , catalogAlbumResponseCreatedAt = fmap timestampToText (DBTypes.catalogAlbumCreatedAt album)
+                , catalogAlbumResponseUpdatedAt = fmap timestampToText (DBTypes.catalogAlbumUpdatedAt album)
                 }
 
     -- Delete catalog album
@@ -1009,8 +1009,8 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
                 , catalogAlbumResponseCurrentQuality = DBTypes.catalogAlbumCurrentQuality album
                 , catalogAlbumResponseQualityProfileId = DBTypes.catalogAlbumQualityProfileId album
                 , catalogAlbumResponseScore = Nothing
-                , catalogAlbumResponseCreatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumCreatedAt album)
-                , catalogAlbumResponseUpdatedAt = fmap (show :: UTCTime -> Text) (DBTypes.catalogAlbumUpdatedAt album)
+                , catalogAlbumResponseCreatedAt = fmap timestampToText (DBTypes.catalogAlbumCreatedAt album)
+                , catalogAlbumResponseUpdatedAt = fmap timestampToText (DBTypes.catalogAlbumUpdatedAt album)
                 }
             , albumReleasesReleases = releases
             , albumReleasesSearchTime = 0
@@ -1162,7 +1162,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       , releaseResponsePeers = DBTypes.cachedReleasePeers r
       , releaseResponseDownloadType = DBTypes.cachedReleaseDownloadType r
       , releaseResponseDownloadUrl = DBTypes.cachedReleaseDownloadUrl r
-      , releaseResponsePublishDate = fmap (show :: UTCTime -> Text) (DBTypes.cachedReleasePublishDate r)
+      , releaseResponsePublishDate = fmap timestampToText (DBTypes.cachedReleasePublishDate r)
       , releaseResponseSlskdUsername = DBTypes.cachedReleaseSlskdUsername r
       , releaseResponseSlskdFiles = decodeCachedSlskdFiles (DBTypes.cachedReleaseSlskdFiles r)
       }

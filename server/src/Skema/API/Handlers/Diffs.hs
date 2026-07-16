@@ -19,7 +19,7 @@ import qualified Skema.Events.Types as Events
 import qualified Data.Map.Strict as Map
 import Servant
 import Katip
-import Data.Time (UTCTime)
+import Skema.Domain.Converters (timestampToText)
 
 -- | Diffs API handlers (includes both diffs and metadata-changes endpoints).
 diffsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> ServiceRegistry -> ConnectionPool -> Server DiffsAPI
@@ -45,7 +45,7 @@ diffsServer le bus _serverCfg _registry connPool =
             , diffFieldName = DBTypes.diffFieldName diff
             , diffFileValue = DBTypes.diffFileValue diff
             , diffMBValue = DBTypes.diffMBValue diff
-            , diffCreatedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.diffCreatedAt diff)
+            , diffCreatedAt = maybe "" timestampToText (DBTypes.diffCreatedAt diff)
             }
 
     getGroupedDiffsHandler :: Maybe Int -> Maybe Int -> Handler GroupedDiffsResponse
@@ -63,7 +63,7 @@ diffsServer le bus _serverCfg _registry connPool =
             , diffFieldName = DBTypes.diffFieldName diff
             , diffFileValue = DBTypes.diffFileValue diff
             , diffMBValue = DBTypes.diffMBValue diff
-            , diffCreatedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.diffCreatedAt diff)
+            , diffCreatedAt = maybe "" timestampToText (DBTypes.diffCreatedAt diff)
             }
 
         -- Group diffs by (fieldName, fileValue, mbValue)
@@ -122,7 +122,7 @@ diffsServer le bus _serverCfg _registry connPool =
             , changeResponseFieldName = DBTypes.changeFieldName change
             , changeResponseOldValue = DBTypes.changeOldValue change
             , changeResponseNewValue = DBTypes.changeNewValue change
-            , changeResponseAppliedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.changeAppliedAt change)
+            , changeResponseAppliedAt = maybe "" timestampToText (DBTypes.changeAppliedAt change)
             , changeResponseReverted = isJust (DBTypes.changeRevertedAt change)
             }
 

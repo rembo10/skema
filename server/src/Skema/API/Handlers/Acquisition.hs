@@ -25,7 +25,7 @@ import Control.Concurrent.Async (async)
 import Control.Exception (try)
 import Servant
 import Katip (LogEnv)
-import Data.Time (UTCTime)
+import Skema.Domain.Converters (timestampToText)
 
 -- | Acquisition API handlers.
 acquisitionServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> ConnectionPool -> MBClientEnv -> HttpClient -> TaskManager -> Server AcquisitionAPI
@@ -49,8 +49,8 @@ acquisitionServer le bus _serverCfg connPool mbClient httpClient tm =
           , acquisitionRuleResponseEnabled = DBTypes.sourceEnabled source
           , acquisitionRuleResponseFilters = DBTypes.sourceFilters source
           , acquisitionRuleResponseQualityProfileId = DBTypes.sourceQualityProfileId source
-          , acquisitionRuleResponseCreatedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.sourceCreatedAt source)
-          , acquisitionRuleResponseUpdatedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.sourceUpdatedAt source)
+          , acquisitionRuleResponseCreatedAt = maybe "" timestampToText (DBTypes.sourceCreatedAt source)
+          , acquisitionRuleResponseUpdatedAt = maybe "" timestampToText (DBTypes.sourceUpdatedAt source)
           }
 
     createRuleHandler :: CreateRuleRequest -> Handler AcquisitionRuleResponse

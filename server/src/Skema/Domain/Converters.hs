@@ -14,6 +14,8 @@ module Skema.Domain.Converters
   , mbReleaseGroupSearchToCatalogResponse
     -- * Download conversions
   , downloadRecordToResponse
+    -- * Timestamp rendering
+  , timestampToText
   ) where
 
 import Skema.API.Types.Clusters (ClusterResponse(..))
@@ -25,7 +27,14 @@ import Skema.MusicBrainz.Types
 import Data.Aeson (eitherDecode)
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BSL
-import Data.Time (UTCTime)
+import Data.Time (UTCTime, defaultTimeLocale, formatTime)
+
+-- * Timestamp rendering
+
+-- | Render a timestamp as ISO-8601 UTC for API responses.
+-- JavaScript's Date parses this reliably, unlike Haskell's Show format.
+timestampToText :: UTCTime -> Text
+timestampToText = toText . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
 
 -- * Cluster Conversions
 
@@ -52,9 +61,9 @@ clusterToResponse cluster maybeMetadata =
       , clusterResponseMBReleaseId = DBTypes.clusterMBReleaseId cluster
       , clusterResponseMBReleaseGroupId = DBTypes.clusterMBReleaseGroupId cluster
       , clusterResponseMBConfidence = DBTypes.clusterMBConfidence cluster
-      , clusterResponseCreatedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.clusterCreatedAt cluster)
-      , clusterResponseUpdatedAt = maybe "" (show :: UTCTime -> Text) (DBTypes.clusterUpdatedAt cluster)
-      , clusterResponseLastIdentifiedAt = fmap (show :: UTCTime -> Text) (DBTypes.clusterLastIdentifiedAt cluster)
+      , clusterResponseCreatedAt = maybe "" timestampToText (DBTypes.clusterCreatedAt cluster)
+      , clusterResponseUpdatedAt = maybe "" timestampToText (DBTypes.clusterUpdatedAt cluster)
+      , clusterResponseLastIdentifiedAt = fmap timestampToText (DBTypes.clusterLastIdentifiedAt cluster)
       -- Match provenance
       , clusterResponseMatchSource = fmap DBTypes.matchSourceToText (DBTypes.clusterMatchSource cluster)
       , clusterResponseMatchLocked = DBTypes.clusterMatchLocked cluster
@@ -93,9 +102,9 @@ mbArtistSearchToCatalogResponse searchResult maybeCatalogRecord =
     , catalogArtistResponseFollowed = maybe False DBTypes.catalogArtistFollowed maybeCatalogRecord
     , catalogArtistResponseQualityProfileId = maybeCatalogRecord >>= DBTypes.catalogArtistQualityProfileId
     , catalogArtistResponseScore = Just (mbasScore searchResult)
-    , catalogArtistResponseCreatedAt = maybeCatalogRecord >>= DBTypes.catalogArtistCreatedAt >>= (Just . show)
-    , catalogArtistResponseUpdatedAt = maybeCatalogRecord >>= DBTypes.catalogArtistUpdatedAt >>= (Just . show)
-    , catalogArtistResponseLastCheckedAt = maybeCatalogRecord >>= DBTypes.catalogArtistLastCheckedAt >>= (Just . show)
+    , catalogArtistResponseCreatedAt = maybeCatalogRecord >>= DBTypes.catalogArtistCreatedAt >>= (Just . timestampToText)
+    , catalogArtistResponseUpdatedAt = maybeCatalogRecord >>= DBTypes.catalogArtistUpdatedAt >>= (Just . timestampToText)
+    , catalogArtistResponseLastCheckedAt = maybeCatalogRecord >>= DBTypes.catalogArtistLastCheckedAt >>= (Just . timestampToText)
     , catalogArtistResponseAlbums = Nothing  -- Not needed for search results
     }
 
@@ -117,8 +126,8 @@ mbReleaseGroupSearchToCatalogResponse searchResult maybeCatalogRecord =
     , catalogAlbumResponseCurrentQuality = maybeCatalogRecord >>= DBTypes.catalogAlbumCurrentQuality
     , catalogAlbumResponseQualityProfileId = maybeCatalogRecord >>= DBTypes.catalogAlbumQualityProfileId
     , catalogAlbumResponseScore = Just (mbrgsScore searchResult)
-    , catalogAlbumResponseCreatedAt = maybeCatalogRecord >>= DBTypes.catalogAlbumCreatedAt >>= (Just . show)
-    , catalogAlbumResponseUpdatedAt = maybeCatalogRecord >>= DBTypes.catalogAlbumUpdatedAt >>= (Just . show)
+    , catalogAlbumResponseCreatedAt = maybeCatalogRecord >>= DBTypes.catalogAlbumCreatedAt >>= (Just . timestampToText)
+    , catalogAlbumResponseUpdatedAt = maybeCatalogRecord >>= DBTypes.catalogAlbumUpdatedAt >>= (Just . timestampToText)
     }
 
 -- * Download Conversions
@@ -142,9 +151,9 @@ downloadRecordToResponse download =
     , downloadResponseSeeders = DBTypes.downloadSeeders download
     , downloadResponseProgress = DBTypes.downloadProgress download
     , downloadResponseErrorMessage = DBTypes.downloadErrorMessage download
-    , downloadResponseQueuedAt = fmap (show :: UTCTime -> Text) (DBTypes.downloadQueuedAt download)
-    , downloadResponseStartedAt = fmap (show :: UTCTime -> Text) (DBTypes.downloadStartedAt download)
-    , downloadResponseCompletedAt = fmap (show :: UTCTime -> Text) (DBTypes.downloadCompletedAt download)
-    , downloadResponseImportedAt = fmap (show :: UTCTime -> Text) (DBTypes.downloadImportedAt download)
+    , downloadResponseQueuedAt = fmap timestampToText (DBTypes.downloadQueuedAt download)
+    , downloadResponseStartedAt = fmap timestampToText (DBTypes.downloadStartedAt download)
+    , downloadResponseCompletedAt = fmap timestampToText (DBTypes.downloadCompletedAt download)
+    , downloadResponseImportedAt = fmap timestampToText (DBTypes.downloadImportedAt download)
     , downloadResponseLibraryPath = DBTypes.downloadLibraryPath download
     }
