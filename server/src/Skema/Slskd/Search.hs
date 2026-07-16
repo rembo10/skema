@@ -90,7 +90,7 @@ searchSlskdWithTimeout le client artistName albumTitle timeoutSecs minTrackCount
       result <-
         race
           (threadDelay timeoutMicros)
-          (pollSearchCompletion le client searchId)
+          (pollSearchCompletion le client searchId timeoutSecs)
 
       case result of
         Left () -> do
@@ -185,7 +185,7 @@ searchSlskdStreaming le client artistName albumTitle timeoutSecs minTrackCount o
       result <-
         race
           (threadDelay timeoutMicros)
-          (pollAndEmit le client searchId emittedRef allCandidatesRef minTrackCount onCandidate)
+          (pollAndEmit le client searchId emittedRef allCandidatesRef timeoutSecs minTrackCount onCandidate)
 
       -- Clean up search
       _ <- deleteSearch client searchId
@@ -219,15 +219,16 @@ pollAndEmit ::
   Text -> -- Search ID
   IORef (Set.Set (Text, Text)) -> -- Emitted candidates (username, directory)
   IORef [SlskdAlbumCandidate] -> -- All candidates found
+  Int -> -- Timeout in seconds (poll budget; the caller races a hard timeout too)
   Int -> -- Minimum track count for a candidate to be considered
   (SlskdAlbumCandidate -> IO ()) -> -- Callback
   IO (Either Text ())
-pollAndEmit le client searchId emittedRef allCandidatesRef minTrackCount onCandidate = go 0
+pollAndEmit le client searchId emittedRef allCandidatesRef timeoutSecs minTrackCount onCandidate = go 0
   where
     -- Poll interval: 1.5 seconds
     pollIntervalMicros = 1500000
-    -- Max polls before giving up (60 seconds / 1.5 = 40 polls)
-    maxPolls = 40 :: Int
+    -- Poll budget derived from the caller's timeout so the two agree
+    maxPolls = max 1 ((timeoutSecs * 1000000) `div` pollIntervalMicros)
 
     go pollCount
       | pollCount >= maxPolls = pure $ Left "Search polling exceeded max attempts"
@@ -313,13 +314,14 @@ pollSearchCompletion ::
   LogEnv ->
   SlskdClient ->
   Text -> -- Search ID
+  Int -> -- Timeout in seconds (poll budget; the caller races a hard timeout too)
   IO (Either Text SlskdSearchResponse)
-pollSearchCompletion le client searchId = go 0
+pollSearchCompletion le client searchId timeoutSecs = go 0
   where
     -- Poll interval: 500ms
     pollIntervalMicros = 500000
-    -- Max polls before giving up (60 seconds / 0.5 = 120 polls)
-    maxPolls = 120 :: Int
+    -- Poll budget derived from the caller's timeout so the two agree
+    maxPolls = max 1 ((timeoutSecs * 1000000) `div` pollIntervalMicros)
 
     go pollCount
       | pollCount >= maxPolls = pure $ Left "Search polling exceeded max attempts"
@@ -357,17 +359,14 @@ groupResultsByAlbum :: Int -> SlskdSearchResponse -> [SlskdAlbumCandidate]
 groupResultsByAlbum minTrackCount response =
   let allUserResults = ssResponses response
 
-      -- For each user, group their files by directory
-      userCandidates = concatMap groupUserFiles allUserResults
-
-      -- Filter out candidates with too few tracks (below the configured minimum)
-      -- and sort by quality score
-      validCandidates = filter (\c -> sacTrackCount c >= minTrackCount) userCandidates
-   in sortBy compareCandidates validCandidates
+      -- For each user, group their files by directory; candidates below the
+      -- configured minimum track count are dropped during grouping
+      userCandidates = concatMap (groupUserFiles minTrackCount) allUserResults
+   in sortBy compareCandidates userCandidates
 
 -- | Group a single user's files by directory.
-groupUserFiles :: SlskdSearchResult -> [SlskdAlbumCandidate]
-groupUserFiles result =
+groupUserFiles :: Int -> SlskdSearchResult -> [SlskdAlbumCandidate]
+groupUserFiles minTrackCount result =
   let username = ssrUsername result
       files = filter (not . sfIsLocked) (ssrFiles result)
 
@@ -391,7 +390,7 @@ groupUserFiles result =
     mkCandidate username userResult (dir, dirFiles) =
       let audioFiles = filter isAudioFile dirFiles
           trackCount = length audioFiles
-       in if trackCount >= 3
+       in if trackCount >= minTrackCount
             then
               Just
                 SlskdAlbumCandidate
