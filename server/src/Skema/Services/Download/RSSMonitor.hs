@@ -19,6 +19,7 @@ module Skema.Services.Download.RSSMonitor
   ) where
 
 import Control.Concurrent (threadDelay)
+import qualified Control.Concurrent.STM as STM
 import Control.Exception (try)
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime)
 import qualified Data.Text as T
@@ -293,8 +294,8 @@ processRSSReleases _pool releases wantedAlbums = do
       pure (bestRelease, album)
 
 -- | Run the RSS monitoring service
-runRSSMonitor :: LogEnv -> EventBus -> ConnectionPool -> HttpClient -> Clock -> Config -> IO ()
-runRSSMonitor le bus pool httpClient clock config = do
+runRSSMonitor :: LogEnv -> EventBus -> ConnectionPool -> HttpClient -> Clock -> STM.TVar Config -> IO ()
+runRSSMonitor le bus pool httpClient clock configVar = do
   let initialContext = ()
   let initialNamespace = "rss-monitor"
 
@@ -302,6 +303,8 @@ runRSSMonitor le bus pool httpClient clock config = do
     $(logTM) InfoS "Starting RSS monitoring service"
 
     forever $ do
+      -- Read live config each cycle so indexer changes apply without a restart
+      config <- liftIO $ STM.readTVarIO configVar
       -- Check if RSS monitoring is enabled
       settings <- liftIO $ getRSSSettings pool
 

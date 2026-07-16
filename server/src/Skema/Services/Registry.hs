@@ -333,7 +333,7 @@ startAllServices le bus pool config cacheDir configPath = do
     liftIO $ registerAsync asyncRegistry "Download.Monitor" downloadMonitorHandle
 
     $(logTM) InfoS $ logStr ("Starting RSS Monitor service..." :: Text)
-    rssMonitorHandle <- liftIO $ async $ runRSSMonitor le bus pool httpClient (scClock ctx) config
+    rssMonitorHandle <- liftIO $ async $ runRSSMonitor le bus pool httpClient (scClock ctx) (scConfigVar ctx)
     liftIO $ registerAsync asyncRegistry "Download.RSSMonitor" rssMonitorHandle
 
     $(logTM) InfoS $ logStr ("Starting slskd Monitor service..." :: Text)
