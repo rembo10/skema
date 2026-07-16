@@ -2,34 +2,23 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TypeOperators #-}
 
 -- | Simple, pragmatic config schema system.
 --
 -- Philosophy:
 -- - Record types ARE the source of truth for structure
--- - Metadata is attached via a simple list (checked at startup)
--- - Generic provides defaults, merge, JSON
--- - Env vars are explicit per-field
+-- - Metadata is attached via a simple list per section
+-- - The schema drives the /api/config/schema endpoint, the example YAML,
+--   and the generated frontend artifacts
 --
 -- Usage:
 -- @
--- data LibraryConfig = LibraryConfig
---   { libraryPath :: Maybe OsPath
---   , libraryWatch :: Bool
---   , libraryPathFormat :: Text
---   } deriving (Generic, Show, Eq)
---
--- instance Default LibraryConfig  -- Uses Generic
--- instance Mergeable LibraryConfig  -- Uses Generic
---
 -- librarySchema :: Schema
 -- librarySchema = schema "library" "Library configuration"
---   [ "path"        .:: "Path to music library" & envVar "SKEMA_LIBRARY_PATH"
---   , "watch"       .:: "Watch for file changes" & envVar "SKEMA_LIBRARY_WATCH"
+--   [ "path"        .:: "Path to music library" & pathField
+--   , "watch"       .:: "Watch for file changes" & boolField
 --   , "path_format" .:: "Directory structure format"
 --   ]
 -- @
@@ -39,9 +28,6 @@ module Skema.Config.Schema
     -- * Field metadata
   , FieldMeta(..)
   , (.::)
-  , envVar
-  , cliFlag
-  , cliShort
   , example
   , sensitive
   , required
@@ -59,12 +45,6 @@ module Skema.Config.Schema
   , Schema(..)
   , schema
   , schemaToJSON
-    -- * Default values (Generic)
-  , Default(..)
-  , GDefault(..)
-    -- * Merging (Generic)
-  , Mergeable(..)
-  , GMergeable(..)
     -- * Documentation
   , generateExampleYaml
   , generateFullYaml
@@ -83,7 +63,6 @@ module Skema.Config.Schema
   , allSchemas
   ) where
 
-import GHC.Generics
 import qualified Data.Text as T
 import Data.Char (toUpper, isAlphaNum)
 import Data.Aeson (ToJSON(..), object, (.=), Value)
@@ -168,18 +147,6 @@ name .:: helpText = FieldMeta
 
 infixl 8 .::
 
--- | Add environment variable
-envVar :: Text -> FieldMeta -> FieldMeta
-envVar var fm = fm { fmEnvVar = Just var }
-
--- | Add CLI flag
-cliFlag :: Text -> FieldMeta -> FieldMeta
-cliFlag flag fm = fm { fmCliFlag = Just flag }
-
--- | Add CLI short flag
-cliShort :: Char -> FieldMeta -> FieldMeta
-cliShort c fm = fm { fmCliShort = Just c }
-
 -- | Set default value (shown in YAML)
 example :: Text -> FieldMeta -> FieldMeta
 example ex fm = fm { fmExample = Just ex }
@@ -263,104 +230,6 @@ schemaToJSON schemas = object
       ]
   | s <- schemas
   ]
-
--- =============================================================================
--- Default values via Generic
--- =============================================================================
-
-class Default a where
-  def :: a
-  default def :: (Generic a, GDefault (Rep a)) => a
-  def = to gDef
-
-class GDefault f where
-  gDef :: f p
-
-instance GDefault U1 where
-  gDef = U1
-
-instance (GDefault a, GDefault b) => GDefault (a :*: b) where
-  gDef = gDef :*: gDef
-
-instance GDefault a => GDefault (M1 i c a) where
-  gDef = M1 gDef
-
-instance Default a => GDefault (K1 i a) where
-  gDef = K1 def
-
--- Base instances
-instance Default Bool where def = False
-instance Default Int where def = 0
-instance Default Integer where def = 0
-instance Default Text where def = ""
-instance Default String where def = ""
-instance Default (Maybe a) where def = Nothing
-instance Default [a] where def = []
-
--- =============================================================================
--- Merging via Generic (second wins)
--- =============================================================================
-
-class Mergeable a where
-  -- | Merge two configs. For Maybe fields, Just wins over Nothing.
-  -- For other fields, second wins.
-  merge :: a -> a -> a
-  default merge :: (Generic a, GMergeable (Rep a)) => a -> a -> a
-  merge a b = to $ gMerge (from a) (from b)
-
-class GMergeable f where
-  gMerge :: f p -> f p -> f p
-
-instance GMergeable U1 where
-  gMerge _ _ = U1
-
-instance (GMergeable a, GMergeable b) => GMergeable (a :*: b) where
-  gMerge (a1 :*: b1) (a2 :*: b2) = gMerge a1 a2 :*: gMerge b1 b2
-
-instance GMergeable a => GMergeable (M1 i c a) where
-  gMerge (M1 a) (M1 b) = M1 (gMerge a b)
-
--- For Maybe, prefer Just
-instance GMergeable (K1 i (Maybe a)) where
-  gMerge (K1 Nothing) (K1 b) = K1 b
-  gMerge (K1 a) (K1 Nothing) = K1 a
-  gMerge _ (K1 b) = K1 b  -- Both Just: take second
-
--- For other types, second wins
-instance {-# OVERLAPPABLE #-} GMergeable (K1 i a) where
-  gMerge _ (K1 b) = K1 b
-
--- =============================================================================
--- Environment variable loading
--- =============================================================================
-
--- | Type class for loading a field from a string
-class FieldLoader a where
-  loadField :: Text -> Maybe a
-
-instance FieldLoader Text where
-  loadField = Just
-
-instance FieldLoader String where
-  loadField = Just . toString
-
-instance FieldLoader Int where
-  loadField = readMaybe . toString
-
-instance FieldLoader Bool where
-  loadField t = case T.toLower t of
-    "true" -> Just True
-    "1" -> Just True
-    "yes" -> Just True
-    "false" -> Just False
-    "0" -> Just False
-    "no" -> Just False
-    _ -> Nothing
-
-instance FieldLoader a => FieldLoader (Maybe a) where
-  loadField t
-    | T.null t = Just Nothing
-    | otherwise = Just <$> loadField t
 
 -- =============================================================================
 -- Documentation generation
