@@ -75,6 +75,18 @@ parseQualityTests = testGroup "parseQuality"
   , testCase "24bit FLAC -> Just HiResLossless" $
       parseQuality "24bit FLAC" @?= Just HiResLossless
 
+  , testCase "APE tag -> Just Lossless" $
+      parseQuality "Artist - Album [APE]" @?= Just Lossless
+
+  , testCase "Mixtape does not read as APE" $
+      parseQuality "Artist - The Mixtape" @?= Nothing
+
+  , testCase "year 1920 does not read as 192kbps" $
+      parseQuality "Artist - 1920 (Remaster)" @?= Nothing
+
+  , testCase "MP3-320 tag -> Just MP3_320" $
+      parseQuality "Artist - Album MP3-320" @?= Just MP3_320
+
   , testCase "random text -> Nothing" $
       parseQuality "random text" @?= Nothing
   ]

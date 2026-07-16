@@ -36,6 +36,7 @@ module Skema.Domain.Quality
   ) where
 
 import GHC.Generics ()
+import Data.Char (isAlphaNum)
 import qualified Data.Text as T
 import Data.Aeson (ToJSON(..), FromJSON(..), object, (.=), withObject, (.:), withText)
 import qualified Data.Aeson as Aeson
@@ -207,27 +208,31 @@ parseQuality :: Text -> Maybe Quality
 parseQuality text =
   let lower = T.toLower text
       hasWord w = w `T.isInfixOf` lower
+      -- Tokens are runs of alphanumeric characters, so tags like "[APE]",
+      -- "MP3-320", or "V0" match while "Mixtape" and "1920" do not
+      tokens = filter (not . T.null) $ T.split (not . isAlphaNum) lower
+      hasToken w = w `elem` tokens
 
       -- Check for hi-res indicators
       isHiRes = hasWord "24bit" || hasWord "24-bit" || hasWord "24 bit"
-             || hasWord "96khz" || hasWord "192khz" || hasWord "dsd"
-             || hasWord "sacd" || hasWord "24/96" || hasWord "24/192"
+             || hasWord "96khz" || hasWord "192khz" || hasToken "dsd"
+             || hasToken "sacd" || hasWord "24/96" || hasWord "24/192"
 
       -- Check for lossless formats
       isFlac = hasWord "flac"
       isAlac = hasWord "alac"
-      isApe = hasWord "ape" || hasWord "monkey"
+      isApe = hasToken "ape" || hasWord "monkey"
       isLossless = isFlac || isAlac || isApe || hasWord "lossless"
 
       -- Check for MP3 bitrates
-      is320 = hasWord "320" || hasWord "cbr320"
-      is256 = hasWord "256" || hasWord "cbr256"
-      is192 = hasWord "192" || hasWord "cbr192"
+      is320 = hasToken "320" || hasWord "320kbps" || hasToken "cbr320"
+      is256 = hasToken "256" || hasWord "256kbps" || hasToken "cbr256"
+      is192 = hasToken "192" || hasWord "192kbps" || hasToken "cbr192"
 
       -- Check for VBR
-      isV0 = (hasWord "v0" || hasWord "vbr0" || hasWord "vbr 0")
+      isV0 = (hasToken "v0" || hasWord "vbr0" || hasWord "vbr 0")
           && not (hasWord "vbr2")  -- Exclude VBR2
-      isV2 = hasWord "v2" || hasWord "vbr2" || hasWord "vbr 2"
+      isV2 = hasToken "v2" || hasWord "vbr2" || hasWord "vbr 2"
 
   in case () of
        _ | isHiRes && isLossless -> Just HiResLossless
@@ -259,8 +264,12 @@ detectQualityFromAudio metadata =
        -- Lossless formats
        Monatone.FLAC | isHiRes -> HiResLossless
                      | otherwise -> Lossless
-       Monatone.M4A | isHiRes -> HiResLossless  -- Assume ALAC for now
-                    | otherwise -> Lossless
+       -- M4A containers hold either ALAC (lossless) or AAC (lossy) and the
+       -- metadata reader does not expose which codec is present. Hi-res audio
+       -- can only be ALAC; otherwise the quality is honestly unknown rather
+       -- than assumed lossless.
+       Monatone.M4A | isHiRes -> HiResLossless
+                    | otherwise -> Unknown
 
        -- Lossy formats (MP3, OGG, Opus)
        _ -> case bitrate of

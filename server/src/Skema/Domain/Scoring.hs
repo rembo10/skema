@@ -13,6 +13,7 @@ module Skema.Domain.Scoring
 
 import qualified Data.Text as T
 
+import Skema.Domain.Quality (Quality(..), parseQuality)
 import Skema.Indexer.Types (ReleaseInfo(..), DownloadType(..))
 
 -- | Rank releases by descending score. Pass the target album title to
@@ -40,17 +41,14 @@ scoreRelease maybeAlbumTitle ReleaseInfo{..} =
         Just s | s > 0 -> 150
         _              -> 100
 
-    titleLower = T.toLower riTitle
-    hasFlac = "flac" `T.isInfixOf` titleLower
-    hasLossless = hasFlac || "alac" `T.isInfixOf` titleLower || "ape" `T.isInfixOf` titleLower
-    has320 = "320" `T.isInfixOf` titleLower
-    hasV0 = " v0" `T.isInfixOf` titleLower || "-v0" `T.isInfixOf` titleLower
-
-    qualityBonus
-      | hasLossless = 1000
-      | has320      = 600
-      | hasV0       = 400
-      | otherwise   = 0
+    -- Delegate title parsing to the one quality parser so the bonus cannot
+    -- disagree with how the rest of the system reads the same title
+    qualityBonus = case parseQuality riTitle of
+      Just q
+        | q >= Lossless -> 1000
+        | q == MP3_320  -> 600
+        | q == VBR0     -> 400
+      _ -> 0
 
     seedScore = case riSeeders of
       Just s -> min 500 (s * 10)
