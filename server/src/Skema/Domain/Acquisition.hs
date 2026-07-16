@@ -35,6 +35,7 @@ module Skema.Domain.Acquisition
   , shouldProcessArtistById
   , shouldIncludeReleaseGroup
   , mbReleaseGroupIsUpcoming
+  , releaseDateIsUpcoming
   , matchesMetacriticFilters
   , matchesPitchforkFilters
   , evaluateLibraryArtistsAlbumFilters
@@ -513,15 +514,25 @@ matchesPitchforkFilters PitchforkFilters{..} score =
     (Just _, Nothing) -> False
     (Just threshold, Just s) -> s >= threshold
 
+-- | Whether a possibly partial MusicBrainz release date (YYYY, YYYY-MM, or
+-- YYYY-MM-DD) is in the future. Partial dates are padded to the end of the
+-- period they denote, so a year-only date counts as upcoming until that
+-- year has fully passed instead of comparing lexicographically shorter
+-- (and therefore always "released").
+releaseDateIsUpcoming :: UTCTime -> Text -> Bool
+releaseDateIsUpcoming now dateStr =
+  let today = T.take 10 (show now)  -- Get YYYY-MM-DD part
+      padded = case T.length dateStr of
+        4 -> dateStr <> "-12-31"
+        7 -> dateStr <> "-31"
+        _ -> dateStr
+  in padded > today
+
 -- | Check if a release group is upcoming (release date in the future).
 mbReleaseGroupIsUpcoming :: UTCTime -> MBReleaseGroup -> Bool
-mbReleaseGroupIsUpcoming _now rg = case mbrgFirstReleaseDate rg of
+mbReleaseGroupIsUpcoming now rg = case mbrgFirstReleaseDate rg of
   Nothing -> False  -- No release date, not upcoming
-  Just dateStr ->
-    -- Parse date string (YYYY-MM-DD format)
-    -- For simplicity, compare as strings (works for ISO 8601 dates)
-    let today = T.take 10 (show _now)  -- Get YYYY-MM-DD part
-    in dateStr > today
+  Just dateStr -> releaseDateIsUpcoming now dateStr
 
 -- | Evaluate LibraryArtists filters against a catalog album to decide
 -- whether it should be wanted. Combines an album-type check with a
@@ -540,10 +551,7 @@ evaluateLibraryArtistsAlbumFilters filters now album =
       -- Check if release status matches filter
       isUpcoming = case catalogAlbumFirstReleaseDate album of
         Nothing -> False  -- No release date, not upcoming
-        Just dateStr ->
-          -- Compare ISO 8601 date strings (YYYY-MM-DD format)
-          let today = T.take 10 (show now)
-          in dateStr > today
+        Just dateStr -> releaseDateIsUpcoming now dateStr
 
       releaseStatusMatch = case lafReleaseStatus filters of
         Nothing -> isUpcoming  -- Default: only upcoming albums (backward compatible)

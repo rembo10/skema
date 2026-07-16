@@ -18,7 +18,28 @@ tests = testGroup "Unit.Domain.Acquisition"
   [ metacriticFiltersTests
   , pitchforkFiltersTests
   , libraryArtistsFiltersTests
+  , releaseDateTests
   , sourceEvaluatorHelperTests
+  ]
+
+-- =============================================================================
+-- releaseDateIsUpcoming
+-- =============================================================================
+
+releaseDateTests :: TestTree
+releaseDateTests = testGroup "releaseDateIsUpcoming"
+  [ testCase "full dates compare by day" $ do
+      releaseDateIsUpcoming referenceNow "2025-12-01" @?= True
+      releaseDateIsUpcoming referenceNow "2025-01-01" @?= False
+
+  , testCase "year-only date is upcoming until the year has passed" $ do
+      releaseDateIsUpcoming referenceNow "2025" @?= True
+      releaseDateIsUpcoming referenceNow "2026" @?= True
+      releaseDateIsUpcoming referenceNow "2024" @?= False
+
+  , testCase "year-month date is upcoming until the month has passed" $ do
+      releaseDateIsUpcoming referenceNow "2025-06" @?= True
+      releaseDateIsUpcoming referenceNow "2025-05" @?= False
   ]
 
 -- =============================================================================
