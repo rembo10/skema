@@ -76,25 +76,25 @@ publishAndLog
   -> Event
   -> IO ()
 publishAndLog bus le source evt = do
-  -- Get next sequence number atomically
-  seqNum <- STM.atomically $ do
+  -- Generate id/timestamp in IO, then allocate the sequence number and
+  -- publish in a single transaction so channel order matches sequence order
+  -- even with concurrent publishers
+  templateEnvelope <- mkEventWithSequence source evt 0
+  envelope <- STM.atomically $ do
     n <- readTVar (busSequence bus)
     modifyTVar' (busSequence bus) (+1)
-    pure n
-
-  -- Create envelope with sequence number
-  envelope <- mkEventWithSequence source evt seqNum
+    let sequenced = templateEnvelope
+          { envelopeMetadata = (envelopeMetadata templateEnvelope) { eventSequence = n } }
+    publish bus sequenced
+    pure sequenced
 
   -- Log all events at debug level
   let initialContext = ()
   let initialNamespace = "events"
   Katip.runKatipContextT le initialContext initialNamespace $ do
-    let EventMetadata{eventSequence = seqNum'} = envelopeMetadata envelope
+    let EventMetadata{eventSequence = seqNum} = envelopeMetadata envelope
     $(Katip.logTM) DebugS $ logStr $
-      "[events] #" <> show seqNum' <> " " <> eventType evt <> " from " <> source
-
-  -- Publish to bus
-  STM.atomically $ publish bus envelope
+      "[events] #" <> show seqNum <> " " <> eventType evt <> " from " <> source
 
 -- | Wait for a specific event matching a predicate.
 --
