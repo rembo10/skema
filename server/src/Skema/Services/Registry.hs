@@ -33,11 +33,11 @@ import Skema.Services.TrashCleanup (startTrashCleanupService)
 import Skema.Events.Bus (EventBus, subscribe, publishAndLog)
 import Skema.Events.Types (Event(..), EventEnvelope(..))
 import Skema.Database.Connection (ConnectionPool)
-import Skema.Config.Types (Config(..), LibraryConfig(..))
+import Skema.Config.Types (Config(..), LibraryConfig(..), MusicBrainzConfig(..), MusicBrainzServer(..))
 import Skema.Config.Loader (loadConfigFromFile)
 import Skema.FileSystem.Utils (osPathToString)
 import Skema.MusicBrainz.Client (newMBClientEnv, MBClientEnv)
-import Skema.HTTP.Client (HttpClient, newHttpClient, defaultHttpConfig, defaultUserAgentData)
+import Skema.HTTP.Client (HttpClient, HttpConfig(..), newHttpClient, defaultHttpConfig, defaultUserAgentData, headphonesVIPDomainConfig)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Control.Concurrent (threadDelay)
@@ -147,9 +147,19 @@ startAllServices le bus pool config cacheDir configPath = do
     -- Create shared HTTP client for all services (ensures rate limiting, retries, auth)
     $(logTM) InfoS $ logStr ("Initializing HTTP client..." :: Text)
 
-    -- Use default HTTP config
-    -- Note: Both indexer and MusicBrainz auth are now handled per-request, not via domain config
-    httpClient <- liftIO $ newHttpClient le defaultHttpConfig defaultUserAgentData
+    -- Use the default HTTP config, extended with the Headphones VIP mirror's
+    -- rate limit (3 req/s instead of the generic 2) and credentials when that
+    -- MusicBrainz server is selected. Other auth is handled per-request.
+    let mbCfg = musicbrainz config
+    let httpConfig = case (mbServer mbCfg, mbUsername mbCfg, mbPassword mbCfg) of
+          (HeadphonesVIP, Just user, Just pw) ->
+            defaultHttpConfig
+              { httpDomainConfigs =
+                  Map.insert "musicbrainz.codeshy.com" (headphonesVIPDomainConfig user pw)
+                    (httpDomainConfigs defaultHttpConfig)
+              }
+          _ -> defaultHttpConfig
+    httpClient <- liftIO $ newHttpClient le httpConfig defaultUserAgentData
 
     $(logTM) InfoS $ logStr ("Initializing MusicBrainz API client..." :: Text)
     let mbEnv = newMBClientEnv httpClient (musicbrainz config)
