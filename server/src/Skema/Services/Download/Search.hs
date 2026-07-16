@@ -59,7 +59,9 @@ audioCategories = [3000, 3010, 3020]
 runSearchOrchestrator :: DownloadDeps -> IO ()
 runSearchOrchestrator deps = do
   chan <- STM.atomically $ subscribe (dlEventBus deps)
-  _ <- async $ forever $ do
+  -- Run the loop in this thread: the caller's async handle is registered for
+  -- shutdown, so the loop must live in it rather than an orphaned inner async
+  forever $ do
     envelope <- STM.atomically $ readTChan chan
     case envelopeEvent envelope of
       WantedAlbumAdded{..} -> do
@@ -84,7 +86,6 @@ runSearchOrchestrator deps = do
             Right () -> pure ()
         pure ()
       _ -> pure ()  -- Ignore other events
-  pure ()
 
 -- | Handle a download failure by looking up the album and auto-retrying with a new search.
 handleDownloadFailed :: DownloadDeps -> Int64 -> IO ()

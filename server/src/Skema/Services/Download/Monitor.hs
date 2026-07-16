@@ -19,7 +19,7 @@ import Skema.Database.Connection
 import Skema.Config.Types (Config(..))
 import Skema.DownloadClient.Types (DownloadClientAPI(..))
 import qualified Skema.DownloadClient.Types as DC
-import Control.Concurrent.Async (async)
+import Control.Concurrent.Async (concurrently_)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.STM (readTChan)
 import Control.Concurrent (threadDelay)
@@ -91,61 +91,61 @@ runDownloadMonitor DownloadDeps{..} = do
 
     -- Subscribe to events to maintain the count and reload clients on config changes
     eventChan <- liftIO $ STM.atomically $ subscribe bus
-    _ <- liftIO $ async $ forever $ do
-      envelope <- STM.atomically $ readTChan eventChan
-      case envelopeEvent envelope of
-        DownloadStarted{} -> do
-          -- Increment active download count
-          STM.atomically $ STM.modifyTVar' activeCountVar (+1)
+    let eventLoop = forever $ do
+          envelope <- STM.atomically $ readTChan eventChan
+          case envelopeEvent envelope of
+            DownloadStarted{} -> do
+              -- Increment active download count
+              STM.atomically $ STM.modifyTVar' activeCountVar (+1)
 
-        DownloadCompleted{} -> do
-          -- Decrement active download count
-          STM.atomically $ STM.modifyTVar' activeCountVar (\n -> max 0 (n - 1))
+            DownloadCompleted{} -> do
+              -- Decrement active download count
+              STM.atomically $ STM.modifyTVar' activeCountVar (\n -> max 0 (n - 1))
 
-        DownloadFailed{} -> do
-          -- Decrement active download count
-          STM.atomically $ STM.modifyTVar' activeCountVar (\n -> max 0 (n - 1))
+            DownloadFailed{} -> do
+              -- Decrement active download count
+              STM.atomically $ STM.modifyTVar' activeCountVar (\n -> max 0 (n - 1))
 
-        ConfigUpdated{} -> do
-          -- Config changed - recreate download client instances
-          runKatipContextT dlLogEnv () "download.monitor" $ do
-            $(logTM) InfoS "Config updated, recreating download client instances"
-          newConfig <- STM.atomically $ STM.readTVar dlConfigVar
-          let newDownloadCfg = download newConfig
-          newClients <- createClientInstances httpClient newDownloadCfg
-          runKatipContextT dlLogEnv () "download.monitor" $ do
-            $(logTM) InfoS $ logStr $ ("Created " <> show (length newClients) <> " client instances from updated config" :: Text)
-          STM.atomically $ STM.writeTVar clientsVar newClients
+            ConfigUpdated{} -> do
+              -- Config changed - recreate download client instances
+              runKatipContextT dlLogEnv () "download.monitor" $ do
+                $(logTM) InfoS "Config updated, recreating download client instances"
+              newConfig <- STM.atomically $ STM.readTVar dlConfigVar
+              let newDownloadCfg = download newConfig
+              newClients <- createClientInstances httpClient newDownloadCfg
+              runKatipContextT dlLogEnv () "download.monitor" $ do
+                $(logTM) InfoS $ logStr $ ("Created " <> show (length newClients) <> " client instances from updated config" :: Text)
+              STM.atomically $ STM.writeTVar clientsVar newClients
 
-        _ -> pure ()  -- Ignore other events
+            _ -> pure ()  -- Ignore other events
 
-    -- Spawn monitoring loop in background thread
-    _ <- liftIO $ async $ runKatipContextT dlLogEnv () "download.monitor" $ forever $ do
-      -- Read current client instances (only changes when config changes)
-      clients <- liftIO $ STM.atomically $ STM.readTVar clientsVar
+    let pollLoop = runKatipContextT dlLogEnv () "download.monitor" $ forever $ do
+          -- Read current client instances (only changes when config changes)
+          clients <- liftIO $ STM.atomically $ STM.readTVar clientsVar
 
-      -- Check if there are active downloads
-      activeCount <- liftIO $ STM.atomically $ STM.readTVar activeCountVar
+          -- Check if there are active downloads
+          activeCount <- liftIO $ STM.atomically $ STM.readTVar activeCountVar
 
-      $(logTM) DebugS $ logStr $ ("Monitor loop: activeCount=" <> show activeCount <> ", clients=" <> show (length clients) :: Text)
+          $(logTM) DebugS $ logStr $ ("Monitor loop: activeCount=" <> show activeCount <> ", clients=" <> show (length clients) :: Text)
 
-      if activeCount > 0 && not (null clients)
-        then do
-          -- Active downloads exist - poll every 1 second for real-time updates
-          $(logTM) DebugS $ logStr $ ("Checking " <> show (length clients) <> " clients..." :: Text)
-          forM_ clients $ \(clientName, client) ->
-            liftIO $ checkAndUpdateDownloads dlLogEnv dlClock bus pool dlProgressMap clientName client
+          if activeCount > 0 && not (null clients)
+            then do
+              -- Active downloads exist - poll every 1 second for real-time updates
+              $(logTM) DebugS $ logStr $ ("Checking " <> show (length clients) <> " clients..." :: Text)
+              forM_ clients $ \(clientName, client) ->
+                liftIO $ checkAndUpdateDownloads dlLogEnv dlClock bus pool dlProgressMap clientName client
 
-          -- Sleep briefly to provide real-time updates to frontend
-          liftIO $ threadDelay activePollingIntervalMicros
+              -- Sleep briefly to provide real-time updates to frontend
+              liftIO $ threadDelay activePollingIntervalMicros
 
-        else do
-          -- No active downloads or no clients - just sleep and check again later
-          $(logTM) DebugS "No active downloads or no clients, sleeping..."
-          liftIO $ threadDelay idlePollingIntervalMicros
+            else do
+              -- No active downloads or no clients - just sleep and check again later
+              $(logTM) DebugS "No active downloads or no clients, sleeping..."
+              liftIO $ threadDelay idlePollingIntervalMicros
 
-    pure ()
-  pure ()
+    -- Run both loops under this thread: the caller's async handle is
+    -- registered for shutdown, so cancelling it must stop them too
+    liftIO $ concurrently_ eventLoop pollLoop
 
 -- | Check all downloads for a specific client and update database
 checkAndUpdateDownloads :: LogEnv -> Clock -> EventBus -> ConnectionPool -> STM.TVar (Map.Map Int64 (Double, Text)) -> Text -> DownloadClientInstance -> IO ()
