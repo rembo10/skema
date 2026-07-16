@@ -73,8 +73,14 @@ findClusterByHash conn hash = do
 -- | Create a new cluster.
 createCluster :: SQLite.Connection -> Text -> Maybe Text -> Maybe Text -> Int -> IO Int64
 createCluster conn hash album albumArtist trackCount =
+  -- Upsert on the unique hash: a concurrent creator (grouper vs importer)
+  -- racing on the same hash gets the existing row instead of an exception
   insertReturningId conn
-    "INSERT INTO clusters (metadata_hash, album, album_artist, track_count) VALUES (?, ?, ?, ?) RETURNING id"
+    "INSERT INTO clusters (metadata_hash, album, album_artist, track_count) VALUES (?, ?, ?, ?) \
+    \ON CONFLICT(metadata_hash) DO UPDATE SET \
+    \  track_count = excluded.track_count, \
+    \  updated_at = CURRENT_TIMESTAMP \
+    \RETURNING id"
     (hash, album, albumArtist, trackCount)
 
 -- | Resolve the catalog_albums.id for a given release group MBID, if any.

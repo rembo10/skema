@@ -39,16 +39,17 @@ startGrouperService deps = do
     envelope <- STM.atomically $ readTChan chan
     case envelopeEvent envelope of
       MetadataReadComplete{..} -> do
-        -- Process each grouping request asynchronously with error handling
-        _ <- async $ do
-          result <- try $ handleMetadataReadComplete deps filesProcessed
-          case result of
-            Left (e :: SomeException) -> do
-              let le = groupLogEnv deps
-              runKatipContextT le () "grouper.error" $ do
-                $(logTM) ErrorS $ logStr $ ("Exception during grouping: " <> show e :: Text)
-            Right () -> pure ()
-        pure ()
+        -- Process grouping requests sequentially in this thread: a regroup
+        -- reassigns cluster_ids and prunes empty clusters across the whole
+        -- library, so two running concurrently race against each other.
+        -- Later events simply queue on the channel until this one finishes.
+        result <- try $ handleMetadataReadComplete deps filesProcessed
+        case result of
+          Left (e :: SomeException) -> do
+            let le = groupLogEnv deps
+            runKatipContextT le () "grouper.error" $ do
+              $(logTM) ErrorS $ logStr $ ("Exception during grouping: " <> show e :: Text)
+          Right () -> pure ()
       _ -> pure ()  -- Ignore other events
 
 -- | Handle metadata read complete event.
