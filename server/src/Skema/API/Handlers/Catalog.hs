@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -20,34 +21,30 @@ import qualified Skema.Database.Types as DBTypes
 import Database.SQLite.Simple (Only(..))
 import qualified Skema.Config.Types as Cfg
 import Skema.Services.Download.Cancel (cancelDownload)
+import Skema.Services.Download.Search (StreamEvent(..), streamReleaseSearch)
 import Skema.MusicBrainz.Client (searchArtists, searchReleaseGroups, getRelease, getReleaseGroup, getReleaseGroupReleases, pickRepresentativeRelease, prettyClientError)
 import Skema.MusicBrainz.Types (MBRelease(..), MBReleaseGroup(..), MBMedium(..), MBTrack(..), mbasArtists, mbasArtistId, mbrgsReleaseGroups, mbrgsReleaseGroupId, MBID(..), unMBID)
 import Skema.API.Converters (mbArtistSearchToCatalogResponse, mbReleaseGroupSearchToCatalogResponse)
 import Skema.API.Types.Common (timestampToText)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
-import Skema.Indexer.Client (searchIndexer)
-import Skema.Indexer.Types (SearchQuery(..), ReleaseInfo(..), IndexerResult(..), DownloadType(..))
+import Skema.Indexer.Types (SearchQuery(..), ReleaseInfo(..), DownloadType(..))
 import qualified Skema.Indexer.Types as Indexer
-import Skema.Slskd.Client (createSlskdClient)
-import Skema.Slskd.Search (searchSlskdStreaming, slskdCandidateToReleaseInfo)
 import Skema.Domain.Quality (qualityToText, textToQuality)
 import qualified Skema.Domain.Quality as Qual
-import Control.Concurrent.Async (async, wait)
+import Control.Concurrent.Async (async)
 import Data.Aeson (toJSON, object, (.=), decodeStrict)
 import Servant hiding (SourceIO)
-import Skema.API.App (Env(..), AppM)
+import Skema.API.App (Env(..), AppM, toServiceContext)
 import Servant.Types.SourceT (SourceT(..), StepT(..))
 import Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan, readTChan)
-import qualified Data.IORef as IORef
-import Data.Time (getCurrentTime, diffUTCTime)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TE
 import qualified Control.Concurrent.STM as STM
 
 -- | Catalog API handlers.
 catalogServer :: Env -> ServerT CatalogAPI AppM
-catalogServer Env{envLogEnv = le, envEventBus = bus, envJwtSecret = jwtSecret, envTaskManager = tm, envDbPool = connPool, envConfigVar = configVar, envMBClient = mbClient, envHttpClient = httpClient} =
+catalogServer env@Env{envLogEnv = le, envEventBus = bus, envJwtSecret = jwtSecret, envTaskManager = tm, envDbPool = connPool, envConfigVar = configVar, envMBClient = mbClient, envHttpClient = httpClient} =
   taskHandler
   :<|> queryHandler
   :<|> getArtistsHandler
@@ -71,62 +68,40 @@ catalogServer Env{envLogEnv = le, envEventBus = bus, envJwtSecret = jwtSecret, e
       -- Create task based on request type
       case taskRequestType req of
         "refresh" -> case taskRequestResourceId req of
-          Nothing -> throwError err400 { errBody = "Artist ID required for refresh task" }
-          Just artistId -> liftIO $ do
-            -- Create the task
-            taskResp <- TM.createTask tm CatalogResource (Just artistId) "refresh"
-            let taskId = taskResponseId taskResp
+          Nothing -> throw400 "Artist ID required for refresh task"
+          Just artistId -> TM.startTask tm CatalogResource (Just artistId) "refresh" $ \taskId -> do
+            -- Get artist by ID to find MBID
+            maybeArtist <- withConnection connPool $ \conn ->
+              DB.getCatalogArtistById conn artistId
+            case maybeArtist of
+              Nothing ->
+                TM.failTask tm taskId $ "Artist not found: " <> show artistId
+              Just artist -> do
+                EventBus.publishAndLog bus le "api.catalog.task" $ Events.CatalogArtistRefreshRequested
+                  { Events.refreshArtistMBID = DBTypes.catalogArtistMBID artist
+                  }
+                TM.completeTask tm taskId (Just $ toJSON $ object
+                  [ "message" .= ("Artist catalog refresh requested for: " <> DBTypes.catalogArtistName artist :: Text)
+                  , "artist_mbid" .= DBTypes.catalogArtistMBID artist
+                  ])
 
-            -- Spawn async worker to execute the refresh
-            _ <- async $ do
-              -- Get artist by ID to find MBID
-              maybeArtist <- withConnection connPool $ \conn ->
-                DB.getCatalogArtistById conn artistId
-              case maybeArtist of
-                Nothing -> do
-                  TM.failTask tm taskId $ "Artist not found: " <> show artistId
-                Just artist -> do
-                  TM.updateTaskProgress tm taskId 0.3 (Just "Emitting refresh event...")
-                  -- Emit refresh event
-                  EventBus.publishAndLog bus le "api.catalog.task" $ Events.CatalogArtistRefreshRequested
-                    { Events.refreshArtistMBID = DBTypes.catalogArtistMBID artist
-                    }
-                  TM.completeTask tm taskId (Just $ toJSON $ object
-                    [ "message" .= ("Artist catalog refresh requested for: " <> DBTypes.catalogArtistName artist :: Text)
-                    , "artist_mbid" .= DBTypes.catalogArtistMBID artist
-                    ])
+        "refresh_all" -> TM.startTask tm CatalogResource Nothing "refresh_all" $ \taskId -> do
+          TM.updateTaskProgress tm taskId 0.2 (Just "Fetching followed artists...")
+          followedArtists <- withConnection connPool $ \conn ->
+            DB.getCatalogArtists conn (Just True) Nothing Nothing Nothing
 
-            pure taskResp
+          let totalArtists = length followedArtists
+          forM_ followedArtists $ \artist ->
+            EventBus.publishAndLog bus le "api.catalog.task" $ Events.CatalogArtistRefreshRequested
+              { Events.refreshArtistMBID = DBTypes.catalogArtistMBID artist
+              }
 
-        "refresh_all" -> liftIO $ do
-          -- Create the task
-          taskResp <- TM.createTask tm CatalogResource Nothing "refresh_all"
-          let taskId = taskResponseId taskResp
+          TM.completeTask tm taskId (Just $ toJSON $ object
+            [ "message" .= ("Catalog refresh requested for " <> show totalArtists <> " artists" :: Text)
+            , "artists_count" .= totalArtists
+            ])
 
-          -- Spawn async worker to execute the refresh
-          _ <- async $ do
-            TM.updateTaskProgress tm taskId 0.2 (Just "Fetching followed artists...")
-            -- Get all followed artists
-            followedArtists <- withConnection connPool $ \conn ->
-              DB.getCatalogArtists conn (Just True) Nothing Nothing Nothing
-
-            let totalArtists = length followedArtists
-            TM.updateTaskProgress tm taskId 0.4 (Just $ "Emitting refresh events for " <> show totalArtists <> " artists...")
-
-            -- Emit refresh event for each
-            forM_ followedArtists $ \artist ->
-              EventBus.publishAndLog bus le "api.catalog.task" $ Events.CatalogArtistRefreshRequested
-                { Events.refreshArtistMBID = DBTypes.catalogArtistMBID artist
-                }
-
-            TM.completeTask tm taskId (Just $ toJSON $ object
-              [ "message" .= ("Catalog refresh requested for " <> show totalArtists <> " artists" :: Text)
-              , "artists_count" .= totalArtists
-              ])
-
-          pure taskResp
-
-        _ -> throwError err400 { errBody = "Unknown task type" }
+        _ -> throw400 "Unknown task type"
     -- Universal search handler - searches both artists and albums
     queryHandler :: Text -> Maybe Int -> AppM CatalogQueryResponse
     queryHandler query maybeLimit = do
@@ -1053,74 +1028,21 @@ catalogServer Env{envLogEnv = le, envEventBus = bus, envJwtSecret = jwtSecret, e
       Int64 ->
       SourceIO ReleaseStreamEvent
     streamSearchResults indexers maybeSlskd query albumId = SourceT $ \k -> k $ Effect $ do
-      -- Create a channel for results
+      -- The search engine lives in the download service; this handler only
+      -- bridges its events into the SSE stream as response DTOs
       chan <- newTChanIO
-
-      startTime <- getCurrentTime
-
-      -- Start all searches concurrently, writing results to channel
-      _ <- async $ do
-
-        -- Search indexers concurrently
-        indexerSearches <- forM indexers $ \indexer -> async $ do
-          let indexerName = Cfg.indexerName indexer
-          STM.atomically $ writeTChan chan (SearchStarted indexerName)
-          result <- searchIndexer httpClient indexer query
-          case result of
-            Left err -> do
-              STM.atomically $ writeTChan chan (SearchError indexerName (show err))
-            Right indexerResult -> do
-              let releases = irReleases indexerResult
-              now <- getCurrentTime
-              forM_ releases $ \release -> do
-                -- Cache the release so the UI can render it instantly next time
-                withConnection connPool $ \conn ->
-                  DB.upsertCachedRelease conn albumId indexerName "search" now release
-                let response = releaseInfoToResponse indexerName release
-                STM.atomically $ writeTChan chan (ReleaseFound response indexerName)
-              STM.atomically $ writeTChan chan (SearchCompleted indexerName (length releases))
-
-        -- Search slskd if enabled (streaming version - emits results as found)
-        case maybeSlskd of
-          Just slskdConfig | Cfg.slskdEnabled slskdConfig -> do
-            let indexerName = "slskd"
-            STM.atomically $ writeTChan chan (SearchStarted indexerName)
-            let client = createSlskdClient slskdConfig httpClient
-            let artistName = fromMaybe "" (sqArtist query)
-            let albumName = fromMaybe "" (sqAlbum query)
-
-            -- Use streaming search - emit each candidate as it's found
-            let minTrackCount = Cfg.slskdMinTrackCount slskdConfig
-            resultCountRef <- IORef.newIORef (0 :: Int)
-            result <- searchSlskdStreaming le client artistName albumName 60 minTrackCount $ \candidate -> do
-              let release = slskdCandidateToReleaseInfo candidate
-              now <- getCurrentTime
-              withConnection connPool $ \conn ->
-                DB.upsertCachedRelease conn albumId indexerName "search" now release
-              let response = releaseInfoToResponse indexerName release
-              STM.atomically $ writeTChan chan (ReleaseFound response indexerName)
-              IORef.modifyIORef' resultCountRef (+1)
-
-            finalCount <- IORef.readIORef resultCountRef
-            case result of
-              Left err -> do
-                STM.atomically $ writeTChan chan (SearchError indexerName err)
-              Right _ -> do
-                STM.atomically $ writeTChan chan (SearchCompleted indexerName finalCount)
-          _ -> pure ()
-
-        -- Wait for all indexer searches to finish before signaling completion.
-        -- Without this the searches run fire-and-forget and SearchDone is written
-        -- immediately, ending the stream before any results arrive.
-        mapM_ wait indexerSearches
-
-        -- Signal completion
-        endTime <- getCurrentTime
-        let totalTime = realToFrac $ diffUTCTime endTime startTime :: Double
-        STM.atomically $ writeTChan chan (SearchDone totalTime)
-
-      -- Return the source that reads from the channel
+      _ <- async $
+        streamReleaseSearch (toServiceContext env) indexers maybeSlskd query albumId $ \ev ->
+          STM.atomically $ writeTChan chan (toStreamDto ev)
       pure $ eventLoop chan
+
+    toStreamDto :: StreamEvent -> ReleaseStreamEvent
+    toStreamDto = \case
+      StreamSearchStarted name -> SearchStarted name
+      StreamReleaseFound name release -> ReleaseFound (releaseInfoToResponse name release) name
+      StreamSearchCompleted name count -> SearchCompleted name count
+      StreamSearchError name err -> SearchError name err
+      StreamDone totalTime -> SearchDone totalTime
 
     eventLoop :: TChan ReleaseStreamEvent -> StepT IO ReleaseStreamEvent
     eventLoop chan = Effect $ do

@@ -10,30 +10,25 @@ module Skema.API.Handlers.Clusters
 import Skema.API.Types.Clusters (ClustersAPI, ClusterResponse(..), ClustersResponse(..), ClustersPagination(..), ClustersStats(..), ClusterWithTracksResponse(..), ClusterTrackInfo(..), MBTrackInfo(..), CandidateRelease(..), AssignReleaseRequest(..), UpdateTrackRecordingRequest(..), CreateClusterRequest(..), SetLockRequest(..))
 import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..))
 import qualified Skema.Services.TaskManager as TM
-import Skema.API.Handlers.Utils (throw404, throw500, readConfig, parsePagination)
+import Skema.API.Handlers.Utils (throw400, throw404, throw500, parsePagination)
 import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
-import qualified Skema.Config.Types as Cfg
 import Skema.API.Converters (clusterToResponse)
 import Skema.FileSystem.Utils (osPathToString)
 import Skema.MusicBrainz.Client (getRelease, searchReleases, searchRecordings)
-import Skema.MusicBrainz.Identify (identifyFileGroup)
-import Skema.Services.Identifier (clusterToFileGroup)
+import Skema.Services.Identifier (identifyClusterNow)
 import Skema.MusicBrainz.Types
-import Skema.Domain.Matching (ReleaseMatch(..), TrackMatch(..), IdentificationResult(..))
-import Skema.Domain.Identification (mkIdentifyConfig)
 import Skema.Events.Bus (publishAndLog)
 import Skema.Events.Types (Event(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BSL
-import Data.Aeson (eitherDecode, toJSON, object, (.=))
+import Data.Aeson (eitherDecode)
 import Skema.Clock (getNow)
 import Database.SQLite.Simple (Only(..))
-import Control.Concurrent.Async (async)
 import Servant
-import Skema.API.App (Env(..), AppM)
+import Skema.API.App (Env(..), AppM, toServiceContext)
 import Katip
 
 -- | Convert an MBRelease to a CandidateRelease for the API response.
@@ -53,7 +48,7 @@ mbReleaseToCandidateRelease release = CandidateRelease
 
 -- | Clusters API handlers.
 clustersServer :: Env -> ServerT ClustersAPI AppM
-clustersServer Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envDbPool = connPool, envConfigVar = configVar, envMBClient = mbClient, envClock = clock} =
+clustersServer env@Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envDbPool = connPool, envMBClient = mbClient, envClock = clock} =
   taskHandler
   :<|> getAllClustersHandler
   :<|> getClusterHandler
@@ -69,102 +64,16 @@ clustersServer Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envDb
   where
     taskHandler :: TaskRequest -> AppM TaskResponse
     taskHandler req = do
-      config <- liftIO $ readConfig configVar
-
       let clusterId = fromMaybe 0 (taskRequestResourceId req)
-
-      -- Create task based on request type
       case taskRequestType req of
-        "identify" -> liftIO $ do
-          -- Create the task
-          taskResp <- TM.createTask tm ClustersResource (Just clusterId) "identify"
-          let taskId = taskResponseId taskResp
+        "identify" -> TM.startTask tm ClustersResource (Just clusterId) "identify" $ \taskId -> do
+          result <- identifyClusterNow (toServiceContext env) clusterId $ \progress msg ->
+            TM.updateTaskProgress tm taskId progress (Just msg)
+          case result of
+            Left err -> TM.failTask tm taskId err
+            Right payload -> TM.completeTask tm taskId (Just payload)
+        _ -> throw400 "Unknown task type"
 
-          -- Spawn async worker to execute the identification
-          _ <- async $ do
-            -- Get the cluster
-            maybeCluster <- withConnection connPool $ \conn ->
-              DB.getClusterById conn clusterId
-            case maybeCluster of
-              Nothing -> do
-                TM.failTask tm taskId $ "Cluster not found: " <> show clusterId
-              Just cluster -> do
-                let mbEnv = mbClient
-                let libConfig = Cfg.library config
-
-                -- Build identify config
-                let identifyConfig = mkIdentifyConfig libConfig (Cfg.musicbrainz config)
-
-                -- Remove current match to unlock
-                when (isJust $ DBTypes.clusterMBReleaseId cluster) $ do
-                  withConnection connPool $ \conn ->
-                    DB.clearClusterRelease conn clusterId True
-
-                TM.updateTaskProgress tm taskId 0.2 (Just "Converting cluster to file group...")
-
-                -- Convert cluster to FileGroup
-                maybeFileGroup <- withConnection connPool $ \conn ->
-                  clusterToFileGroup conn cluster
-                case maybeFileGroup of
-                  Nothing -> do
-                    TM.failTask tm taskId "Failed to convert cluster to file group"
-                  Just fileGroup -> do
-                    TM.updateTaskProgress tm taskId 0.4 (Just "Identifying with MusicBrainz...")
-
-                    -- Identify the cluster
-                    result <- identifyFileGroup le mbEnv identifyConfig fileGroup
-
-                    -- Process result
-                    case result of
-                      Left err -> do
-                        TM.failTask tm taskId $ "MusicBrainz error: " <> show err
-                      Right (IdentificationResult Nothing candidatesWithScores) -> do
-                        TM.updateTaskProgress tm taskId 0.8 (Just "Saving candidates...")
-                        -- No match found above confidence threshold - save candidates for manual selection
-                        let candidates = map fst candidatesWithScores
-                        withConnection connPool $ \conn ->
-                          DB.updateClusterWithCandidates conn clusterId candidates
-                        TM.completeTask tm taskId (Just $ toJSON $ object
-                          [ "message" .= ("No confident match found. Saved " <> show (length candidates) <> " candidates for manual selection." :: Text)
-                          , "candidates_count" .= length candidates
-                          ])
-
-                      Right (IdentificationResult (Just match) _) -> do
-                        TM.updateTaskProgress tm taskId 0.7 (Just "Saving match...")
-                        -- Match found - save it
-                        withConnection connPool $ \conn -> do
-                          let release = rmRelease match
-                          let confidence = rmConfidence match
-                          let candidates = rmCandidates match
-                          DB.updateClusterWithMBData conn clusterId release confidence candidates
-
-                          -- Save track matches
-                          forM_ (rmTrackMatches match) $ \tm' -> do
-                            let filePath = tmFilePath tm'
-                                recording = tmTrack tm'
-                                recordingId = unMBID (mbTrackRecordingId recording)
-                                recordingTitle = mbTrackTitle recording
-                            pathStr <- osPathToString filePath
-                            executeQuery conn
-                              "UPDATE library_tracks SET mb_recording_id = ?, mb_recording_title = ? WHERE path = ?"
-                              (Just recordingId, Just recordingTitle, toText pathStr)
-
-                        -- Emit TracksRematched event (for diff regeneration)
-                        let trackCount = length (rmTrackMatches match)
-                        publishAndLog bus le "api.clusters.task" $ TracksRematched
-                          { rematchedClusterId = clusterId
-                          , rematchedTrackCount = trackCount
-                          }
-
-                        TM.completeTask tm taskId (Just $ toJSON $ object
-                          [ "message" .= ("Successfully identified cluster with " <> show trackCount <> " tracks" :: Text)
-                          , "release_id" .= unMBID (mbReleaseId $ rmRelease match)
-                          , "confidence" .= rmConfidence match
-                          , "track_matches" .= trackCount
-                          ])
-
-          pure taskResp
-        _ -> throwError err400 { errBody = "Unknown task type" }
     getAllClustersHandler :: Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> AppM ClustersResponse
     getAllClustersHandler maybeOffset maybeLimit maybeSearch maybeFilter maybeSortField maybeOrder = do
       let (offset, limit) = parsePagination maybeOffset maybeLimit
@@ -513,3 +422,4 @@ clustersServer Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envDb
               (Only clusterId)
 
           pure NoContent
+

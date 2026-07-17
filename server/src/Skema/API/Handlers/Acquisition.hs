@@ -16,8 +16,6 @@ import qualified Skema.Database.Utils as DBUtils
 import Skema.Services.SourceEvaluator (evaluateSource)
 import qualified Skema.Services.TaskManager as TM
 import Data.Aeson (toJSON, object, (.=))
-import Control.Concurrent.Async (async)
-import Control.Exception (try)
 import Servant
 import Skema.API.App (Env(..), AppM)
 import Skema.API.Types.Common (timestampToText)
@@ -120,12 +118,9 @@ acquisitionServer Env{envLogEnv = le, envEventBus = bus, envDbPool = connPool, e
     taskHandler :: TaskRequest -> AppM TaskResponse
     taskHandler req = do
       case taskRequestType req of
-        "evaluate" -> liftIO $ do
+        "evaluate" -> do
           let sid = fromMaybe 0 (taskRequestResourceId req)
-          taskResp <- TM.createTask tm AcquisitionResource (Just sid) "evaluate"
-          let tid = taskResponseId taskResp
-
-          _ <- async $ do
+          TM.startTask tm AcquisitionResource (Just sid) "evaluate" $ \tid -> do
             TM.updateTaskProgress tm tid 0.1 (Just "Looking up source...")
             source <- withConnection connPool $ \conn ->
               DB.getAcquisitionRuleById conn sid
@@ -134,19 +129,13 @@ acquisitionServer Env{envLogEnv = le, envEventBus = bus, envDbPool = connPool, e
                 TM.failTask tm tid $ "Source not found: " <> show sid
               Just s -> do
                 TM.updateTaskProgress tm tid 0.2 (Just $ "Evaluating source: " <> DBTypes.sourceName s)
-                result <- try $ evaluateSource connPool bus le mbClient httpClient s
-                case result of
-                  Left (e :: SomeException) ->
-                    TM.failTask tm tid $ "Evaluation failed: " <> show e
-                  Right albumCount ->
-                    TM.completeTask tm tid (Just $ toJSON $ object
-                      [ "albums_added" .= albumCount
-                      , "source_name" .= DBTypes.sourceName s
-                      ])
+                albumCount <- evaluateSource connPool bus le mbClient httpClient s
+                TM.completeTask tm tid (Just $ toJSON $ object
+                  [ "albums_added" .= albumCount
+                  , "source_name" .= DBTypes.sourceName s
+                  ])
 
-          pure taskResp
-
-        _ -> throwError err400 { errBody = "Unknown task type" }
+        _ -> throw400 "Unknown task type"
 
     getSummaryHandler :: AppM AcquisitionSummaryResponse
     getSummaryHandler =

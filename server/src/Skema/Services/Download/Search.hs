@@ -11,6 +11,9 @@
 module Skema.Services.Download.Search
   ( startSearchOrchestrator
   , handleWantedAlbumAdded
+    -- * Streaming release search
+  , StreamEvent (..)
+  , streamReleaseSearch
   ) where
 
 import Skema.Services.Types (ServiceContext(..))
@@ -29,12 +32,13 @@ import Skema.Indexer.Types
 import Skema.Config.Types (Config(..), DownloadConfig(..), Indexer(..), IndexerConfig(..), SlskdConfig(..))
 import Skema.Domain.Quality (meetsProfile, isBetterQuality, textToQuality)
 import Skema.Slskd.Client (createSlskdClient)
-import Skema.Slskd.Search (searchSlskd, slskdCandidateToReleaseInfo)
+import Skema.Slskd.Search (searchSlskd, searchSlskdStreaming, slskdCandidateToReleaseInfo)
 import Database.SQLite.Simple (Only(..))
-import Control.Concurrent.Async (Async, race, mapConcurrently, concurrently)
+import Control.Concurrent.Async (Async, async, wait, race, mapConcurrently, concurrently)
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent (threadDelay)
 import Data.Time (getCurrentTime, diffUTCTime)
+import qualified Data.IORef as IORef
 import qualified Data.Map.Strict as M
 import qualified Data.Set as Set
 import Katip
@@ -382,3 +386,74 @@ buildSearchQuery maxResults albumTitle artistName = SearchQuery
   , sqLimit = maxResults
   , sqOffset = 0
   }
+
+-- ============================================================================
+-- STREAMING RELEASE SEARCH
+-- ============================================================================
+
+-- | Lifecycle events of a streaming release search, keyed by source name.
+data StreamEvent
+  = StreamSearchStarted Text
+  | StreamReleaseFound Text ReleaseInfo
+  | StreamSearchCompleted Text Int
+  | StreamSearchError Text Text
+  | StreamDone Double
+    -- ^ All sources finished; the total search time in seconds
+
+-- | Search all given indexers (and slskd, when enabled) concurrently for an
+-- album, invoking the callback for every lifecycle event as it happens.
+-- Found releases are cached per album so the UI can render them instantly
+-- next time. Blocks until every source has finished.
+streamReleaseSearch
+  :: ServiceContext
+  -> [Indexer]
+  -> Maybe SlskdConfig
+  -> SearchQuery
+  -> Int64                    -- ^ Catalog album id (for the release cache)
+  -> (StreamEvent -> IO ())
+  -> IO ()
+streamReleaseSearch ServiceContext{..} searchIndexers maybeSlskd query albumId emit = do
+  startTime <- getCurrentTime
+
+  -- Launch indexer searches concurrently; slskd streams in this thread
+  indexerSearches <- forM searchIndexers $ \indexer -> async $ do
+    let name = indexerName indexer
+    emit (StreamSearchStarted name)
+    result <- searchIndexer scHttpClient indexer query
+    case result of
+      Left err -> emit (StreamSearchError name (show err))
+      Right indexerResult -> do
+        let releases = irReleases indexerResult
+        now <- getCurrentTime
+        forM_ releases $ \release -> do
+          withConnection scDbPool $ \conn ->
+            upsertCachedRelease conn albumId name "search" now release
+          emit (StreamReleaseFound name release)
+        emit (StreamSearchCompleted name (length releases))
+
+  case maybeSlskd of
+    Just slskdConfig | slskdEnabled slskdConfig -> do
+      let name = "slskd"
+      emit (StreamSearchStarted name)
+      let client = createSlskdClient slskdConfig scHttpClient
+          artistName = fromMaybe "" (sqArtist query)
+          albumName = fromMaybe "" (sqAlbum query)
+          minTrackCount = slskdMinTrackCount slskdConfig
+      resultCountRef <- IORef.newIORef (0 :: Int)
+      result <- searchSlskdStreaming scLogEnv client artistName albumName 60 minTrackCount $ \candidate -> do
+        let release = slskdCandidateToReleaseInfo candidate
+        now <- getCurrentTime
+        withConnection scDbPool $ \conn ->
+          upsertCachedRelease conn albumId name "search" now release
+        emit (StreamReleaseFound name release)
+        IORef.modifyIORef' resultCountRef (+1)
+      finalCount <- IORef.readIORef resultCountRef
+      case result of
+        Left err -> emit (StreamSearchError name err)
+        Right _ -> emit (StreamSearchCompleted name finalCount)
+    _ -> pure ()
+
+  mapM_ wait indexerSearches
+
+  endTime <- getCurrentTime
+  emit (StreamDone (realToFrac (diffUTCTime endTime startTime)))

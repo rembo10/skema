@@ -7,6 +7,7 @@
 -- | Identifier service - identifies albums using MusicBrainz.
 module Skema.Services.Identifier
   ( startIdentifierService
+  , identifyClusterNow
   , clusterToFileGroup
   ) where
 
@@ -15,7 +16,7 @@ import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getAllClusters, getClusterById, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster)
+import Skema.Database.Repository (getAllClusters, getClusterById, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster, clearClusterRelease)
 import Skema.Database.Types (ClusterRecord(..))
 import Skema.MusicBrainz.Identify (identifyFileGroup)
 import Skema.Domain.Identification (mkIdentifyConfig, clusterNeedsIdentification, buildFileGroup)
@@ -27,6 +28,7 @@ import Control.Concurrent.Async (Async)
 import qualified Control.Concurrent.STM as STM
 import Control.Monad (foldM)
 import Skema.Clock (getNow)
+import qualified Data.Aeson as Aeson
 import qualified Database.SQLite.Simple as SQLite
 import Katip
 
@@ -244,3 +246,80 @@ clusterToFileGroup conn cluster = case clusterId cluster of
     pure $ case result of
       Nothing -> Nothing
       Just (_, tracks) -> buildFileGroup cluster tracks
+
+-- | Identify a single cluster on demand (the API's "identify" task).
+--
+-- Clears any existing match, re-runs identification against MusicBrainz,
+-- persists either the match (plus per-track recording ids, emitting
+-- TracksRematched for diff regeneration) or the candidate list for manual
+-- selection. Progress is reported through the callback; the returned value
+-- is a task-result payload, or a failure message.
+identifyClusterNow
+  :: ServiceContext
+  -> Int64                        -- ^ Cluster id
+  -> (Double -> Text -> IO ())    -- ^ Progress reporter
+  -> IO (Either Text Aeson.Value)
+identifyClusterNow ServiceContext{..} cid report = do
+  let le = scLogEnv
+      pool = scDbPool
+      bus = scEventBus
+  config <- readTVarIO scConfigVar
+
+  maybeCluster <- withConnection pool $ \conn -> getClusterById conn cid
+  case maybeCluster of
+    Nothing -> pure $ Left $ "Cluster not found: " <> show cid
+    Just cluster -> do
+      let identifyConfig = mkIdentifyConfig (library config) (musicbrainz config)
+
+      -- Remove current match to unlock
+      when (isJust $ clusterMBReleaseId cluster) $
+        withConnection pool $ \conn -> clearClusterRelease conn cid True
+
+      report 0.2 "Converting cluster to file group..."
+      maybeFileGroup <- withConnection pool $ \conn -> clusterToFileGroup conn cluster
+      case maybeFileGroup of
+        Nothing -> pure $ Left "Failed to convert cluster to file group"
+        Just fileGroup -> do
+          report 0.4 "Identifying with MusicBrainz..."
+          result <- identifyFileGroup le scMBClientEnv identifyConfig fileGroup
+          case result of
+            Left err -> pure $ Left $ "MusicBrainz error: " <> show err
+
+            Right (IdentificationResult Nothing candidatesWithScores) -> do
+              report 0.8 "Saving candidates..."
+              -- No match above the confidence threshold: save candidates for
+              -- manual selection
+              let candidates = map fst candidatesWithScores
+              withConnection pool $ \conn ->
+                updateClusterWithCandidates conn cid candidates
+              pure $ Right $ Aeson.toJSON $ Aeson.object
+                [ "message" Aeson..= ("No confident match found. Saved " <> show (length candidates) <> " candidates for manual selection." :: Text)
+                , "candidates_count" Aeson..= length candidates
+                ]
+
+            Right (IdentificationResult (Just match) _) -> do
+              report 0.7 "Saving match..."
+              withConnection pool $ \conn -> do
+                updateClusterWithMBData conn cid (rmRelease match) (rmConfidence match) (rmCandidates match)
+
+                -- Save track matches
+                forM_ (rmTrackMatches match) $ \tm -> do
+                  let recording = tmTrack tm
+                  pathStr <- osPathToString (tmFilePath tm)
+                  executeQuery conn
+                    "UPDATE library_tracks SET mb_recording_id = ?, mb_recording_title = ? WHERE path = ?"
+                    (Just (unMBID (mbTrackRecordingId recording)), Just (mbTrackTitle recording), toText pathStr)
+
+              -- Emit TracksRematched event (for diff regeneration)
+              let trackCount = length (rmTrackMatches match)
+              publishAndLog bus le "identifier" $ TracksRematched
+                { rematchedClusterId = cid
+                , rematchedTrackCount = trackCount
+                }
+
+              pure $ Right $ Aeson.toJSON $ Aeson.object
+                [ "message" Aeson..= ("Successfully identified cluster with " <> show trackCount <> " tracks" :: Text)
+                , "release_id" Aeson..= unMBID (mbReleaseId (rmRelease match))
+                , "confidence" Aeson..= rmConfidence match
+                , "track_matches" Aeson..= trackCount
+                ]

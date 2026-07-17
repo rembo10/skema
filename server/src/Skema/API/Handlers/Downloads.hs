@@ -21,7 +21,6 @@ import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionCon
 import Skema.Services.Download.Cancel (cancelDownload)
 import Skema.Indexer.Types (ReleaseInfo(..), DownloadType(..), SlskdFile(..))
 import Skema.Domain.Quality (textToQuality)
-import Control.Concurrent.Async (async)
 import Data.Aeson (toJSON, object, (.=))
 import Skema.Clock (getNow)
 import Servant
@@ -46,14 +45,7 @@ downloadsServer Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envD
 
       -- Create task based on request type
       case taskRequestType req of
-        "reidentify" -> liftIO $ do
-          -- Create the task
-          taskResp <- TM.createTask tm DownloadsResource (Just downloadId) "reidentify"
-          let taskId = taskResponseId taskResp
-
-          -- Spawn async worker to execute the reidentification
-          _ <- async $ do
-            TM.updateTaskProgress tm taskId 0.3 (Just "Emitting reidentify event...")
+        "reidentify" -> TM.startTask tm DownloadsResource (Just downloadId) "reidentify" $ \taskId -> do
             -- Emit DownloadCompleted event to trigger re-import/re-identification
             EventBus.publishAndLog bus le "api.downloads.task" $ Events.DownloadCompleted
               { Events.downloadId = downloadId
@@ -65,15 +57,7 @@ downloadsServer Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envD
               , "download_id" .= downloadId
               ])
 
-          pure taskResp
-
-        "retry" -> liftIO $ do
-          -- Create the task
-          taskResp <- TM.createTask tm DownloadsResource (Just downloadId) "retry"
-          let taskId = taskResponseId taskResp
-
-          -- Spawn async worker to retry the download
-          _ <- async $ do
+        "retry" -> TM.startTask tm DownloadsResource (Just downloadId) "retry" $ \taskId -> do
             TM.updateTaskProgress tm taskId 0.2 (Just "Looking up download...")
 
             -- Get the download record to determine what stage it failed at
@@ -138,9 +122,7 @@ downloadsServer Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envD
                   _ -> do
                     TM.failTask tm taskId $ "Cannot retry download with status: " <> show status
 
-          pure taskResp
-
-        _ -> throwError err400 { errBody = "Unknown task type" }
+        _ -> throw400 "Unknown task type"
 
     getAllDownloadsHandler :: Maybe Int -> Maybe Int -> Maybe Int64 -> AppM DownloadsResponse
     getAllDownloadsHandler maybeOffset maybeLimit maybeCatalogAlbumId = do

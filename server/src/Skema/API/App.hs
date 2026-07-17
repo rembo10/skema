@@ -7,6 +7,7 @@
 module Skema.API.App
   ( Env (..)
   , AppM
+  , toServiceContext
   ) where
 
 import Katip (LogEnv)
@@ -21,6 +22,7 @@ import Skema.Events.Bus (EventBus)
 import Skema.HTTP.Client (HttpClient)
 import Skema.MusicBrainz.Client (MBClientEnv)
 import Skema.Services.TaskManager (TaskManager)
+import Skema.Services.Types (ServiceContext (..))
 
 -- | Everything a request handler can depend on.
 data Env = Env
@@ -45,3 +47,18 @@ data Env = Env
 
 -- | The handler monad: 'Env' over Servant's 'Handler'.
 type AppM = ReaderT Env Handler
+
+-- | View the handler environment as a service context, so handlers can call
+-- service-layer functions directly (e.g. for API-triggered tasks).
+toServiceContext :: Env -> ServiceContext
+toServiceContext env = ServiceContext
+  { scEventBus = envEventBus env
+  , scDbPool = envDbPool env
+  , scConfigVar = envConfigVar env
+  , scLogEnv = envLogEnv env
+  , scHttpClient = envHttpClient env
+  , scMBClientEnv = envMBClient env
+  , scCacheDir = envCacheDir env
+  , scDownloadProgressMap = envProgressMap env
+  , scClock = envClock env
+  }

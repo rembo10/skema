@@ -8,7 +8,7 @@ module Skema.API.Handlers.Library
 import Skema.API.Types.Library (LibraryAPI, UpdateTrackRequest(..), TracksResponse(..), TracksPagination(..), TracksStats(..), FileInfo(..))
 import Skema.API.Types.Tasks (TaskRequest(..), TaskResource(..))
 import qualified Skema.Services.TaskManager as TM
-import Skema.API.Handlers.Utils (readConfig, parsePagination)
+import Skema.API.Handlers.Utils (throw400, readConfig, parsePagination)
 import Skema.Database.Connection
 import Database.SQLite.Simple (Only(..))
 import Database.SQLite.Simple.ToField (toField)
@@ -18,7 +18,6 @@ import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
 import Servant
 import Skema.API.App (Env(..), AppM)
-import Control.Concurrent.Async (async)
 import Data.Aeson (toJSON, object, (.=))
 import Skema.API.Types.Tasks (TaskResponse(..))
 import qualified Data.Text as T
@@ -34,39 +33,24 @@ libraryServer Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envDbP
   where
     taskHandler :: TaskRequest -> AppM TaskResponse
     taskHandler req = do
-      config <- liftIO $ readConfig configVar
-
-      -- Create task based on request type
+      config <- readConfig configVar
       case taskRequestType req of
-        "scan" -> liftIO $ do
-          -- Create the task
-          taskResp <- TM.createTask tm LibraryResource Nothing "scan"
-          let taskId = taskResponseId taskResp
-
-          -- Spawn async worker to execute the scan
-          _ <- async $ do
-            -- Emit library scan requested event
-            case Cfg.libraryPath (Cfg.library config) of
-              Nothing -> do
-                TM.failTask tm taskId "Library path not configured"
-              Just libOsPath -> do
-                libPathText <- osPathToString libOsPath
-                EventBus.publishAndLog bus le "library-task" $
-                  Events.LibraryScanRequested
-                    { Events.scanPath = toText libPathText
-                    , Events.forceRescan = False
-                    }
-
-                -- For now, just complete the task immediately
-                -- TODO: Hook up actual scan logic with progress updates
-                TM.updateTaskProgress tm taskId 0.5 (Just "Scanning files...")
-                TM.completeTask tm taskId (Just $ toJSON $ object
-                  [ "message" .= ("Scan completed for: " <> toText libPathText :: Text)
-                  , "files_scanned" .= (0 :: Int)
-                  ])
-
-          pure taskResp
-        _ -> throwError err400 { errBody = "Unknown task type" }
+        "scan" -> TM.startTask tm LibraryResource Nothing "scan" $ \taskId ->
+          -- Emit library scan requested event
+          case Cfg.libraryPath (Cfg.library config) of
+            Nothing ->
+              TM.failTask tm taskId "Library path not configured"
+            Just libOsPath -> do
+              libPathText <- osPathToString libOsPath
+              EventBus.publishAndLog bus le "library-task" $
+                Events.LibraryScanRequested
+                  { Events.scanPath = toText libPathText
+                  , Events.forceRescan = False
+                  }
+              TM.completeTask tm taskId (Just $ toJSON $ object
+                [ "message" .= ("Scan requested for: " <> toText libPathText :: Text)
+                ])
+        _ -> throw400 "Unknown task type"
 
     filesHandler :: AppM [FileInfo]
     filesHandler =

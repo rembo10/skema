@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -14,6 +15,7 @@ module Skema.Services.TaskManager
   ( TaskManager
   , newTaskManager
   , createTask
+  , startTask
   , getTask
   , getAllTasks
   , updateTaskProgress
@@ -35,6 +37,8 @@ import Skema.Clock (Clock, getNow)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
 import Katip (LogEnv)
+import Control.Concurrent.Async (async)
+import Control.Exception (catch)
 import Data.Text (pack)
 
 -- | Internal task representation.
@@ -229,3 +233,23 @@ taskToResponse Task{..} = TaskResponse
   , taskResponseStartedAt = pack . iso8601Show <$> taskStartedAt
   , taskResponseCompletedAt = pack . iso8601Show <$> taskCompletedAt
   }
+
+-- | Create a task and run its worker in the background.
+--
+-- The worker receives the task id and reports through 'updateTaskProgress',
+-- 'completeTask', or 'failTask'; an uncaught exception fails the task
+-- instead of disappearing with the thread.
+startTask
+  :: MonadIO m
+  => TaskManager
+  -> TaskResource
+  -> Maybe Int64        -- ^ Resource id the task acts on, if any
+  -> Text               -- ^ Task type (e.g. "scan", "identify")
+  -> (Text -> IO ())    -- ^ Worker, given the task id
+  -> m TaskResponse
+startTask tm resource resourceId taskType worker = liftIO $ do
+  taskResp <- createTask tm resource resourceId taskType
+  let taskId = taskResponseId taskResp
+  _ <- async $ worker taskId `catch` \(e :: SomeException) ->
+    failTask tm taskId (show e)
+  pure taskResp
