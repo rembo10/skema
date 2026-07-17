@@ -13,7 +13,7 @@ module Skema.API.App
 import Katip (LogEnv)
 import Servant (Handler)
 
-import Skema.API.Types.Version (LatestRelease)
+import Skema.Services.UpdateChecker (LatestRelease)
 import Skema.Auth.JWT (JWTSecret)
 import Skema.Clock (Clock)
 import Skema.Config.Types (Config)

@@ -29,6 +29,7 @@ import Skema.Services.SourceEvaluator (startSourceEvaluatorService)
 import Skema.Services.MetadataWriter (startMetadataWriterService)
 import Skema.Services.Notifications (startNotificationService)
 import Skema.Services.TrashCleanup (startTrashCleanupService)
+import Skema.Services.UpdateChecker (LatestRelease, startUpdateChecker)
 import Skema.Events.Bus (EventBus, subscribe, publishAndLog)
 import Skema.Events.Types (Event(..), EventEnvelope(..))
 import Skema.Database.Connection (ConnectionPool)
@@ -49,6 +50,10 @@ import System.Directory (doesDirectoryExist)
 import System.OsPath (OsPath)
 import Katip
 
+-- | Interval between SSE keep-alive heartbeats, in seconds.
+heartbeatIntervalSeconds :: Int
+heartbeatIntervalSeconds = 30
+
 -- | Service registry holds all running services and shared resources.
 data ServiceRegistry = ServiceRegistry
   { srMBClientEnv :: MBClientEnv
@@ -61,6 +66,8 @@ data ServiceRegistry = ServiceRegistry
     -- ^ In-memory map of download progress and status (download_id -> (progress 0.0-1.0, display_status))
   , srClock :: Clock
     -- ^ Source of the current time (real in production, controllable in tests)
+  , srLatestRelease :: TVar (Maybe LatestRelease)
+    -- ^ Update checker's cached latest release (read by the version endpoint)
   }
 
 
@@ -302,6 +309,18 @@ startAllServices le bus pool config cacheDir configPath = do
     trashCleanupHandle <- liftIO $ startTrashCleanupService (scLogEnv ctx) (scConfigVar ctx)
     liftIO $ registerAsync asyncRegistry "TrashCleanup" trashCleanupHandle
 
+    -- Start update checker (polls GitHub for new releases)
+    $(logTM) InfoS $ logStr ("Starting UpdateChecker service..." :: Text)
+    (latestReleaseVar, updateCheckerHandle) <- liftIO $ startUpdateChecker ctx
+    liftIO $ registerAsync asyncRegistry "UpdateChecker" updateCheckerHandle
+
+    -- Start heartbeat worker (keeps SSE connections alive during quiet periods)
+    $(logTM) InfoS $ logStr ("Starting Heartbeat worker..." :: Text)
+    heartbeatHandle <- liftIO $ async $ forever $ do
+      threadDelay (heartbeatIntervalSeconds * 1000000)
+      publishAndLog bus le "heartbeat" Heartbeat
+    liftIO $ registerAsync asyncRegistry "Heartbeat" heartbeatHandle
+
     -- Start Notification service (sends notifications via Pushover, etc.)
     $(logTM) InfoS $ logStr ("Starting Notification service..." :: Text)
     notificationHandle <- liftIO $ startNotificationService ctx
@@ -315,6 +334,7 @@ startAllServices le bus pool config cacheDir configPath = do
           , srConfigVar = configVar
           , srDownloadProgressMap = downloadProgressMap
           , srClock = scClock ctx
+          , srLatestRelease = latestReleaseVar
           }
 
     pure (serviceRegistry, asyncRegistry)

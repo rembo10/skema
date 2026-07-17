@@ -36,8 +36,6 @@ import qualified Skema.Config.Types as Cfg
 import qualified Skema.Config.Validation as CfgVal
 import Skema.Services.Registry (ServiceRegistry(..))
 import Skema.Events.Bus (EventBus)
-import qualified Skema.Events.Bus as EventBus
-import qualified Skema.Events.Types as Events
 import Servant
 import Network.Wai.Handler.Warp (runSettings, defaultSettings, setHost, setPort)
 import Network.Wai (Middleware, Request, requestMethod, rawPathInfo, rawQueryString, responseStatus, requestHeaders, responseLBS)
@@ -50,13 +48,7 @@ import Control.Monad.Catch (catch)
 import qualified Control.Exception as E
 import Data.List (isInfixOf, lookup)
 import Data.Time (getCurrentTime, diffUTCTime)
-import Skema.API.Handlers.Version (startUpdateChecker)
-import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (async, AsyncCancelled)
-
--- | Constants
-heartbeatIntervalSeconds :: Int
-heartbeatIntervalSeconds = 30
+import Control.Concurrent.Async (AsyncCancelled)
 
 -- | Request logging middleware.
 --
@@ -186,18 +178,6 @@ serverT env =
     liftIO' :: Handler a -> AppM a
     liftIO' = lift
 
--- | Start a background worker that emits heartbeat events periodically.
--- This keeps SSE connections alive during quiet periods.
-startHeartbeatWorker :: LogEnv -> EventBus -> IO ()
-startHeartbeatWorker le bus = do
-  _ <- async $ forever $ do
-    -- Wait between heartbeats
-    threadDelay (heartbeatIntervalSeconds * 1000000)
-
-    -- Emit heartbeat event
-    EventBus.publishAndLog bus le "heartbeat" Events.Heartbeat
-  pure ()
-
 -- | Start the HTTP server with logging and exception handling.
 startServer :: LogEnv -> EventBus -> ServerConfig -> ServiceRegistry -> ConnectionPool -> Maybe Text -> FilePath -> FilePath -> Maybe Int -> IO ()
 startServer le bus serverCfg registry connPool libPath cacheDir configPath cliPort = do
@@ -220,15 +200,6 @@ startServer le bus serverCfg registry connPool libPath cacheDir configPath cliPo
     -- Create task manager
     taskManager <- liftIO $ TM.newTaskManager bus le (srClock registry)
     $(logTM) InfoS $ logStr ("Task manager initialized" :: Text)
-
-    -- Start heartbeat worker for SSE keep-alive
-    liftIO $ startHeartbeatWorker le bus
-    $(logTM) InfoS $ logStr ("Heartbeat worker started" :: Text)
-
-    -- Start update checker
-    latestVar <- liftIO $ newTVarIO Nothing
-    liftIO $ startUpdateChecker le (srHttpClient registry) (srConfigVar registry) latestVar
-    $(logTM) InfoS $ logStr ("Update checker started" :: Text)
 
     -- Log server startup
     $(logTM) InfoS $ logStr $ "Starting Skema API server on " <> host <> ":" <> show port
@@ -258,7 +229,7 @@ startServer le bus serverCfg registry connPool libPath cacheDir configPath cliPo
           , envLibraryPath = libPath
           , envCacheDir = cacheDir
           , envConfigPath = configPath
-          , envLatestRelease = latestVar
+          , envLatestRelease = srLatestRelease registry
           }
 
     -- Run server with exception handling
