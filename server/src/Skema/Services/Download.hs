@@ -15,7 +15,7 @@ module Skema.Services.Download
   , DownloadClientInstance(..)  -- Re-exported for Importer service
   ) where
 
-import Skema.Services.Dependencies (DownloadDeps)
+import Skema.Services.Types (ServiceContext)
 import Skema.Services.Download.Client (DownloadClientInstance(..))
 import Skema.Services.Download.Search (startSearchOrchestrator)
 import Skema.Services.Download.Monitor (runDownloadMonitor)
@@ -27,7 +27,7 @@ import Control.Concurrent.Async (Async, async)
 -- 1. Search orchestrator - handles WantedAlbumAdded events
 -- 2. Download monitor - polls download clients for status updates
 -- Returns both async handles for graceful shutdown.
-startDownloadService :: DownloadDeps -> IO (Async (), Async ())
+startDownloadService :: ServiceContext -> IO (Async (), Async ())
 startDownloadService deps = do
   searchHandle <- startSearchOrchestrator deps
   monitorHandle <- async $ runDownloadMonitor deps

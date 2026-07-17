@@ -11,7 +11,7 @@ module Skema.Services.Download.Monitor
   ( runDownloadMonitor
   ) where
 
-import Skema.Services.Dependencies (DownloadDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.Download.Client (DownloadClientInstance, createClientInstances)
 import Skema.Events.Bus
 import Skema.Events.Types
@@ -54,17 +54,17 @@ idlePollingIntervalMicros = 5000000
 -- When downloads are active, polls every 1 second and emits progress events.
 -- Download client instances are created once at startup and recreated only when
 -- the config changes (via ConfigUpdated event).
-runDownloadMonitor :: DownloadDeps -> IO ()
-runDownloadMonitor DownloadDeps{..} = do
-  runKatipContextT dlLogEnv () "download.monitor" $ do
-    let bus = dlEventBus
-        pool = dlDbPool
-        httpClient = dlHttpClient
+runDownloadMonitor :: ServiceContext -> IO ()
+runDownloadMonitor ServiceContext{..} = do
+  runKatipContextT scLogEnv () "download.monitor" $ do
+    let bus = scEventBus
+        pool = scDbPool
+        httpClient = scHttpClient
 
     $(logTM) InfoS "Starting download monitor"
 
     -- Create initial client instances from config
-    config <- liftIO $ STM.atomically $ STM.readTVar dlConfigVar
+    config <- liftIO $ STM.atomically $ STM.readTVar scConfigVar
     let downloadCfg = download config
     initialClients <- liftIO $ createClientInstances httpClient downloadCfg
 
@@ -97,18 +97,18 @@ runDownloadMonitor DownloadDeps{..} = do
           case envelopeEvent envelope of
             ConfigUpdated{} -> do
               -- Config changed - recreate download client instances
-              runKatipContextT dlLogEnv () "download.monitor" $ do
+              runKatipContextT scLogEnv () "download.monitor" $ do
                 $(logTM) InfoS "Config updated, recreating download client instances"
-              newConfig <- STM.atomically $ STM.readTVar dlConfigVar
+              newConfig <- STM.atomically $ STM.readTVar scConfigVar
               let newDownloadCfg = download newConfig
               newClients <- createClientInstances httpClient newDownloadCfg
-              runKatipContextT dlLogEnv () "download.monitor" $ do
+              runKatipContextT scLogEnv () "download.monitor" $ do
                 $(logTM) InfoS $ logStr $ ("Created " <> show (length newClients) <> " client instances from updated config" :: Text)
               STM.atomically $ STM.writeTVar clientsVar newClients
 
             _ -> pure ()  -- Ignore other events
 
-    let pollLoop = runKatipContextT dlLogEnv () "download.monitor" $ forever $ do
+    let pollLoop = runKatipContextT scLogEnv () "download.monitor" $ forever $ do
           -- Read current client instances (only changes when config changes)
           clients <- liftIO $ STM.atomically $ STM.readTVar clientsVar
 
@@ -122,7 +122,7 @@ runDownloadMonitor DownloadDeps{..} = do
               -- Active downloads exist - poll every 1 second for real-time updates
               $(logTM) DebugS $ logStr $ ("Checking " <> show (length clients) <> " clients..." :: Text)
               forM_ clients $ \(clientName, client) ->
-                liftIO $ checkAndUpdateDownloads dlLogEnv dlClock bus pool dlProgressMap clientName client
+                liftIO $ checkAndUpdateDownloads scLogEnv scClock bus pool scDownloadProgressMap clientName client
 
               -- Sleep briefly to provide real-time updates to frontend
               liftIO $ threadDelay activePollingIntervalMicros

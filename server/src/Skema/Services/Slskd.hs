@@ -9,15 +9,14 @@
 -- - Monitoring slskd transfer progress
 -- - Emitting progress events
 module Skema.Services.Slskd
-  ( -- * Dependencies
-    SlskdDeps (..)
-    -- * Progress Monitoring
-  , runSlskdMonitor
+  ( -- * Progress Monitoring
+    runSlskdMonitor
     -- * Path Resolution
   , albumDirectoryCandidates
   ) where
 
 import Control.Concurrent (threadDelay)
+import Skema.Services.Types (ServiceContext(..))
 import qualified Control.Concurrent.STM as STM
 import Skema.Clock (Clock)
 import qualified Data.Map.Strict as Map
@@ -34,29 +33,18 @@ import Skema.Slskd.Client
 import Skema.Slskd.Types (SlskdTransfer (..), SlskdTransferState (..))
 import qualified System.Directory as Dir
 
--- | Dependencies for the slskd service.
-data SlskdDeps = SlskdDeps
-  { slskdEventBus :: EventBus
-  , slskdLogEnv :: LogEnv
-  , slskdDbPool :: ConnectionPool
-  , slskdConfigVar :: TVar Config
-  , slskdHttpClient :: HttpClient
-  , slskdProgressMap :: TVar (Map.Map Int64 (Double, Text))
-  , slskdClock :: Clock
-  }
-
 -- | Run the slskd progress monitor.
 --
 -- This service polls slskd for transfer status and emits
 -- DownloadProgress events. It groups transfers by username/directory
 -- to track album-level progress.
-runSlskdMonitor :: SlskdDeps -> IO ()
-runSlskdMonitor SlskdDeps {..} = forever $ do
+runSlskdMonitor :: ServiceContext -> IO ()
+runSlskdMonitor ServiceContext {..} = forever $ do
   -- Check every 5 seconds
   threadDelay (5 * 1000000)
 
   -- Get config
-  config <- STM.atomically $ STM.readTVar slskdConfigVar
+  config <- STM.atomically $ STM.readTVar scConfigVar
   let maybeSlskdConfig = downloadSlskdClient (download config)
 
   case maybeSlskdConfig of
@@ -64,7 +52,7 @@ runSlskdMonitor SlskdDeps {..} = forever $ do
     Just slskdConfig | not (slskdEnabled slskdConfig) -> pure ()
     Just slskdConfig -> do
       -- Check if there are any active slskd downloads before polling the API
-      activeDownloads <- withConnection slskdDbPool $ \conn ->
+      activeDownloads <- withConnection scDbPool $ \conn ->
         queryRows conn
           "SELECT COUNT(*) FROM downloads WHERE download_client = 'slskd' AND status IN ('downloading', 'queued')"
           () :: IO [Only Int]
@@ -75,20 +63,20 @@ runSlskdMonitor SlskdDeps {..} = forever $ do
 
       -- Only poll slskd API if there are active downloads
       when hasActiveDownloads $ do
-        let client = createSlskdClient slskdConfig slskdHttpClient
+        let client = createSlskdClient slskdConfig scHttpClient
 
         -- Get all transfers
         result <- getTransfers client
         case result of
           Left err -> do
-            runKatipContextT slskdLogEnv () "slskd.monitor" $ do
+            runKatipContextT scLogEnv () "slskd.monitor" $ do
               $(logTM) WarningS $
                 logStr $
                   ("Failed to get transfers: " <> err :: Text)
           Right transfers -> do
             -- Log transfer count for debugging
             when (not (null transfers)) $ do
-              runKatipContextT slskdLogEnv () "slskd.monitor" $ do
+              runKatipContextT scLogEnv () "slskd.monitor" $ do
                 $(logTM) InfoS $
                   logStr $
                     ("Found " <> show (length transfers) <> " active transfers" :: Text)
@@ -121,13 +109,13 @@ runSlskdMonitor SlskdDeps {..} = forever $ do
 
               -- Update progress map for UI
               -- Find downloads for this username
-              downloads <- withConnection slskdDbPool $ \conn ->
+              downloads <- withConnection scDbPool $ \conn ->
                 queryRows conn
                   "SELECT id, title FROM downloads WHERE download_client = 'slskd' AND download_client_id LIKE ? AND status IN ('downloading', 'queued')"
                   (Only (username <> ":%"))
 
               -- Log progress for debugging
-              runKatipContextT slskdLogEnv () "slskd.monitor" $ do
+              runKatipContextT scLogEnv () "slskd.monitor" $ do
                 $(logTM) InfoS $
                   logStr $
                     ("User " <> username <> ": " <> show completedFiles <> "/" <> show totalFiles
@@ -136,12 +124,12 @@ runSlskdMonitor SlskdDeps {..} = forever $ do
 
               forM_ (downloads :: [(Int64, Text)]) $ \(downloadId, title) -> do
                 -- Update in-memory progress
-                STM.atomically $ STM.modifyTVar' slskdProgressMap $
+                STM.atomically $ STM.modifyTVar' scDownloadProgressMap $
                   Map.insert downloadId (progress, displayStatus)
 
                 -- Emit progress event for SSE
                 when (displayStatus == "downloading") $ do
-                  publishAndLog slskdEventBus slskdLogEnv "slskd.monitor" $
+                  publishAndLog scEventBus scLogEnv "slskd.monitor" $
                     DownloadProgress
                       { downloadId = downloadId
                       , downloadTitle = title
@@ -153,23 +141,23 @@ runSlskdMonitor SlskdDeps {..} = forever $ do
                 -- If there are errors, mark download as failed
                 when (not (null erroredFiles)) $ do
                   let errorMsg = T.intercalate "; " $ map formatTransferError erroredFiles
-                  runKatipContextT slskdLogEnv () "slskd.monitor" $ do
+                  runKatipContextT scLogEnv () "slskd.monitor" $ do
                     $(logTM) WarningS $
                       logStr $
                         ("Download " <> show downloadId <> " has failed transfers: " <> errorMsg :: Text)
 
                   -- Update database status to failed
-                  withConnection slskdDbPool $ \conn ->
+                  withConnection scDbPool $ \conn ->
                     executeQuery conn
                       "UPDATE downloads SET status = 'failed', error_message = ?, progress = ? WHERE id = ?"
                       (errorMsg, progress, downloadId)
 
                   -- Remove from progress map
-                  STM.atomically $ STM.modifyTVar' slskdProgressMap $
+                  STM.atomically $ STM.modifyTVar' scDownloadProgressMap $
                     Map.delete downloadId
 
                   -- Emit failure event
-                  publishAndLog slskdEventBus slskdLogEnv "slskd.monitor" $
+                  publishAndLog scEventBus scLogEnv "slskd.monitor" $
                     DownloadFailed
                       { downloadId = downloadId
                       , downloadTitle = ""
@@ -181,7 +169,7 @@ runSlskdMonitor SlskdDeps {..} = forever $ do
                   -- Resolve where slskd actually placed the downloaded files on disk
                   albumDir <- resolveAlbumDirectory slskdConfig userTransfers
 
-                  runKatipContextT slskdLogEnv () "slskd.monitor" $ do
+                  runKatipContextT scLogEnv () "slskd.monitor" $ do
                     $(logTM) InfoS $
                       logStr $
                         ("Download " <> show downloadId <> " completed all " <> show totalFiles <> " files to: " <> albumDir :: Text)
@@ -189,17 +177,17 @@ runSlskdMonitor SlskdDeps {..} = forever $ do
                   let downloadPath = Just albumDir
 
                   -- Update database status to completed
-                  withConnection slskdDbPool $ \conn ->
+                  withConnection scDbPool $ \conn ->
                     executeQuery conn
                       "UPDATE downloads SET status = 'completed', progress = 100, download_path = ? WHERE id = ?"
                       (downloadPath, downloadId)
 
                   -- Remove from progress map
-                  STM.atomically $ STM.modifyTVar' slskdProgressMap $
+                  STM.atomically $ STM.modifyTVar' scDownloadProgressMap $
                     Map.delete downloadId
 
                   -- Get download title for event
-                  maybeTitle <- withConnection slskdDbPool $ \conn -> do
+                  maybeTitle <- withConnection scDbPool $ \conn -> do
                     rows <- queryRows conn
                       "SELECT title FROM downloads WHERE id = ?"
                       (Only downloadId) :: IO [Only Text]
@@ -208,7 +196,7 @@ runSlskdMonitor SlskdDeps {..} = forever $ do
                       _ -> Nothing
 
                   -- Emit completion event
-                  publishAndLog slskdEventBus slskdLogEnv "slskd.monitor" $
+                  publishAndLog scEventBus scLogEnv "slskd.monitor" $
                     DownloadCompleted
                       { downloadId = downloadId
                       , downloadTitle = fromMaybe "" maybeTitle

@@ -22,7 +22,7 @@ import Test.Tasty.HUnit
 
 import qualified Control.Concurrent.STM as STM
 
-import Helpers.TestEnv (TestEnv(..), withTestEnv)
+import Helpers.TestEnv (TestEnv(..), withTestEnv, mkTestServiceContext)
 import Helpers.EventAssertions (waitForEventWithTimeout)
 
 import Skema.Database.Connection (withConnection)
@@ -38,7 +38,6 @@ import qualified Skema.Database.Types as DB
 import Skema.Events.Bus (subscribe)
 import Skema.Events.Types (Event(..))
 import Skema.Config.Types (Config(..), LibraryConfig(..))
-import Skema.Services.Dependencies (AcquisitionDeps(..))
 import Skema.Services.Acquisition (handleCatalogAlbumAdded)
 import qualified Database.SQLite.Simple as SQLite
 
@@ -60,16 +59,6 @@ rgMbid = "rg-existing"
 albumTitle :: Text
 albumTitle = "Back Catalogue"
 
--- | Build acquisition deps from a test env.
-mkDeps :: TestEnv -> AcquisitionDeps
-mkDeps env = AcquisitionDeps
-  { acqEventBus = teEventBus env
-  , acqLogEnv = teLogEnv env
-  , acqDbPool = tePool env
-  , acqConfigVar = teConfigVar env
-  , acqMBClient = teMBClientEnv env
-  , acqClock = teClock env
-  }
 
 -- | Flip the @auto_upgrade_existing_albums@ library setting.
 setAutoUpgradeExisting :: TestEnv -> Bool -> IO ()
@@ -112,7 +101,7 @@ testEnrollsExistingAlbum = withTestEnv $ \env -> do
   setAutoUpgradeExisting env True
 
   eventChan <- STM.atomically $ subscribe (teEventBus env)
-  handleCatalogAlbumAdded (mkDeps env) rgMbid albumTitle artistMbid albumId
+  handleCatalogAlbumAdded (mkTestServiceContext env) rgMbid albumTitle artistMbid albumId
 
   -- The default quality profile is now assigned (album is monitored).
   expected <- withConnection (tePool env) getDefaultQualityProfileId
@@ -133,7 +122,7 @@ testFlagOffLeavesAlone = withTestEnv $ \env -> do
   -- Flag defaults to off; do not enable it.
 
   eventChan <- STM.atomically $ subscribe (teEventBus env)
-  handleCatalogAlbumAdded (mkDeps env) rgMbid albumTitle artistMbid albumId
+  handleCatalogAlbumAdded (mkTestServiceContext env) rgMbid albumTitle artistMbid albumId
 
   -- No acquisition rules and not upcoming: the album stays unassigned.
   assigned <- profileIdOf env albumId
@@ -149,7 +138,7 @@ testNotInLibraryNotEnrolled = withTestEnv $ \env -> do
   setAutoUpgradeExisting env True
 
   eventChan <- STM.atomically $ subscribe (teEventBus env)
-  handleCatalogAlbumAdded (mkDeps env) rgMbid albumTitle artistMbid albumId
+  handleCatalogAlbumAdded (mkTestServiceContext env) rgMbid albumTitle artistMbid albumId
 
   -- Not in the library, so the auto-upgrade branch does not fire; with no
   -- acquisition rules and no future release date it stays unassigned.

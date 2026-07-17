@@ -9,7 +9,7 @@ module Skema.Services.Thumbnailer
   ( startThumbnailerService
   ) where
 
-import Skema.Services.Dependencies (ThumbnailerDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
@@ -32,10 +32,10 @@ thumbnailSize = 256
 -- | Start the thumbnailer service.
 --
 -- This service listens for image events and generates thumbnails as needed.
-startThumbnailerService :: ThumbnailerDeps -> IO (Async ())
+startThumbnailerService :: ServiceContext -> IO (Async ())
 startThumbnailerService deps =
   -- Thumbnails are generated per image with no shared state; overlap is safe
-  runEventService (thumbLogEnv deps) (thumbEventBus deps) "services.thumbnailer" Concurrent $ \case
+  runEventService (scLogEnv deps) (scEventBus deps) "services.thumbnailer" Concurrent $ \case
     ArtistImageFetched{..}
       | isNothing artistImageThumbnailUrl ->
           Just $ handleThumbnailGeneration deps "artists" artistImageMBID artistImageUrl
@@ -48,7 +48,7 @@ startThumbnailerService deps =
 
 -- | Handle thumbnail generation for an image.
 handleThumbnailGeneration
-  :: ThumbnailerDeps
+  :: ServiceContext
   -> Text           -- ^ Image category ("artists" or "albums")
   -> Text           -- ^ Identifier (MBID)
   -> Text           -- ^ Full-size image URL path (e.g., "/images/artists/abc.jpg")
@@ -56,10 +56,10 @@ handleThumbnailGeneration
   -> Text           -- ^ Database ID column name
   -> Text           -- ^ Database thumbnail URL column name
   -> IO ()
-handleThumbnailGeneration ThumbnailerDeps{..} category identifier imageUrlPath tableName idColumn thumbnailColumn = do
-  let le = thumbLogEnv
-  let pool = thumbDbPool
-  let bus = thumbEventBus
+handleThumbnailGeneration ServiceContext{..} category identifier imageUrlPath tableName idColumn thumbnailColumn = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
   let initialContext = ()
   let initialNamespace = "services.thumbnailer"
 
@@ -69,7 +69,7 @@ handleThumbnailGeneration ThumbnailerDeps{..} category identifier imageUrlPath t
         $(logTM) InfoS $ logStr $ ("Generating thumbnail for: " <> identifier :: Text)
 
         -- Convert URL path to filesystem path
-        let fullImagePath = thumbCacheDir </> toString (T.drop 1 imageUrlPath)  -- Drop leading '/'
+        let fullImagePath = scCacheDir </> toString (T.drop 1 imageUrlPath)  -- Drop leading '/'
         $(logTM) InfoS $ logStr $ ("Looking for image at: " <> toText fullImagePath :: Text)
 
         -- Check if full image exists

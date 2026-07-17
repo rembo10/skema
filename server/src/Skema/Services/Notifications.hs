@@ -14,7 +14,7 @@ module Skema.Services.Notifications
   ( startNotificationService
   ) where
 
-import Skema.Services.Dependencies (NotificationDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Types (Event(..))
 import Skema.Config.Types (Config(..), NotificationConfig(..), NotificationProvider(..))
@@ -36,10 +36,10 @@ import Data.Time.Format (parseTimeM, defaultTimeLocale)
 -- - WantedAlbumAdded (when new wanted albums are found)
 -- - DownloadCompleted (when albums are downloaded)
 -- - DownloadImported (when albums are imported to library)
-startNotificationService :: NotificationDeps -> IO (Async ())
+startNotificationService :: ServiceContext -> IO (Async ())
 startNotificationService deps =
   -- Notifications are independent HTTP calls; overlap is safe
-  runEventService (notifLogEnv deps) (notifEventBus deps) "services.notifications" Concurrent $ \case
+  runEventService (scLogEnv deps) (scEventBus deps) "services.notifications" Concurrent $ \case
     WantedAlbumAdded{..} ->
       Just $ handleWantedAlbumAdded deps wantedReleaseGroupId wantedAlbumTitle wantedArtistName
     DownloadImported{..} ->
@@ -47,14 +47,14 @@ startNotificationService deps =
     _ -> Nothing
 
 -- | Handle a wanted album added event (sends notifications for upcoming wanted albums).
-handleWantedAlbumAdded :: NotificationDeps -> Text -> Text -> Text -> IO ()
+handleWantedAlbumAdded :: ServiceContext -> Text -> Text -> Text -> IO ()
 handleWantedAlbumAdded deps releaseGroupId albumTitle artistName = do
-  config <- STM.atomically $ STM.readTVar (notifConfigVar deps)
+  config <- STM.atomically $ STM.readTVar (scConfigVar deps)
   let notifConfig = notifications config
 
   when (notificationEnabled notifConfig && notificationOnAlbumFound notifConfig) $ do
     -- Fetch album details from database to get release date
-    maybeAlbum <- withConnection (notifDbPool deps) $ \conn ->
+    maybeAlbum <- withConnection (scDbPool deps) $ \conn ->
       DB.getCatalogAlbumByReleaseGroupMBID conn releaseGroupId
 
     case maybeAlbum of
@@ -63,7 +63,7 @@ handleWantedAlbumAdded deps releaseGroupId albumTitle artistName = do
         let maybeReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
 
         -- Check if the release date is in the future
-        now <- getNow (notifClock deps)
+        now <- getNow (scClock deps)
         let isUpcoming = case maybeReleaseDate of
               Nothing -> False  -- No release date, not upcoming
               Just releaseDateStr ->
@@ -85,9 +85,9 @@ handleWantedAlbumAdded deps releaseGroupId albumTitle artistName = do
           sendToAllProviders deps notification
 
 -- | Handle a download imported event.
-handleDownloadImported :: NotificationDeps -> Text -> IO ()
+handleDownloadImported :: ServiceContext -> Text -> IO ()
 handleDownloadImported deps downloadTitle = do
-  config <- STM.atomically $ STM.readTVar (notifConfigVar deps)
+  config <- STM.atomically $ STM.readTVar (scConfigVar deps)
   let notifConfig = notifications config
 
   when (notificationEnabled notifConfig && notificationOnAlbumImported notifConfig) $ do
@@ -101,13 +101,13 @@ handleDownloadImported deps downloadTitle = do
     sendToAllProviders deps notification
 
 -- | Send a notification to all configured providers.
-sendToAllProviders :: NotificationDeps -> Notification -> IO ()
+sendToAllProviders :: ServiceContext -> Notification -> IO ()
 sendToAllProviders deps notification = do
-  config <- STM.atomically $ STM.readTVar (notifConfigVar deps)
+  config <- STM.atomically $ STM.readTVar (scConfigVar deps)
   let notifConfig = notifications config
   let providers = notificationProviders notifConfig
-  let le = notifLogEnv deps
-  let httpClient = notifHttpClient deps
+  let le = scLogEnv deps
+  let httpClient = scHttpClient deps
 
   forM_ providers $ \provider -> do
     case provider of

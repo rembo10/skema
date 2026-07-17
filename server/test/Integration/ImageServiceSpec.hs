@@ -23,7 +23,7 @@ import System.Directory (doesFileExist)
 import System.FilePath ((</>))
 import qualified Database.SQLite.Simple as SQLite
 
-import Helpers.TestEnv (TestEnv(..), withTestEnvMock)
+import Helpers.TestEnv (TestEnv(..), withTestEnvMock, mkTestServiceContext)
 import Helpers.EventAssertions (waitForEventWithTimeout)
 import Helpers.MockHttp (RequestMatcher, respond, hostIs, jsonResponse, statusResponse)
 
@@ -37,7 +37,6 @@ import Skema.Database.Repository
 import qualified Skema.Database.Types as DB
 import Skema.Events.Bus (subscribe)
 import Skema.Events.Types (Event(..))
-import Skema.Services.Dependencies (ImageDeps(..))
 import Skema.Services.Image (repairArtistImage, repairAlbumCover)
 
 tests :: TestTree
@@ -54,16 +53,6 @@ artistMbid = "artist-mbid-1"
 rgMbid :: Text
 rgMbid = "rg-mbid-1"
 
--- | Build image deps from a test env (mirrors 'ImageDeps' field-for-field).
-mkImageDeps :: TestEnv -> ImageDeps
-mkImageDeps env = ImageDeps
-  { imgEventBus = teEventBus env
-  , imgLogEnv = teLogEnv env
-  , imgDbPool = tePool env
-  , imgConfigVar = teConfigVar env
-  , imgHttpClient = teHttpClient env
-  , imgCacheDir = teCacheDir env
-  }
 
 isArtistImageFetched :: Event -> Bool
 isArtistImageFetched = \case
@@ -123,7 +112,7 @@ testRepairArtist = withTestEnvMock artistMatchers $ \env -> do
     pure ()
 
   eventChan <- STM.atomically $ subscribe (teEventBus env)
-  repairArtistImage (mkImageDeps env) artistMbid
+  repairArtistImage (mkTestServiceContext env) artistMbid
 
   -- Database now holds the freshly-fetched local path (thumbnail was not
   -- provided by fanart.tv, so it is cleared to Nothing).
@@ -151,7 +140,7 @@ testRepairAlbum = withTestEnvMock albumMatchers $ \env -> do
       ("/images/albums/stale.jpg" :: Text, "/images/albums/stale_thumb.jpg" :: Text, albumId)
 
   eventChan <- STM.atomically $ subscribe (teEventBus env)
-  repairAlbumCover (mkImageDeps env) rgMbid
+  repairAlbumCover (mkTestServiceContext env) rgMbid
 
   Just album <- withConnection (tePool env) $ \conn ->
     getCatalogAlbumByReleaseGroupMBID conn rgMbid

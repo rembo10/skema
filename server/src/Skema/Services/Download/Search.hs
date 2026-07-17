@@ -13,7 +13,7 @@ module Skema.Services.Download.Search
   , handleWantedAlbumAdded
   ) where
 
-import Skema.Services.Dependencies (DownloadDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Domain.Scoring (scoreRelease, rankReleases)
 import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
@@ -58,9 +58,9 @@ audioCategories = [3000, 3010, 3020]
 -- all indexers to find the best release. Searches for different albums are
 -- independent and slow (a slskd search alone can take a minute), so they
 -- run concurrently.
-startSearchOrchestrator :: DownloadDeps -> IO (Async ())
+startSearchOrchestrator :: ServiceContext -> IO (Async ())
 startSearchOrchestrator deps =
-  runEventService (dlLogEnv deps) (dlEventBus deps) "download.search" Concurrent $ \case
+  runEventService (scLogEnv deps) (scEventBus deps) "download.search" Concurrent $ \case
     WantedAlbumAdded{..} ->
       Just $ handleWantedAlbumAdded deps wantedCatalogAlbumId wantedReleaseGroupId wantedAlbumTitle wantedArtistName Set.empty
     DownloadFailed{..} ->
@@ -68,13 +68,13 @@ startSearchOrchestrator deps =
     _ -> Nothing
 
 -- | Handle a download failure by looking up the album and auto-retrying with a new search.
-handleDownloadFailed :: DownloadDeps -> Int64 -> IO ()
-handleDownloadFailed deps@DownloadDeps{..} failedDownloadId = do
-  let le = dlLogEnv
-  let pool = dlDbPool
+handleDownloadFailed :: ServiceContext -> Int64 -> IO ()
+handleDownloadFailed deps@ServiceContext{..} failedDownloadId = do
+  let le = scLogEnv
+  let pool = scDbPool
 
   -- Read the configured retry limit from current config
-  config <- STM.atomically $ STM.readTVar dlConfigVar
+  config <- STM.atomically $ STM.readTVar scConfigVar
   let maxAutoRetries = downloadMaxSearchRetries (download config)
 
   -- Look up the failed download record
@@ -115,15 +115,15 @@ handleDownloadFailed deps@DownloadDeps{..} failedDownloadId = do
               excluded
 
 -- | Handle a wanted album added event by searching indexers.
-handleWantedAlbumAdded :: DownloadDeps -> Int64 -> Text -> Text -> Text -> Set.Set Text -> IO ()
-handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle artistName excludedUrls = do
-  let le = dlLogEnv
-  let pool = dlDbPool
-  let bus = dlEventBus
-  let httpClient = dlHttpClient
+handleWantedAlbumAdded :: ServiceContext -> Int64 -> Text -> Text -> Text -> Set.Set Text -> IO ()
+handleWantedAlbumAdded ServiceContext{..} catalogAlbumId releaseGroupId albumTitle artistName excludedUrls = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
+  let httpClient = scHttpClient
 
   -- Read current config from TVar
-  config <- STM.atomically $ STM.readTVar dlConfigVar
+  config <- STM.atomically $ STM.readTVar scConfigVar
 
   let indexerConfig = indexers config
   let downloadConfig = download config
@@ -274,7 +274,7 @@ handleWantedAlbumAdded DownloadDeps{..} catalogAlbumId releaseGroupId albumTitle
                         , dscHttpClient = httpClient
                         , dscDownloadConfig = downloadConfig
                         , dscIndexerName = indexerName
-                        , dscClock = dlClock
+                        , dscClock = scClock
                         }
 
                   _ <- liftIO $ submitDownload submissionCtx release catalogAlbumId

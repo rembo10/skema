@@ -12,7 +12,7 @@ module Skema.Services.DiffGenerator
   ( startDiffGeneratorService
   ) where
 
-import Skema.Services.Dependencies (DiffGeneratorDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Domain.Metadata (metadataRecordToMonatone)
 import Skema.Events.Bus
@@ -29,9 +29,9 @@ import Katip
 -- | Start the diff generator service.
 --
 -- This service listens for CLUSTER_IDENTIFIED and TRACKS_REMATCHED events and generates metadata diffs.
-startDiffGeneratorService :: DiffGeneratorDeps -> IO (Async ())
+startDiffGeneratorService :: ServiceContext -> IO (Async ())
 startDiffGeneratorService deps =
-  runEventService (diffLogEnv deps) (diffEventBus deps) "services.diff-generator" Sequential $ \case
+  runEventService (scLogEnv deps) (scEventBus deps) "services.diff-generator" Sequential $ \case
     ClusterIdentified cid releaseId _ _confidence _trackCount ->
       Just $ handleClusterIdentified deps cid releaseId
     TracksRematched cid _trackCount ->
@@ -39,11 +39,11 @@ startDiffGeneratorService deps =
     _ -> Nothing
 
 -- | Handle a cluster identified event.
-handleClusterIdentified :: DiffGeneratorDeps -> Int64 -> Text -> IO ()
-handleClusterIdentified DiffGeneratorDeps{..} clusterId releaseId = do
-  let le = diffLogEnv
-  let pool = diffDbPool
-  let bus = diffEventBus
+handleClusterIdentified :: ServiceContext -> Int64 -> Text -> IO ()
+handleClusterIdentified ServiceContext{..} clusterId releaseId = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
   let initialContext = ()
   let initialNamespace = "services.diff-generator"
 
@@ -61,7 +61,7 @@ handleClusterIdentified DiffGeneratorDeps{..} clusterId releaseId = do
 
           Just (_, tracks) -> do
             -- Fetch MusicBrainz release data using shared client
-            let mbEnv = diffMBClient
+            let mbEnv = scMBClientEnv
             mbReleaseResult <- liftIO $ getRelease mbEnv (MBID releaseId)
 
             case mbReleaseResult of
@@ -108,10 +108,10 @@ handleClusterIdentified DiffGeneratorDeps{..} clusterId releaseId = do
 
 -- | Handle a tracks rematched event.
 -- This regenerates diffs for the cluster after manual track rematch.
-handleTracksRematched :: DiffGeneratorDeps -> Int64 -> IO ()
-handleTracksRematched DiffGeneratorDeps{..} clusterId = do
-  let le = diffLogEnv
-  let pool = diffDbPool
+handleTracksRematched :: ServiceContext -> Int64 -> IO ()
+handleTracksRematched ServiceContext{..} clusterId = do
+  let le = scLogEnv
+  let pool = scDbPool
 
   runKatipContextT le () "services.diff-generator" $ do
     katipAddContext (sl "cluster_id" clusterId) $ do
@@ -133,4 +133,4 @@ handleTracksRematched DiffGeneratorDeps{..} clusterId = do
             Just releaseId -> do
               $(logTM) InfoS $ logStr ("Regenerating diffs for cluster " <> show clusterId <> " after track rematch" :: Text)
               -- Reuse the existing handler
-              liftIO $ handleClusterIdentified DiffGeneratorDeps{..} clusterId releaseId
+              liftIO $ handleClusterIdentified ServiceContext{..} clusterId releaseId

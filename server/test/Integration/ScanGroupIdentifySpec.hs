@@ -21,7 +21,6 @@ import Skema.Events.Bus (publishAndLog, subscribe)
 import Skema.Events.Types
 import Skema.Services.Scanner (startScannerService)
 import Skema.Services.Grouper (startGrouperService)
-import Skema.Services.Dependencies
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.Async (cancel)
 import Data.List (nub)
@@ -46,19 +45,9 @@ testScanAndGroup = withTestEnv $ \env -> do
     eventChan <- STM.atomically $ subscribe (teEventBus env)
 
     -- Start scanner and grouper services
-    scannerAsync <- startScannerService $ ScannerDeps
-      { scanEventBus = teEventBus env
-      , scanLogEnv = teLogEnv env
-      , scanDbPool = tePool env
-      }
+    scannerAsync <- startScannerService (mkTestServiceContext env)
 
-    grouperAsync <- startGrouperService $ GrouperDeps
-      { groupEventBus = teEventBus env
-      , groupLogEnv = teLogEnv env
-      , groupDbPool = tePool env
-      , groupConfigVar = teConfigVar env
-      , groupClock = teClock env
-      }
+    grouperAsync <- startGrouperService (mkTestServiceContext env)
 
     -- Trigger library scan
     publishAndLog (teEventBus env) (teLogEnv env) "test" $
@@ -117,19 +106,9 @@ testMultipleAlbums = withTestEnv $ \env -> do
     eventChan <- STM.atomically $ subscribe (teEventBus env)
 
     -- Start services
-    scannerAsync <- startScannerService $ ScannerDeps
-      { scanEventBus = teEventBus env
-      , scanLogEnv = teLogEnv env
-      , scanDbPool = tePool env
-      }
+    scannerAsync <- startScannerService (mkTestServiceContext env)
 
-    grouperAsync <- startGrouperService $ GrouperDeps
-      { groupEventBus = teEventBus env
-      , groupLogEnv = teLogEnv env
-      , groupDbPool = tePool env
-      , groupConfigVar = teConfigVar env
-      , groupClock = teClock env
-      }
+    grouperAsync <- startGrouperService (mkTestServiceContext env)
 
     -- Trigger scan
     publishAndLog (teEventBus env) (teLogEnv env) "test" $
@@ -185,19 +164,9 @@ testCompilationAlbum = withTestEnv $ \env -> do
     eventChan <- STM.atomically $ subscribe (teEventBus env)
 
     -- Start services
-    scannerAsync <- startScannerService $ ScannerDeps
-      { scanEventBus = teEventBus env
-      , scanLogEnv = teLogEnv env
-      , scanDbPool = tePool env
-      }
+    scannerAsync <- startScannerService (mkTestServiceContext env)
 
-    grouperAsync <- startGrouperService $ GrouperDeps
-      { groupEventBus = teEventBus env
-      , groupLogEnv = teLogEnv env
-      , groupDbPool = tePool env
-      , groupConfigVar = teConfigVar env
-      , groupClock = teClock env
-      }
+    grouperAsync <- startGrouperService (mkTestServiceContext env)
 
     -- Trigger scan
     publishAndLog (teEventBus env) (teLogEnv env) "test" $

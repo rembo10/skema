@@ -16,7 +16,7 @@ module Skema.Services.SourceEvaluator
   , evaluateSource
   ) where
 
-import Skema.Services.Dependencies (SourceEvaluatorDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Events.Bus (EventBus, publishAndLog)
 import Skema.Events.Types (Event(..))
 import Skema.Database.Connection
@@ -59,9 +59,9 @@ initialDelayMicros = 5 * 60 * 1000000  -- 5 minutes
 -- This service runs periodically to evaluate all enabled acquisition sources
 -- against their respective providers (Metacritic, Pitchfork).
 -- Exceptions are caught and logged to prevent the service from crashing.
-startSourceEvaluatorService :: SourceEvaluatorDeps -> IO (Async ())
+startSourceEvaluatorService :: ServiceContext -> IO (Async ())
 startSourceEvaluatorService deps = async $ do
-  let le = sourceEvalLogEnv deps
+  let le = scLogEnv deps
 
   runKatipContextT le () "services.source_evaluator" $ do
     $(logTM) InfoS $ logStr ("SourceEvaluator service starting, waiting " <> show (initialDelayMicros `div` 1000000) <> "s before first evaluation" :: Text)
@@ -82,13 +82,13 @@ startSourceEvaluatorService deps = async $ do
     threadDelay evaluationIntervalMicros
 
 -- | Run a single evaluation cycle for all enabled sources.
-runEvaluation :: SourceEvaluatorDeps -> IO ()
-runEvaluation SourceEvaluatorDeps{..} = do
-  let le = sourceEvalLogEnv
-  let pool = sourceEvalDbPool
-  let bus = sourceEvalEventBus
-  let mbClient = sourceEvalMBClient
-  let httpClient = sourceEvalHttpClient
+runEvaluation :: ServiceContext -> IO ()
+runEvaluation ServiceContext{..} = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
+  let mbClient = scMBClientEnv
+  let httpClient = scHttpClient
 
   runKatipContextT le () "services.source_evaluator" $ do
     $(logTM) InfoS $ logStr ("Starting source evaluation cycle" :: Text)

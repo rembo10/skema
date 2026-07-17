@@ -12,7 +12,7 @@ module Skema.Services.Stats
   ( startStatsService
   ) where
 
-import Skema.Services.Dependencies (StatsDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
@@ -34,14 +34,14 @@ debounceIntervalMicros = 2000000
 -- This service listens for events that modify stats and emits STATS_UPDATED events.
 -- Uses debouncing to batch updates and reduce database load.
 -- Exceptions are caught and logged to prevent the service from crashing.
-startStatsService :: StatsDeps -> Maybe Text -> IO (Async (), Async ())
+startStatsService :: ServiceContext -> Maybe Text -> IO (Async (), Async ())
 startStatsService deps libraryPath = do
   -- TVar to track whether a stats update is pending
   updatePending <- STM.newTVarIO False
   let markPending = STM.atomically $ writeTVar updatePending True
 
   -- Event listener - marks stats as needing update
-  listenerHandle <- runEventService (statsLogEnv deps) (statsEventBus deps) "services.stats" Sequential $ \case
+  listenerHandle <- runEventService (scLogEnv deps) (scEventBus deps) "services.stats" Sequential $ \case
     MetadataReadComplete{} -> Just markPending
     ClustersGenerated{} -> Just markPending
     ClusterIdentified{} -> Just markPending
@@ -61,7 +61,7 @@ startStatsService deps libraryPath = do
     result <- try $ emitStatsUpdate deps libraryPath
     case result of
       Left (e :: SomeException) -> do
-        let le = statsLogEnv deps
+        let le = scLogEnv deps
         runKatipContextT le () "stats.error" $ do
           $(logTM) ErrorS $ logStr $ ("Exception in stats service: " <> show e :: Text)
       Right () -> pure ()
@@ -69,11 +69,11 @@ startStatsService deps libraryPath = do
   pure (listenerHandle, updaterHandle)
 
 -- | Compute current stats and emit STATS_UPDATED event.
-emitStatsUpdate :: StatsDeps -> Maybe Text -> IO ()
-emitStatsUpdate StatsDeps{..} _libraryPath = do
-  let le = statsLogEnv
-  let pool = statsDbPool
-  let bus = statsEventBus
+emitStatsUpdate :: ServiceContext -> Maybe Text -> IO ()
+emitStatsUpdate ServiceContext{..} _libraryPath = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
   let initialContext = ()
   let initialNamespace = "services.stats"
 

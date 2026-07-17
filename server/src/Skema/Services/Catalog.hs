@@ -17,7 +17,7 @@ module Skema.Services.Catalog
   , startCatalogRefreshScheduler
   ) where
 
-import Skema.Services.Dependencies (CatalogDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
@@ -46,11 +46,11 @@ import Katip
 -- This service listens for:
 -- - CatalogArtistFollowed events (initial discography fetch)
 -- - CatalogArtistRefreshRequested events (refresh to check for new releases)
-startCatalogService :: CatalogDeps -> IO (Async ())
+startCatalogService :: ServiceContext -> IO (Async ())
 startCatalogService deps =
   -- Discography syncs run sequentially; they upsert artist/album rows and
   -- MusicBrainz serializes the requests at one per second regardless
-  runEventService (catLogEnv deps) (catEventBus deps) "services.catalog" Sequential $ \case
+  runEventService (scLogEnv deps) (scEventBus deps) "services.catalog" Sequential $ \case
     CatalogArtistFollowed{..} ->
       Just $ handleCatalogArtistFollowed deps catalogArtistMBID catalogArtistName
     CatalogArtistRefreshRequested{..} ->
@@ -61,15 +61,15 @@ startCatalogService deps =
 --
 -- Fetches the artist's discography from MusicBrainz and stores all albums
 -- in catalog_albums, emitting CatalogAlbumAdded events for each.
-handleCatalogArtistFollowed :: CatalogDeps -> Text -> Text -> IO ()
-handleCatalogArtistFollowed CatalogDeps{..} artistMBID artistName = do
-  let le = catLogEnv
-  let pool = catDbPool
-  let bus = catEventBus
-  let mbEnv = catMBClient
+handleCatalogArtistFollowed :: ServiceContext -> Text -> Text -> IO ()
+handleCatalogArtistFollowed ServiceContext{..} artistMBID artistName = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
+  let mbEnv = scMBClientEnv
 
   -- Read current config from TVar
-  config <- STM.atomically $ STM.readTVar catConfigVar
+  config <- STM.atomically $ STM.readTVar scConfigVar
   let mbConfig = musicbrainz config
   let allowedTypes = mbAlbumTypes mbConfig
   let excludedSecondaryTypes = mbExcludeSecondaryTypes mbConfig
@@ -106,7 +106,7 @@ handleCatalogArtistFollowed CatalogDeps{..} artistMBID artistName = do
 
                     -- Emit event for observability
                     -- Note: last_checked_at is not updated during initial follow, only during refresh
-                    now <- liftIO (getNow catClock)
+                    now <- liftIO (getNow scClock)
                     liftIO $ publishAndLog bus le "catalog" $ ArtistDiscographyFetched
                       { artistDiscographyArtistId = artistId
                       , artistMBID = artistMBID
@@ -162,15 +162,15 @@ handleCatalogArtistFollowed CatalogDeps{..} artistMBID artistName = do
 -- Re-fetches the artist's discography from MusicBrainz using conditional requests
 -- (ETags). Updates existing album metadata when it has changed and adds new albums.
 -- Triggers diff regeneration for affected library clusters.
-handleCatalogArtistRefresh :: CatalogDeps -> Text -> IO ()
-handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
-  let le = catLogEnv
-  let pool = catDbPool
-  let bus = catEventBus
-  let mbEnv = catMBClient
+handleCatalogArtistRefresh :: ServiceContext -> Text -> IO ()
+handleCatalogArtistRefresh ServiceContext{..} artistMBID = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
+  let mbEnv = scMBClientEnv
 
   -- Read current config from TVar
-  config <- STM.atomically $ STM.readTVar catConfigVar
+  config <- STM.atomically $ STM.readTVar scConfigVar
   let mbConfig = musicbrainz config
   let allowedTypes = mbAlbumTypes mbConfig
   let excludedSecondaryTypes = mbExcludeSecondaryTypes mbConfig
@@ -204,7 +204,7 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
 
               Right NotModified -> do
                 -- Data hasn't changed, just update last_checked_at
-                now <- liftIO (getNow catClock)
+                now <- liftIO (getNow scClock)
                 case DB.catalogArtistId artist of
                   Just artistId -> do
                     liftIO $ withConnection pool $ \conn ->
@@ -217,7 +217,7 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                     when (isNothing (DB.catalogArtistBio artist)) $ do
                       _ <- liftIO $ async $ do
                         let apiKey = fromMaybe LastFM.defaultApiKey (mediaLastFmApiKey (media config))
-                        bioResult <- LastFM.fetchArtistBio catHttpClient apiKey (MBID artistMBID)
+                        bioResult <- LastFM.fetchArtistBio scHttpClient apiKey (MBID artistMBID)
                         case bioResult of
                           Right bio -> do
                             withConnection pool $ \conn ->
@@ -236,7 +236,7 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                 let releaseGroups = filter (shouldIncludeReleaseGroup allowedTypes excludedSecondaryTypes) allReleaseGroups
 
                 -- Update last_checked_at timestamp and ETag
-                now <- liftIO (getNow catClock)
+                now <- liftIO (getNow scClock)
                 case DB.catalogArtistId artist of
                   Just artistId -> do
                     liftIO $ withConnection pool $ \conn -> do
@@ -265,7 +265,7 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
                     -- Refresh bio from Last.fm
                     _ <- liftIO $ async $ do
                       let apiKey = fromMaybe LastFM.defaultApiKey (mediaLastFmApiKey (media config))
-                      bioResult <- LastFM.fetchArtistBio catHttpClient apiKey (MBID artistMBID)
+                      bioResult <- LastFM.fetchArtistBio scHttpClient apiKey (MBID artistMBID)
                       case bioResult of
                         Right bio -> do
                           withConnection pool $ \conn ->
@@ -363,11 +363,11 @@ handleCatalogArtistRefresh CatalogDeps{..} artistMBID = do
 -- Periodically checks which followed artists are due for a refresh based on
 -- smart scheduling tiers (albums released recently are checked more frequently).
 -- Emits CatalogArtistRefreshRequested events for artists that are due.
-startCatalogRefreshScheduler :: CatalogDeps -> IO (Async ())
+startCatalogRefreshScheduler :: ServiceContext -> IO (Async ())
 startCatalogRefreshScheduler deps = async $ do
-  let le = catLogEnv deps
-  let pool = catDbPool deps
-  let bus = catEventBus deps
+  let le = scLogEnv deps
+  let pool = scDbPool deps
+  let bus = scEventBus deps
 
   -- Wait 5 minutes before first check to let the system stabilize on startup
   threadDelay (5 * 60 * 1000000)
@@ -380,7 +380,7 @@ startCatalogRefreshScheduler deps = async $ do
       artists <- liftIO $ withConnection pool $ \conn ->
         getCatalogArtists conn (Just True) Nothing Nothing Nothing
 
-      now <- liftIO (getNow (catClock deps))
+      now <- liftIO (getNow (scClock deps))
       scheduledCount <- liftIO $ newIORef (0 :: Int)
 
       forM_ artists $ \artist -> do

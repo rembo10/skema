@@ -10,7 +10,7 @@ module Skema.Services.Grouper
   , handleMetadataReadComplete
   ) where
 
-import Skema.Services.Dependencies (GrouperDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Domain.Metadata (metadataRecordToMonatone)
 import Skema.Events.Bus
@@ -34,20 +34,20 @@ import Katip
 -- empty clusters across the whole library, so two running concurrently
 -- would race against each other.
 -- Returns the async handle for graceful shutdown.
-startGrouperService :: GrouperDeps -> IO (Async ())
+startGrouperService :: ServiceContext -> IO (Async ())
 startGrouperService deps =
-  runEventService (groupLogEnv deps) (groupEventBus deps) "services.grouper" Sequential $ \case
+  runEventService (scLogEnv deps) (scEventBus deps) "services.grouper" Sequential $ \case
     MetadataReadComplete{..} -> Just $ handleMetadataReadComplete deps filesProcessed
     _ -> Nothing
 
 -- | Handle metadata read complete event.
 -- Groups all files in the library by album (not just changed files, since
 -- grouping needs to see the full album to create proper clusters).
-handleMetadataReadComplete :: GrouperDeps -> Int -> IO ()
-handleMetadataReadComplete GrouperDeps{..} fileCount = do
-  let le = groupLogEnv
-  let pool = groupDbPool
-  let bus = groupEventBus
+handleMetadataReadComplete :: ServiceContext -> Int -> IO ()
+handleMetadataReadComplete ServiceContext{..} fileCount = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
   let initialContext = ()
   let initialNamespace = "services.grouper"
 
@@ -121,8 +121,8 @@ handleMetadataReadComplete GrouperDeps{..} fileCount = do
     -- Reload clusters to get updated state
     allClusters <- liftIO $ withConnection pool getAllClusters
 
-    now <- liftIO (getNow groupClock)
-    config <- liftIO $ readTVarIO groupConfigVar
+    now <- liftIO (getNow scClock)
+    config <- liftIO $ readTVarIO scConfigVar
     let identifyConfig = mkIdentifyConfig (library config) (musicbrainz config)
     let (alreadyMatched, needsId) = partitionClusters now identifyConfig allClusters
     let totalGroups = length allClusters

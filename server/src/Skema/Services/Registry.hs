@@ -9,8 +9,7 @@ module Skema.Services.Registry
   ) where
 
 import Skema.Services.Types
-import Skema.Services.Dependencies (ScannerDeps(..), GrouperDeps(..), IdentifierDeps(..), DiffGeneratorDeps(..), DownloadDeps(..), ThumbnailerDeps(..), ImageDeps(..), ImporterDeps(..), CatalogDeps(..), AcquisitionDeps(..), StatsDeps(..), SourceEvaluatorDeps(..), MetadataWriterDeps(..), NotificationDeps(..))
-import Skema.Services.Slskd (SlskdDeps(..), runSlskdMonitor)
+import Skema.Services.Slskd (runSlskdMonitor)
 import Skema.Clock (Clock, systemClock)
 import Skema.Services.AsyncRegistry (AsyncRegistry, newAsyncRegistry, registerAsync)
 import Skema.Services.Scanner (startScannerService, processDiff)
@@ -77,8 +76,8 @@ data WatcherState = WatcherState
 
 -- | Try to start the filesystem watcher for a given library config.
 -- Returns the new WatcherState. Stops any existing watcher first.
-tryStartWatcher :: LogEnv -> ScannerDeps -> WatcherState -> LibraryConfig -> IO WatcherState
-tryStartWatcher le scannerDeps oldState libConfig = do
+tryStartWatcher :: LogEnv -> ServiceContext -> WatcherState -> LibraryConfig -> IO WatcherState
+tryStartWatcher le ctx oldState libConfig = do
   -- Stop existing watcher if running
   forM_ (wsHandle oldState) cancel
 
@@ -107,7 +106,7 @@ tryStartWatcher le scannerDeps oldState libConfig = do
             stopWatcher <- watchDirectoryWithEvents
               libPath
               defaultDebounceMs
-              (processDiff scannerDeps)
+              (processDiff ctx)
               Nothing    -- processDiff emits events itself
               (Just le)
             handle <- async $
@@ -184,21 +183,16 @@ startAllServices le bus pool config cacheDir configPath = do
           }
 
     -- Define scanner deps early (needed by both scanner service and watcher)
-    let scannerDeps = ScannerDeps
-          { scanEventBus = scEventBus ctx
-          , scanLogEnv = scLogEnv ctx
-          , scanDbPool = scDbPool ctx
-          }
 
     -- Start pipeline services
     $(logTM) InfoS $ logStr ("Starting Scanner service..." :: Text)
-    scannerHandle <- liftIO $ startScannerService scannerDeps
+    scannerHandle <- liftIO $ startScannerService ctx
     liftIO $ registerAsync asyncRegistry "Scanner" scannerHandle
 
     -- Start filesystem watcher (tracked via IORef for live restart on config changes)
     let emptyWatcherState = WatcherState
           { wsWatchedPath = Nothing, wsWatchEnabled = False, wsHandle = Nothing }
-    initialWatcherState <- liftIO $ tryStartWatcher le scannerDeps emptyWatcherState (library config)
+    initialWatcherState <- liftIO $ tryStartWatcher le ctx emptyWatcherState (library config)
     watcherStateRef <- liftIO $ newIORef initialWatcherState
 
     -- Start a background thread to listen for ConfigUpdated events and reload config
@@ -228,107 +222,45 @@ startAllServices le bus pool config cacheDir configPath = do
               when (watcherNeedsRestart oldWatcherState (library newConfig)) $ do
                 runKatipContextT le () "services.registry" $ do
                   $(logTM) InfoS $ logStr ("Library config changed, restarting watcher..." :: Text)
-                newWatcherState <- tryStartWatcher le scannerDeps oldWatcherState (library newConfig)
+                newWatcherState <- tryStartWatcher le ctx oldWatcherState (library newConfig)
                 writeIORef watcherStateRef newWatcherState
         _ -> pure ()
     liftIO $ registerAsync asyncRegistry "ConfigReloader" configReloadHandle
 
     $(logTM) InfoS $ logStr ("Starting Grouper service..." :: Text)
-    let grouperDeps = GrouperDeps
-          { groupEventBus = scEventBus ctx
-          , groupLogEnv = scLogEnv ctx
-          , groupDbPool = scDbPool ctx
-          , groupConfigVar = scConfigVar ctx
-          , groupClock = scClock ctx
-          }
-    grouperHandle <- liftIO $ startGrouperService grouperDeps
+    grouperHandle <- liftIO $ startGrouperService ctx
     liftIO $ registerAsync asyncRegistry "Grouper" grouperHandle
 
     $(logTM) InfoS $ logStr ("Starting Identifier service..." :: Text)
-    let identifierDeps = IdentifierDeps
-          { identEventBus = scEventBus ctx
-          , identLogEnv = scLogEnv ctx
-          , identDbPool = scDbPool ctx
-          , identConfigVar = scConfigVar ctx
-          , identMBClient = scMBClientEnv ctx
-          , identClock = scClock ctx
-          }
-    identifierHandle <- liftIO $ startIdentifierService identifierDeps
+    identifierHandle <- liftIO $ startIdentifierService ctx
     liftIO $ registerAsync asyncRegistry "Identifier" identifierHandle
 
     $(logTM) InfoS $ logStr ("Starting DiffGenerator service..." :: Text)
-    let diffGeneratorDeps = DiffGeneratorDeps
-          { diffEventBus = scEventBus ctx
-          , diffLogEnv = scLogEnv ctx
-          , diffDbPool = scDbPool ctx
-          , diffMBClient = scMBClientEnv ctx
-          }
-    diffGeneratorHandle <- liftIO $ startDiffGeneratorService diffGeneratorDeps
+    diffGeneratorHandle <- liftIO $ startDiffGeneratorService ctx
     liftIO $ registerAsync asyncRegistry "DiffGenerator" diffGeneratorHandle
 
     $(logTM) InfoS $ logStr ("Starting Catalog service..." :: Text)
-    let catalogDeps = CatalogDeps
-          { catEventBus = scEventBus ctx
-          , catLogEnv = scLogEnv ctx
-          , catDbPool = scDbPool ctx
-          , catConfigVar = scConfigVar ctx
-          , catMBClient = scMBClientEnv ctx
-          , catHttpClient = scHttpClient ctx
-          , catCacheDir = scCacheDir ctx
-          , catClock = scClock ctx
-          }
-    catalogHandle <- liftIO $ startCatalogService catalogDeps
+    catalogHandle <- liftIO $ startCatalogService ctx
     liftIO $ registerAsync asyncRegistry "Catalog" catalogHandle
 
     $(logTM) InfoS $ logStr ("Starting Catalog Refresh Scheduler..." :: Text)
-    catalogRefreshHandle <- liftIO $ startCatalogRefreshScheduler catalogDeps
+    catalogRefreshHandle <- liftIO $ startCatalogRefreshScheduler ctx
     liftIO $ registerAsync asyncRegistry "Catalog.RefreshScheduler" catalogRefreshHandle
 
     $(logTM) InfoS $ logStr ("Starting Acquisition service..." :: Text)
-    let acquisitionDeps = AcquisitionDeps
-          { acqEventBus = scEventBus ctx
-          , acqLogEnv = scLogEnv ctx
-          , acqDbPool = scDbPool ctx
-          , acqConfigVar = scConfigVar ctx
-          , acqMBClient = scMBClientEnv ctx
-          , acqClock = scClock ctx
-          }
-    acquisitionHandle <- liftIO $ startAcquisitionService acquisitionDeps
+    acquisitionHandle <- liftIO $ startAcquisitionService ctx
     liftIO $ registerAsync asyncRegistry "Acquisition" acquisitionHandle
 
     $(logTM) InfoS $ logStr ("Starting Image service..." :: Text)
-    let imageDeps = ImageDeps
-          { imgEventBus = scEventBus ctx
-          , imgLogEnv = scLogEnv ctx
-          , imgDbPool = scDbPool ctx
-          , imgConfigVar = scConfigVar ctx
-          , imgHttpClient = scHttpClient ctx
-          , imgCacheDir = scCacheDir ctx
-          }
-    imageHandle <- liftIO $ startImageService imageDeps
+    imageHandle <- liftIO $ startImageService ctx
     liftIO $ registerAsync asyncRegistry "Image" imageHandle
 
     $(logTM) InfoS $ logStr ("Starting Thumbnailer service..." :: Text)
-    let thumbnailerDeps = ThumbnailerDeps
-          { thumbEventBus = scEventBus ctx
-          , thumbLogEnv = scLogEnv ctx
-          , thumbDbPool = scDbPool ctx
-          , thumbCacheDir = scCacheDir ctx
-          }
-    thumbnailerHandle <- liftIO $ startThumbnailerService thumbnailerDeps
+    thumbnailerHandle <- liftIO $ startThumbnailerService ctx
     liftIO $ registerAsync asyncRegistry "Thumbnailer" thumbnailerHandle
 
     $(logTM) InfoS $ logStr ("Starting Download service..." :: Text)
-    let downloadDeps = DownloadDeps
-          { dlEventBus = scEventBus ctx
-          , dlLogEnv = scLogEnv ctx
-          , dlDbPool = scDbPool ctx
-          , dlConfigVar = scConfigVar ctx
-          , dlHttpClient = scHttpClient ctx
-          , dlProgressMap = scDownloadProgressMap ctx
-          , dlClock = scClock ctx
-          }
-    (downloadSearchHandle, downloadMonitorHandle) <- liftIO $ startDownloadService downloadDeps
+    (downloadSearchHandle, downloadMonitorHandle) <- liftIO $ startDownloadService ctx
     liftIO $ registerAsync asyncRegistry "Download.Search" downloadSearchHandle
     liftIO $ registerAsync asyncRegistry "Download.Monitor" downloadMonitorHandle
 
@@ -337,28 +269,11 @@ startAllServices le bus pool config cacheDir configPath = do
     liftIO $ registerAsync asyncRegistry "Download.RSSMonitor" rssMonitorHandle
 
     $(logTM) InfoS $ logStr ("Starting slskd Monitor service..." :: Text)
-    let slskdDeps = SlskdDeps
-          { slskdEventBus = scEventBus ctx
-          , slskdLogEnv = scLogEnv ctx
-          , slskdDbPool = scDbPool ctx
-          , slskdConfigVar = scConfigVar ctx
-          , slskdHttpClient = scHttpClient ctx
-          , slskdProgressMap = scDownloadProgressMap ctx
-          , slskdClock = scClock ctx
-          }
-    slskdMonitorHandle <- liftIO $ async $ runSlskdMonitor slskdDeps
+    slskdMonitorHandle <- liftIO $ async $ runSlskdMonitor ctx
     liftIO $ registerAsync asyncRegistry "Download.SlskdMonitor" slskdMonitorHandle
 
     $(logTM) InfoS $ logStr ("Starting Importer service..." :: Text)
-    let importerDeps = ImporterDeps
-          { impEventBus = scEventBus ctx
-          , impLogEnv = scLogEnv ctx
-          , impDbPool = scDbPool ctx
-          , impConfigVar = scConfigVar ctx
-          , impMBClient = scMBClientEnv ctx
-          , impClock = scClock ctx
-          }
-    importerHandle <- liftIO $ startImporterService importerDeps
+    importerHandle <- liftIO $ startImporterService ctx
     liftIO $ registerAsync asyncRegistry "Importer" importerHandle
 
     -- Start Stats service (computes and emits STATS_UPDATED events)
@@ -368,35 +283,18 @@ startAllServices le bus pool config cacheDir configPath = do
       Just osPath -> do
         pathStr <- liftIO $ osPathToString osPath
         pure $ Just (toText pathStr)
-    let statsDeps = StatsDeps
-          { statsEventBus = scEventBus ctx
-          , statsLogEnv = scLogEnv ctx
-          , statsDbPool = scDbPool ctx
-          }
-    (statsListenerHandle, statsUpdaterHandle) <- liftIO $ startStatsService statsDeps libraryPathText
+    (statsListenerHandle, statsUpdaterHandle) <- liftIO $ startStatsService ctx libraryPathText
     liftIO $ registerAsync asyncRegistry "Stats.Listener" statsListenerHandle
     liftIO $ registerAsync asyncRegistry "Stats.Updater" statsUpdaterHandle
 
     -- Start MetadataWriter service (writes metadata changes to audio files asynchronously)
     $(logTM) InfoS $ logStr ("Starting MetadataWriter service..." :: Text)
-    let metadataWriterDeps = MetadataWriterDeps
-          { writerEventBus = scEventBus ctx
-          , writerLogEnv = scLogEnv ctx
-          , writerDbPool = scDbPool ctx
-          }
-    metadataWriterHandle <- liftIO $ startMetadataWriterService metadataWriterDeps
+    metadataWriterHandle <- liftIO $ startMetadataWriterService ctx
     liftIO $ registerAsync asyncRegistry "MetadataWriter" metadataWriterHandle
 
     -- Start SourceEvaluator service (periodically evaluates acquisition sources)
     $(logTM) InfoS $ logStr ("Starting SourceEvaluator service..." :: Text)
-    let sourceEvaluatorDeps = SourceEvaluatorDeps
-          { sourceEvalEventBus = scEventBus ctx
-          , sourceEvalLogEnv = scLogEnv ctx
-          , sourceEvalDbPool = scDbPool ctx
-          , sourceEvalMBClient = scMBClientEnv ctx
-          , sourceEvalHttpClient = scHttpClient ctx
-          }
-    sourceEvaluatorHandle <- liftIO $ startSourceEvaluatorService sourceEvaluatorDeps
+    sourceEvaluatorHandle <- liftIO $ startSourceEvaluatorService ctx
     liftIO $ registerAsync asyncRegistry "SourceEvaluator" sourceEvaluatorHandle
 
     -- Start TrashCleanup service (periodically removes old files from trash)
@@ -406,15 +304,7 @@ startAllServices le bus pool config cacheDir configPath = do
 
     -- Start Notification service (sends notifications via Pushover, etc.)
     $(logTM) InfoS $ logStr ("Starting Notification service..." :: Text)
-    let notificationDeps = NotificationDeps
-          { notifEventBus = scEventBus ctx
-          , notifConfigVar = scConfigVar ctx
-          , notifHttpClient = scHttpClient ctx
-          , notifLogEnv = scLogEnv ctx
-          , notifDbPool = scDbPool ctx
-          , notifClock = scClock ctx
-          }
-    notificationHandle <- liftIO $ startNotificationService notificationDeps
+    notificationHandle <- liftIO $ startNotificationService ctx
     liftIO $ registerAsync asyncRegistry "Notification" notificationHandle
 
     $(logTM) InfoS $ logStr ("All services started successfully" :: Text)

@@ -10,7 +10,7 @@ module Skema.Services.Scanner
   , processDiff
   ) where
 
-import Skema.Services.Dependencies (ScannerDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
@@ -43,17 +43,17 @@ pooledMapConcurrently maxWorkers f xs = do
 -- Scans run sequentially: two concurrent full scans would race on the
 -- library snapshot and track upserts.
 -- Returns the async handle for graceful shutdown.
-startScannerService :: ScannerDeps -> IO (Async ())
+startScannerService :: ServiceContext -> IO (Async ())
 startScannerService deps =
-  runEventService (scanLogEnv deps) (scanEventBus deps) "services.scanner" Sequential $ \case
+  runEventService (scLogEnv deps) (scEventBus deps) "services.scanner" Sequential $ \case
     LibraryScanRequested{..} -> Just $ handleScanRequest deps scanPath forceRescan
     _ -> Nothing
 
 -- | Handle a library scan request.
-handleScanRequest :: ScannerDeps -> Text -> Bool -> IO ()
-handleScanRequest ScannerDeps{..} scanPathText forceRescan = do
-  let le = scanLogEnv
-  let pool = scanDbPool
+handleScanRequest :: ServiceContext -> Text -> Bool -> IO ()
+handleScanRequest ServiceContext{..} scanPathText forceRescan = do
+  let le = scLogEnv
+  let pool = scDbPool
   let initialContext = ()
   let initialNamespace = "services.scanner"
 
@@ -82,18 +82,18 @@ handleScanRequest ScannerDeps{..} scanPathText forceRescan = do
         diff <- liftIO $ scanDirectoryForChanges scanPath dbSnapshot
 
         -- Process the diff (shared with watcher)
-        liftIO $ processDiff ScannerDeps{..} diff
+        liftIO $ processDiff ServiceContext{..} diff
 
 -- | Process a 'FileSystemDiff' — delete removed tracks, read metadata for
 -- added/modified files with bounded concurrency, and emit progress events.
 --
 -- This is used by both the scanner (after computing a diff from a full scan)
 -- and the filesystem watcher (after detecting changes).
-processDiff :: ScannerDeps -> FileSystemDiff -> IO ()
-processDiff ScannerDeps{..} diff = do
-  let le = scanLogEnv
-  let pool = scanDbPool
-  let bus = scanEventBus
+processDiff :: ServiceContext -> FileSystemDiff -> IO ()
+processDiff ServiceContext{..} diff = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
   let initialContext = ()
   let initialNamespace = "services.scanner"
 

@@ -10,7 +10,7 @@ module Skema.Services.Identifier
   , clusterToFileGroup
   ) where
 
-import Skema.Services.Dependencies (IdentifierDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
@@ -36,24 +36,24 @@ import Katip
 -- competing matches, and MusicBrainz is rate limited to one request per
 -- second anyway.
 -- Returns the async handle for graceful shutdown.
-startIdentifierService :: IdentifierDeps -> IO (Async ())
+startIdentifierService :: ServiceContext -> IO (Async ())
 startIdentifierService deps =
-  runEventService (identLogEnv deps) (identEventBus deps) "services.identifier" Sequential $ \case
+  runEventService (scLogEnv deps) (scEventBus deps) "services.identifier" Sequential $ \case
     ClustersGenerated{ affectedClusterIds = affectedIds } ->
       Just $ handleClustersGenerated deps affectedIds
     _ -> Nothing
 
 -- | Handle a clusters generated event.
-handleClustersGenerated :: IdentifierDeps -> [Int64] -> IO ()
-handleClustersGenerated IdentifierDeps{..} affectedIds = do
-  let le = identLogEnv
-  let pool = identDbPool
-  let bus = identEventBus
+handleClustersGenerated :: ServiceContext -> [Int64] -> IO ()
+handleClustersGenerated ServiceContext{..} affectedIds = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
   let initialContext = ()
   let initialNamespace = "services.identifier"
 
   -- Read current config from TVar
-  config <- STM.atomically $ STM.readTVar identConfigVar
+  config <- STM.atomically $ STM.readTVar scConfigVar
 
   runKatipContextT le initialContext initialNamespace $ do
     if null affectedIds
@@ -77,7 +77,7 @@ handleClustersGenerated IdentifierDeps{..} affectedIds = do
           }
 
         -- Get clusters that need identification, scoped to affected clusters
-        now <- liftIO (getNow identClock)
+        now <- liftIO (getNow scClock)
 
         clusters <- liftIO $ withConnection pool $ \conn -> do
           scopedClusters <- if null affectedIds
@@ -94,7 +94,7 @@ handleClustersGenerated IdentifierDeps{..} affectedIds = do
         $(logTM) InfoS $ logStr $ ("Converted " <> show (length fileGroups) <> " clusters to file groups" :: Text)
 
         -- Use injected MusicBrainz client (shared for rate limiting)
-        let mbEnv = identMBClient
+        let mbEnv = scMBClientEnv
 
         -- Process each file group individually and emit events immediately
         -- This allows downstream services to start processing while we're still identifying

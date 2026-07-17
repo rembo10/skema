@@ -11,7 +11,7 @@ module Skema.Services.Image
   , repairAlbumCover
   ) where
 
-import Skema.Services.Dependencies (ImageDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
@@ -45,7 +45,7 @@ mediaSourceToText Deezer = "Deezer"
 -- | Start the image service.
 --
 -- This service listens for events and fetches/stores images as needed.
-startImageService :: ImageDeps -> IO (Async ())
+startImageService :: ServiceContext -> IO (Async ())
 startImageService deps = do
   -- Tracks image re-fetches currently in flight (keyed by "artist:<mbid>" /
   -- "album:<mbid>") so a burst of 404s for the same missing file only triggers
@@ -53,25 +53,25 @@ startImageService deps = do
   repairing <- STM.newTVarIO Set.empty
   -- Image and bio fetches are independent HTTP downloads; overlap is safe and
   -- the repair lock deduplicates per key
-  runEventService (imgLogEnv deps) (imgEventBus deps) "services.image" Concurrent $ \case
+  runEventService (scLogEnv deps) (scEventBus deps) "services.image" Concurrent $ \case
     CatalogArtistFollowed{..} ->
       Just $ handleArtistFollowed deps catalogArtistMBID catalogArtistName
     CatalogAlbumAdded{..} ->
       Just $ handleAlbumCoverFetch deps catalogAlbumReleaseGroupMBID catalogAlbumTitle catalogAlbumId
     ArtistImageMissing{..} ->
-      Just $ withRepairLock (imgLogEnv deps) repairing ("artist:" <> missingArtistMBID) $
+      Just $ withRepairLock (scLogEnv deps) repairing ("artist:" <> missingArtistMBID) $
         repairArtistImage deps missingArtistMBID
     AlbumCoverMissing{..} ->
-      Just $ withRepairLock (imgLogEnv deps) repairing ("album:" <> missingReleaseGroupMBID) $
+      Just $ withRepairLock (scLogEnv deps) repairing ("album:" <> missingReleaseGroupMBID) $
         repairAlbumCover deps missingReleaseGroupMBID
     ArtistDiscographyRequested{..} ->
       Just $ handleDiscographyRequested deps requestedArtistId requestedArtistMBID
     _ -> Nothing
 
 -- | Fetch image and bio for a newly followed artist that has neither yet.
-handleArtistFollowed :: ImageDeps -> Text -> Text -> IO ()
+handleArtistFollowed :: ServiceContext -> Text -> Text -> IO ()
 handleArtistFollowed deps artistMBID artistName = do
-  maybeArtistRecord <- withConnection (imgDbPool deps) $ \conn ->
+  maybeArtistRecord <- withConnection (scDbPool deps) $ \conn ->
     getCatalogArtistByMBID conn artistMBID
   case maybeArtistRecord of
     Nothing -> pure ()  -- Artist not found, skip
@@ -82,7 +82,7 @@ handleArtistFollowed deps artistMBID artistName = do
           -- A failed image fetch should not prevent the bio fetch
           handleArtistImageFetch deps artistId artistMBID artistName
             `catch` \(e :: SomeException) ->
-              runKatipContextT (imgLogEnv deps) () "services.image" $
+              runKatipContextT (scLogEnv deps) () "services.image" $
                 $(logTM) ErrorS $ logStr $
                   ("Exception fetching image for catalog artist " <> artistName <> ": " <> show e :: Text)
           handleArtistBioFetch deps artistId artistMBID
@@ -90,15 +90,15 @@ handleArtistFollowed deps artistMBID artistName = do
 
 -- | User is viewing this artist's page: prioritize fetching covers for their
 -- albums and lazily backfill the bio if it is missing.
-handleDiscographyRequested :: ImageDeps -> Int64 -> Text -> IO ()
+handleDiscographyRequested :: ServiceContext -> Int64 -> Text -> IO ()
 handleDiscographyRequested deps artistId artistMBID = do
-  maybeArtist <- withConnection (imgDbPool deps) $ \conn ->
+  maybeArtist <- withConnection (scDbPool deps) $ \conn ->
     getCatalogArtistById conn artistId
   case maybeArtist of
     Just artist | isNothing (catalogArtistBio artist) ->
       handleArtistBioFetch deps artistId artistMBID
         `catch` \(e :: SomeException) ->
-          runKatipContextT (imgLogEnv deps) () "services.image" $
+          runKatipContextT (scLogEnv deps) () "services.image" $
             $(logTM) ErrorS $ logStr $
               ("Exception backfilling bio for artist " <> show artistId <> ": " <> show e :: Text)
     _ -> pure ()
@@ -134,14 +134,14 @@ withRepairLock le repairing key action = do
 --
 -- Clears the stale image URLs first so the catalog stops pointing the UI at a
 -- 404 even if the re-fetch turns up nothing.
-repairArtistImage :: ImageDeps -> Text -> IO ()
+repairArtistImage :: ServiceContext -> Text -> IO ()
 repairArtistImage deps artistMBID = do
-  maybeArtist <- withConnection (imgDbPool deps) $ \conn ->
+  maybeArtist <- withConnection (scDbPool deps) $ \conn ->
     getCatalogArtistByMBID conn artistMBID
   case maybeArtist of
     Just artist
       | Just artistId <- catalogArtistId artist -> do
-          withConnection (imgDbPool deps) $ \conn ->
+          withConnection (scDbPool deps) $ \conn ->
             executeQuery conn
               "UPDATE catalog_artists SET image_url = NULL, thumbnail_url = NULL WHERE id = ?"
               (Only artistId)
@@ -149,14 +149,14 @@ repairArtistImage deps artistMBID = do
     _ -> pure ()
 
 -- | Re-fetch a missing album cover and reconcile the database with disk.
-repairAlbumCover :: ImageDeps -> Text -> IO ()
+repairAlbumCover :: ServiceContext -> Text -> IO ()
 repairAlbumCover deps releaseGroupMBID = do
-  maybeAlbum <- withConnection (imgDbPool deps) $ \conn ->
+  maybeAlbum <- withConnection (scDbPool deps) $ \conn ->
     getCatalogAlbumByReleaseGroupMBID conn releaseGroupMBID
   case maybeAlbum of
     Just album
       | Just albumId <- DBTypes.catalogAlbumId album -> do
-          withConnection (imgDbPool deps) $ \conn ->
+          withConnection (scDbPool deps) $ \conn ->
             executeQuery conn
               "UPDATE catalog_albums SET album_cover_url = NULL, album_cover_thumbnail_url = NULL WHERE id = ?"
               (Only albumId)
@@ -164,16 +164,16 @@ repairAlbumCover deps releaseGroupMBID = do
     _ -> pure ()
 
 -- | Handle artist image fetching and storage.
-handleArtistImageFetch :: ImageDeps -> Int64 -> Text -> Text -> IO ()
-handleArtistImageFetch ImageDeps{..} artistId artistMBID artistName = do
-  let le = imgLogEnv
-  let pool = imgDbPool
-  let bus = imgEventBus
+handleArtistImageFetch :: ServiceContext -> Int64 -> Text -> Text -> IO ()
+handleArtistImageFetch ServiceContext{..} artistId artistMBID artistName = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
   let initialContext = ()
   let initialNamespace = "services.image.artist"
 
   -- Read current config
-  config <- STM.atomically $ STM.readTVar imgConfigVar
+  config <- STM.atomically $ STM.readTVar scConfigVar
 
   runKatipContextT le initialContext initialNamespace $ do
     katipAddContext (sl "artist_mbid" artistMBID) $ do
@@ -184,7 +184,7 @@ handleArtistImageFetch ImageDeps{..} artistId artistMBID artistName = do
         let mediaConfig = defaultMediaConfig
               { mcLastFmApiKey = mediaLastFmApiKey (media config)
               }
-        maybeResult <- liftIO $ fetchArtistImage le imgHttpClient mediaConfig (MBID artistMBID)
+        maybeResult <- liftIO $ fetchArtistImage le scHttpClient mediaConfig (MBID artistMBID)
 
         -- Download and store image locally if found
         case maybeResult of
@@ -196,8 +196,8 @@ handleArtistImageFetch ImageDeps{..} artistId artistMBID artistName = do
             let source = mrSource result
             $(logTM) InfoS $ logStr $ ("Found artist image from " <> mediaSourceToText source <> ": " <> externalUrl :: Text)
             downloadResult <- liftIO $ downloadAndStoreImages
-              imgHttpClient
-              imgCacheDir
+              scHttpClient
+              scCacheDir
               "artists"
               artistMBID
               externalUrl
@@ -226,16 +226,16 @@ handleArtistImageFetch ImageDeps{..} artistId artistMBID artistName = do
                   }
 
 -- | Handle album cover fetching and storage.
-handleAlbumCoverFetch :: ImageDeps -> Text -> Text -> Int64 -> IO ()
-handleAlbumCoverFetch ImageDeps{..} releaseGroupMBID albumTitle albumId = do
-  let le = imgLogEnv
-  let pool = imgDbPool
-  let bus = imgEventBus
+handleAlbumCoverFetch :: ServiceContext -> Text -> Text -> Int64 -> IO ()
+handleAlbumCoverFetch ServiceContext{..} releaseGroupMBID albumTitle albumId = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
   let initialContext = ()
   let initialNamespace = "services.image.album"
 
   -- Read current config
-  config <- STM.atomically $ STM.readTVar imgConfigVar
+  config <- STM.atomically $ STM.readTVar scConfigVar
 
   runKatipContextT le initialContext initialNamespace $ do
     katipAddContext (sl "release_group_mbid" releaseGroupMBID) $ do
@@ -246,7 +246,7 @@ handleAlbumCoverFetch ImageDeps{..} releaseGroupMBID albumTitle albumId = do
         let mediaConfig = defaultMediaConfig
               { mcLastFmApiKey = mediaLastFmApiKey (media config)
               }
-        maybeResult <- liftIO $ fetchAlbumCover le imgHttpClient mediaConfig (MBID releaseGroupMBID)
+        maybeResult <- liftIO $ fetchAlbumCover le scHttpClient mediaConfig (MBID releaseGroupMBID)
 
         -- Download and store cover image locally if found
         case maybeResult of
@@ -258,8 +258,8 @@ handleAlbumCoverFetch ImageDeps{..} releaseGroupMBID albumTitle albumId = do
             let source = mrSource result
             $(logTM) InfoS $ logStr $ ("Found album cover from " <> mediaSourceToText source <> ": " <> externalUrl :: Text)
             downloadResult <- liftIO $ downloadAndStoreImages
-              imgHttpClient
-              imgCacheDir
+              scHttpClient
+              scCacheDir
               "albums"
               releaseGroupMBID
               externalUrl
@@ -290,10 +290,10 @@ handleAlbumCoverFetch ImageDeps{..} releaseGroupMBID albumTitle albumId = do
 --
 -- When a user views an artist's page, immediately fetch covers for all
 -- albums by that artist that don't have covers yet.
-handleArtistDiscographyImageRequest :: ImageDeps -> Int64 -> Text -> IO ()
-handleArtistDiscographyImageRequest ImageDeps{..} artistId artistMBID = do
-  let le = imgLogEnv
-  let pool = imgDbPool
+handleArtistDiscographyImageRequest :: ServiceContext -> Int64 -> Text -> IO ()
+handleArtistDiscographyImageRequest deps@ServiceContext{..} artistId artistMBID = do
+  let le = scLogEnv
+  let pool = scDbPool
   let initialContext = ()
   let initialNamespace = "services.image.priority"
 
@@ -314,7 +314,7 @@ handleArtistDiscographyImageRequest ImageDeps{..} artistId artistMBID = do
         -- Fetch covers for each album without a cover (in parallel for better UX)
         liftIO $ forM_ albums $ \(albumId :: Int64, releaseGroupMBID :: Text, albumTitle :: Text) -> do
           _ <- async $ do
-            result <- try $ handleAlbumCoverFetch (ImageDeps imgEventBus imgLogEnv imgDbPool imgConfigVar imgHttpClient imgCacheDir) releaseGroupMBID albumTitle albumId
+            result <- try $ handleAlbumCoverFetch deps releaseGroupMBID albumTitle albumId
             case result of
               Left (e :: SomeException) -> do
                 runKatipContextT le () "image.error" $ do
@@ -325,21 +325,21 @@ handleArtistDiscographyImageRequest ImageDeps{..} artistId artistMBID = do
         $(logTM) InfoS $ logStr $ ("Started priority fetch for " <> show (length albums) <> " album covers" :: Text)
 
 -- | Handle artist bio fetching from Last.fm.
-handleArtistBioFetch :: ImageDeps -> Int64 -> Text -> IO ()
-handleArtistBioFetch ImageDeps{..} artistId artistMBID = do
-  let le = imgLogEnv
-  let pool = imgDbPool
-  let bus = imgEventBus
+handleArtistBioFetch :: ServiceContext -> Int64 -> Text -> IO ()
+handleArtistBioFetch ServiceContext{..} artistId artistMBID = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
 
   -- Read current config for Last.fm API key
-  config <- STM.atomically $ STM.readTVar imgConfigVar
+  config <- STM.atomically $ STM.readTVar scConfigVar
   let apiKey = fromMaybe LastFM.defaultApiKey (mediaLastFmApiKey (media config))
 
   runKatipContextT le () "services.image.bio" $ do
     katipAddContext (sl "artist_mbid" artistMBID) $ do
       $(logTM) DebugS $ logStr $ ("Fetching bio for artist MBID: " <> artistMBID :: Text)
 
-      result <- liftIO $ LastFM.fetchArtistBio imgHttpClient apiKey (MBID artistMBID)
+      result <- liftIO $ LastFM.fetchArtistBio scHttpClient apiKey (MBID artistMBID)
       case result of
         Left _err ->
           $(logTM) DebugS $ logStr ("No bio found for artist" :: Text)

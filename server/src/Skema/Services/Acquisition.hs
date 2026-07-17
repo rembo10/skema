@@ -16,7 +16,7 @@ module Skema.Services.Acquisition
   , handleCatalogAlbumAdded
   ) where
 
-import Skema.Services.Dependencies (AcquisitionDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Domain.Acquisition (shouldProcessArtistById, parseSourceFilters, SourceFilters(..), evaluateLibraryArtistsAlbumFilters)
 import Skema.Events.Bus
@@ -38,10 +38,10 @@ import Katip
 -- This service listens for:
 -- - LibraryArtistFound events to follow artists based on rules
 -- - CatalogAlbumAdded events to evaluate if albums should be wanted
-startAcquisitionService :: AcquisitionDeps -> IO (Async ())
+startAcquisitionService :: ServiceContext -> IO (Async ())
 startAcquisitionService deps =
   -- Source evaluation writes artist/album wanted state; run sequentially
-  runEventService (acqLogEnv deps) (acqEventBus deps) "services.acquisition" Sequential $ \case
+  runEventService (scLogEnv deps) (scEventBus deps) "services.acquisition" Sequential $ \case
     LibraryArtistFound{..} ->
       Just $ handleLibraryArtistFound deps foundArtistMBID foundArtistName foundClusterId foundReleaseGroupId
     CatalogAlbumAdded{..} ->
@@ -52,11 +52,11 @@ startAcquisitionService deps =
 --
 -- Evaluates acquisition sources and follows artists that match.
 -- The Catalog service will then fetch the discography.
-handleLibraryArtistFound :: AcquisitionDeps -> Text -> Text -> Int64 -> Maybe Text -> IO ()
-handleLibraryArtistFound AcquisitionDeps{..} artistMBID artistName clusterId _mbReleaseGroupId = do
-  let le = acqLogEnv
-  let pool = acqDbPool
-  let bus = acqEventBus
+handleLibraryArtistFound :: ServiceContext -> Text -> Text -> Int64 -> Maybe Text -> IO ()
+handleLibraryArtistFound ServiceContext{..} artistMBID artistName clusterId _mbReleaseGroupId = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
   let initialContext = ()
   let initialNamespace = "services.acquisition"
 
@@ -139,11 +139,11 @@ handleLibraryArtistFound AcquisitionDeps{..} artistMBID artistName clusterId _mb
 -- | Handle a catalog album added event.
 --
 -- Evaluates acquisition sources to determine if the album should be wanted.
-handleCatalogAlbumAdded :: AcquisitionDeps -> Text -> Text -> Text -> Int64 -> IO ()
-handleCatalogAlbumAdded AcquisitionDeps{..} releaseGroupMBID albumTitle artistMBID _albumId = do
-  let le = acqLogEnv
-  let pool = acqDbPool
-  let bus = acqEventBus
+handleCatalogAlbumAdded :: ServiceContext -> Text -> Text -> Text -> Int64 -> IO ()
+handleCatalogAlbumAdded ServiceContext{..} releaseGroupMBID albumTitle artistMBID _albumId = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
   let initialContext = ()
   let initialNamespace = "services.acquisition"
 
@@ -179,7 +179,7 @@ handleCatalogAlbumAdded AcquisitionDeps{..} releaseGroupMBID albumTitle artistMB
                       -- for monitoring by assigning the default quality profile,
                       -- bypassing the acquisition release-status filters (which default
                       -- to "upcoming only" and would exclude back-catalog releases).
-                      config <- liftIO $ STM.atomically $ STM.readTVar acqConfigVar
+                      config <- liftIO $ STM.atomically $ STM.readTVar scConfigVar
                       let autoUpgradeExisting = libraryAutoUpgradeExistingAlbums (library config)
 
                       inLibrary <- case DB.catalogAlbumId album of
@@ -234,7 +234,7 @@ handleCatalogAlbumAdded AcquisitionDeps{..} releaseGroupMBID albumTitle artistMB
 
                             forM_ matchingSources $ \source -> do
                               -- Evaluate source filters to determine if album should be wanted
-                              now <- liftIO (getNow acqClock)
+                              now <- liftIO (getNow scClock)
 
                               -- Evaluate provider-specific filters
                               let shouldWant = case parseSourceFilters LibraryArtists (sourceFilters source) of

@@ -30,7 +30,6 @@ import Skema.Events.Bus (publishAndLog, subscribe)
 import Skema.Events.Types
 import Skema.Services.Scanner (startScannerService)
 import Skema.Services.Grouper (startGrouperService)
-import Skema.Services.Dependencies
 import qualified Control.Concurrent.STM as STM
 import Control.Concurrent.Async (cancel)
 
@@ -76,19 +75,9 @@ testScanAndGroupWorkflow = withTestEnv $ \env -> do
     eventChan <- STM.atomically $ subscribe (teEventBus env)
 
     -- Start required services
-    scannerAsync <- startScannerService $ ScannerDeps
-      { scanEventBus = teEventBus env
-      , scanLogEnv = teLogEnv env
-      , scanDbPool = tePool env
-      }
+    scannerAsync <- startScannerService (mkTestServiceContext env)
 
-    grouperAsync <- startGrouperService $ GrouperDeps
-      { groupEventBus = teEventBus env
-      , groupLogEnv = teLogEnv env
-      , groupDbPool = tePool env
-      , groupConfigVar = teConfigVar env
-      , groupClock = teClock env
-      }
+    grouperAsync <- startGrouperService (mkTestServiceContext env)
 
     -- Trigger library scan
     publishAndLog (teEventBus env) (teLogEnv env) "test" $
@@ -203,23 +192,23 @@ testScanAndGroupWorkflow = withTestEnv $ \env -> do
 --     addJSONResponse mock "musicbrainz.org" $ mkTestMBReleaseSearch [mockRelease]
 --
 --     -- Start all required services
---     scannerAsync <- startScannerService $ ScannerDeps
---       { scanEventBus = teEventBus env
---       , scanLogEnv = teLogEnv env
---       , scanDbPool = tePool env
+--     scannerAsync <- startScannerService $ ServiceContext
+--       { scEventBus = teEventBus env
+--       , scLogEnv = teLogEnv env
+--       , scDbPool = tePool env
 --       }
 --
---     grouperAsync <- startGrouperService $ GrouperDeps
---       { groupEventBus = teEventBus env
---       , groupLogEnv = teLogEnv env
---       , groupDbPool = tePool env
---       , groupConfigVar = teConfigVar env
+--     grouperAsync <- startGrouperService $ ServiceContext
+--       { scEventBus = teEventBus env
+--       , scLogEnv = teLogEnv env
+--       , scDbPool = tePool env
+--       , scConfigVar = teConfigVar env
 --       }
 --
---     identifierAsync <- startIdentifierService $ IdentifierDeps
---       { identEventBus = teEventBus env
---       , identLogEnv = teLogEnv env
---       , identDbPool = tePool env
+--     identifierAsync <- startIdentifierService $ ServiceContext
+--       { scEventBus = teEventBus env
+--       , scLogEnv = teLogEnv env
+--       , scDbPool = tePool env
 --       , identMBClientEnv = teMBClientEnv env
 --       }
 --
@@ -286,10 +275,10 @@ testScanAndGroupWorkflow = withTestEnv $ \env -> do
 --     addJSONResponse mock "artist/381086ea" mockArtist
 --
 --     -- Start services
---     scannerAsync <- startScannerService $ ScannerDeps { ... }
---     grouperAsync <- startGrouperService $ GrouperDeps { ... }
---     identifierAsync <- startIdentifierService $ IdentifierDeps { ... }
---     catalogAsync <- startCatalogService $ CatalogDeps { ... }
+--     scannerAsync <- startScannerService $ ServiceContext { ... }
+--     grouperAsync <- startGrouperService $ ServiceContext { ... }
+--     identifierAsync <- startIdentifierService $ ServiceContext { ... }
+--     catalogAsync <- startCatalogService $ ServiceContext { ... }
 --
 --     -- Trigger scan
 --     publishAndLog (teEventBus env) (teLogEnv env) "test" $
@@ -352,7 +341,7 @@ testScanAndGroupWorkflow = withTestEnv $ \env -> do
 --     addJSONResponse mock ("artist/" <> kendrickMBID) mockArtist
 --
 --     -- Start catalog service
---     catalogAsync <- startCatalogService $ CatalogDeps { ... }
+--     catalogAsync <- startCatalogService $ ServiceContext { ... }
 --
 --     -- Manually trigger discography fetch (simulating what happens after artist is added)
 --     publishAndLog (teEventBus env) (teLogEnv env) "test" $
@@ -405,7 +394,7 @@ testScanAndGroupWorkflow = withTestEnv $ \env -> do
 --     STM.atomically $ STM.writeTVar (teConfigVar env) updatedConfig
 --
 --     -- Start acquisition service
---     acqAsync <- startAcquisitionService $ AcquisitionDeps { ... }
+--     acqAsync <- startAcquisitionService $ ServiceContext { ... }
 --
 --     -- Manually add a catalog album (simulating what happens after discography fetch)
 --     publishAndLog (teEventBus env) (teLogEnv env) "test" $
@@ -474,8 +463,8 @@ testScanAndGroupWorkflow = withTestEnv $ \env -> do
 --     addJSONResponse mock "transmission/rpc" $ TransmissionResponse { success = True }
 --
 --     -- Start download service
---     downloadAsync <- startDownloadService $ DownloadDeps { ... }
---     importerAsync <- startImporterService $ ImporterDeps { ... }
+--     downloadAsync <- startDownloadService $ ServiceContext { ... }
+--     importerAsync <- startImporterService $ ServiceContext { ... }
 --
 --     -- Trigger album search (simulating what happens when album is marked wanted)
 --     publishAndLog (teEventBus env) (teLogEnv env) "test" $

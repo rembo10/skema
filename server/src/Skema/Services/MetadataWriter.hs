@@ -12,7 +12,7 @@ module Skema.Services.MetadataWriter
   ( startMetadataWriterService
   ) where
 
-import Skema.Services.Dependencies (MetadataWriterDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
@@ -30,30 +30,30 @@ import qualified Data.Map.Strict as Map
 --
 -- This service listens for MetadataWriteRequested events and writes
 -- metadata changes to audio files asynchronously.
-startMetadataWriterService :: MetadataWriterDeps -> IO (Async ())
+startMetadataWriterService :: ServiceContext -> IO (Async ())
 startMetadataWriterService deps =
   -- File writes run sequentially
-  runEventService (writerLogEnv deps) (writerEventBus deps) "services.metadata-writer" Sequential $ \case
+  runEventService (scLogEnv deps) (scEventBus deps) "services.metadata-writer" Sequential $ \case
     MetadataWriteRequested{..} -> Just $ writeAndReportFailure deps writeDiffIds
     _ -> Nothing
 
 -- | Run the write, emitting MetadataWriteFailed (for the UI) on exceptions
 -- before rethrowing so the event loop logs them.
-writeAndReportFailure :: MetadataWriterDeps -> [Int64] -> IO ()
+writeAndReportFailure :: ServiceContext -> [Int64] -> IO ()
 writeAndReportFailure deps diffIds =
   processMetadataWrite deps diffIds `catch` \(e :: SomeException) -> do
-    publishAndLog (writerEventBus deps) (writerLogEnv deps) "writer" $ MetadataWriteFailed
+    publishAndLog (scEventBus deps) (scLogEnv deps) "writer" $ MetadataWriteFailed
       { writeErrorMessage = show e
       }
     throwIO e
 
 -- | Process a metadata write request.
 -- Groups diffs by file and processes them in batches, emitting progress events as each file is written.
-processMetadataWrite :: MetadataWriterDeps -> [Int64] -> IO ()
-processMetadataWrite MetadataWriterDeps{..} diffIds = do
-  let le = writerLogEnv
-  let pool = writerDbPool
-  let bus = writerEventBus
+processMetadataWrite :: ServiceContext -> [Int64] -> IO ()
+processMetadataWrite ServiceContext{..} diffIds = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
   let initialContext = ()
   let initialNamespace = "services.metadata-writer"
 

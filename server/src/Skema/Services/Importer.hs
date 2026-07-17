@@ -23,7 +23,7 @@ module Skema.Services.Importer
   ( startImporterService
   ) where
 
-import Skema.Services.Dependencies (ImporterDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
@@ -75,25 +75,25 @@ instance Exception ImportException
 -- | Start the importer service.
 --
 -- Listens for DownloadCompleted events and imports them into the library.
-startImporterService :: ImporterDeps -> IO (Async ())
+startImporterService :: ServiceContext -> IO (Async ())
 startImporterService deps =
   -- Imports run sequentially: they move files and rewrite cluster rows, so
   -- two concurrent imports would race in the library directory and database
-  runEventService (impLogEnv deps) (impEventBus deps) "importer" Sequential $ \case
+  runEventService (scLogEnv deps) (scEventBus deps) "importer" Sequential $ \case
     DownloadCompleted{..} -> Just $ handleDownloadCompleted deps downloadId
     _ -> Nothing
 
 -- | Handle a download completed event by importing it into the library.
-handleDownloadCompleted :: ImporterDeps -> Int64 -> IO ()
-handleDownloadCompleted ImporterDeps{..} downloadId = do
-  let le = impLogEnv
-  let pool = impDbPool
-  let bus = impEventBus
+handleDownloadCompleted :: ServiceContext -> Int64 -> IO ()
+handleDownloadCompleted ServiceContext{..} downloadId = do
+  let le = scLogEnv
+  let pool = scDbPool
+  let bus = scEventBus
   let initialContext = ()
   let initialNamespace = "importer"
 
   -- Read current config
-  config <- STM.atomically $ STM.readTVar impConfigVar
+  config <- STM.atomically $ STM.readTVar scConfigVar
 
   -- Skip import if auto-import is disabled
   unless (downloadAutoImport (download config)) $
@@ -138,7 +138,7 @@ handleDownloadCompleted ImporterDeps{..} downloadId = do
 
               Just catalogAlbum -> do
                 -- Import the download
-                importResult <- liftIO $ try $ importDownload config impClock le bus pool impMBClient downloadRec catalogAlbum
+                importResult <- liftIO $ try $ importDownload config scClock le bus pool scMBClientEnv downloadRec catalogAlbum
                 case importResult of
                   Left (e :: SomeException) -> do
                     let errorMsg = case fromException e of

@@ -9,7 +9,7 @@ import Skema.Database.Migrations
 import Skema.Database.Repository
 import Skema.Database.Types
 import Skema.Services.Grouper (handleMetadataReadComplete)
-import Skema.Services.Dependencies (GrouperDeps(..))
+import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.Types
 import Skema.Clock (systemClock)
 import Skema.Events.Bus
@@ -82,14 +82,7 @@ testGrouperWithManyAlbums = do
           Nothing -> pure ()
 
     -- Call the grouper service (this should complete without hanging)
-    let grouperDeps = GrouperDeps
-          { groupEventBus = bus
-          , groupLogEnv = le
-          , groupDbPool = pool
-          , groupConfigVar = dummyConfig
-          , groupClock = systemClock
-          }
-    handleMetadataReadComplete grouperDeps 30
+    handleMetadataReadComplete ctx 30
 
     -- Verify clusters were created
     clusters <- withConnection pool getAllClusters
@@ -134,16 +127,8 @@ testGrouperPrunesOrphanedClusters = do
           Nothing -> pure ()
         pure path
 
-    let grouperDeps = GrouperDeps
-          { groupEventBus = bus
-          , groupLogEnv = le
-          , groupDbPool = pool
-          , groupConfigVar = dummyConfig
-          , groupClock = systemClock
-          }
-
     -- First grouping: one cluster holding all five tracks
-    handleMetadataReadComplete grouperDeps 5
+    handleMetadataReadComplete ctx 5
     firstClusters <- withConnection pool getAllClusters
     length firstClusters @?= 1
 
@@ -157,7 +142,7 @@ testGrouperPrunesOrphanedClusters = do
           Just tid -> updateTrackMetadata conn tid metaRec
           Nothing -> pure ()
 
-    handleMetadataReadComplete grouperDeps 5
+    handleMetadataReadComplete ctx 5
 
     -- Exactly one cluster should remain (the orphan was pruned), and it holds all tracks.
     finalClusters <- withConnection pool getAllClusters
