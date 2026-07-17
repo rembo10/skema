@@ -20,7 +20,6 @@ import Skema.Database.Connection
 import Skema.Database.Repository (getLibraryStats)
 import Control.Concurrent.Async (Async, async)
 import qualified Control.Concurrent.STM as STM
-import Control.Concurrent.STM (readTChan)
 import Control.Exception (try)
 import Control.Concurrent (threadDelay)
 import Katip

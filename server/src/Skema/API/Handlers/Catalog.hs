@@ -724,25 +724,10 @@ catalogServer Env{envLogEnv = le, envEventBus = bus, envJwtSecret = jwtSecret, e
         , albumOverviewResponseAlbums = responses
         }
 
-    -- Helper function to compute album state from database row
+    -- The state is computed once, in the overview SQL, so the state shown
+    -- always matches the state filtered and aggregated on
     rowToAlbumState :: DB.CatalogAlbumOverviewRow -> AlbumState
-    rowToAlbumState row =
-      let maybeProfile = case (DB.caorQualityProfileId row, DB.caorQualityProfileName row, DB.caorQualityProfileCutoff row) of
-            (Just profileId, Just name, Just cutoff) -> Just $ Qual.QualityProfile
-              { Qual.qfId = Just profileId
-              , Qual.qfName = name
-              , Qual.qfCutoffQuality = fromMaybe Qual.Unknown (textToQuality cutoff)
-              , Qual.qfQualityPreferences = []  -- Not needed for state computation
-              , Qual.qfUpgradeAutomatically = False  -- Not needed for state computation
-              }
-            _ -> Nothing
-          context = Core.AlbumContext
-            { Core.acQualityProfile = maybeProfile
-            , Core.acCurrentQuality = DB.caorCurrentQuality row >>= textToQuality
-            , Core.acInLibrary = isJust (DB.caorCurrentQuality row)
-            , Core.acActiveDownloadStatus = DB.caorActiveDownloadStatus row
-            }
-      in Core.computeAlbumState context
+    rowToAlbumState row = fromMaybe Wanted (textToAlbumState (DB.caorState row))
 
     -- Helper function to convert a database row to a response object
     rowToResponse :: DB.CatalogAlbumOverviewRow -> CatalogAlbumOverviewResponse

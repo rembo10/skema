@@ -16,18 +16,15 @@ module Skema.Services.Notifications
 
 import Skema.Services.Dependencies (NotificationDeps(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
-import Skema.Events.Bus (subscribe)
-import Skema.Events.Types (Event(..), EventEnvelope(..), envelopeEvent)
+import Skema.Events.Types (Event(..))
 import Skema.Config.Types (Config(..), NotificationConfig(..), NotificationProvider(..))
 import Skema.Notifications.Types (Notification(..), NotificationSender(..))
 import Skema.Notifications.Pushover (newPushoverClient)
 import Skema.Database.Connection (withConnection)
 import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
-import Control.Concurrent.Async (Async, async)
+import Control.Concurrent.Async (Async)
 import qualified Control.Concurrent.STM as STM
-import Control.Concurrent.STM (readTChan)
-import Control.Exception (try)
 import Katip (Severity(..), logStr, logTM, runKatipContextT, sl, katipAddContext)
 import Data.Time (UTCTime)
 import Skema.Clock (getNow)

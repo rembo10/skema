@@ -2,7 +2,11 @@
 
 -- | Overview queries for catalog albums.
 --
--- This module handles complex overview queries with joins and state computation.
+-- All overview queries are composed from one base SELECT
+-- ('overviewBaseSelect') so the joins, the wanted computation, and the
+-- computed state cannot drift between the listing, count, per-artist, and
+-- stats variants. The computed state is calculated only here (in SQL);
+-- handlers read it from the row instead of re-deriving it.
 module Skema.Database.Repository.Catalog.Overview
   ( -- * Overview types
     CatalogAlbumOverviewRow(..)
@@ -58,11 +62,13 @@ data CatalogAlbumOverviewRow = CatalogAlbumOverviewRow
   , caorCreatedAt :: Text
   , caorUpdatedAt :: Text
   , caorImportedAt :: Maybe Text
+  , caorState :: Text
+    -- ^ The computed album state (single source: the SQL CASE below)
   } deriving (Show)
 
 instance SQLite.FromRow CatalogAlbumOverviewRow where
   fromRow = CatalogAlbumOverviewRow
-    <$> SQLite.field  -- album_id
+    <$> SQLite.field  -- id
     <*> SQLite.field  -- release_group_mbid
     <*> SQLite.field  -- title
     <*> SQLite.field  -- artist_id
@@ -70,179 +76,127 @@ instance SQLite.FromRow CatalogAlbumOverviewRow where
     <*> SQLite.field  -- artist_name
     <*> SQLite.field  -- album_type
     <*> SQLite.field  -- first_release_date
-    <*> SQLite.field  -- cover_url
-    <*> SQLite.field  -- cover_thumbnail_url
+    <*> SQLite.field  -- album_cover_url
+    <*> SQLite.field  -- album_cover_thumbnail_url
     <*> SQLite.field  -- wanted
-    <*> SQLite.field  -- matched_cluster_id
+    <*> SQLite.field  -- cluster_id
     <*> SQLite.field  -- current_quality
     <*> SQLite.field  -- quality_profile_id
-    <*> SQLite.field  -- quality_profile_name
-    <*> SQLite.field  -- quality_profile_cutoff
+    <*> SQLite.field  -- profile_name
+    <*> SQLite.field  -- cutoff_quality
     <*> SQLite.field  -- active_download_id
     <*> SQLite.field  -- active_download_status
-    <*> SQLite.field  -- active_download_progress
-    <*> SQLite.field  -- active_download_quality
-    <*> SQLite.field  -- active_download_title
-    <*> SQLite.field  -- active_download_size_bytes
-    <*> SQLite.field  -- active_download_started_at
-    <*> SQLite.field  -- active_download_error_message
+    <*> SQLite.field  -- progress
+    <*> SQLite.field  -- download_quality
+    <*> SQLite.field  -- download_title
+    <*> SQLite.field  -- size_bytes
+    <*> SQLite.field  -- started_at
+    <*> SQLite.field  -- error_message
     <*> SQLite.field  -- download_count
     <*> SQLite.field  -- last_download_at
     <*> SQLite.field  -- created_at
     <*> SQLite.field  -- updated_at
     <*> SQLite.field  -- imported_at
+    <*> SQLite.field  -- computed_state
+
+-- * The single base query
+
+-- | Download statuses that make a download the album's "active" one.
+activeStatusesSql :: Text
+activeStatusesSql = "('queued', 'downloading', 'processing', 'failed', 'identification_failure')"
+
+-- | The computed album state, mirroring the AlbumState constructors.
+computedStateSql :: Text
+computedStateSql =
+  "CASE \
+  \  WHEN ca.quality_profile_id IS NULL AND c.quality IS NULL THEN 'NotWanted' \
+  \  WHEN ca.quality_profile_id IS NULL AND c.quality IS NOT NULL THEN 'InLibrary' \
+  \  WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NULL THEN 'Wanted' \
+  \  WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
+  \  WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
+  \  WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
+  \  WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failure' THEN 'IdentificationFailed' \
+  \  WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
+  \  WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
+  \  ELSE 'Wanted' \
+  \END"
+
+-- | The full overview SELECT: catalog_albums joined with the album's cluster
+-- (via the clusters.catalog_album_id FK), quality profile, active download,
+-- and download counts. Ends with @WHERE 1=1@ so filter clauses can be
+-- appended; wrap it in a subquery to filter or sort by computed columns.
+overviewBaseSelect :: Text
+overviewBaseSelect =
+  "SELECT \
+  \  ca.id AS id, \
+  \  ca.release_group_mbid AS release_group_mbid, \
+  \  ca.title AS title, \
+  \  ca.artist_id AS artist_id, \
+  \  ca.artist_mbid AS artist_mbid, \
+  \  ca.artist_name AS artist_name, \
+  \  ca.album_type AS album_type, \
+  \  ca.first_release_date AS first_release_date, \
+  \  ca.album_cover_url AS album_cover_url, \
+  \  ca.album_cover_thumbnail_url AS album_cover_thumbnail_url, \
+  \  " <> albumWantedSql <> " AS wanted, \
+  \  c.id AS cluster_id, \
+  \  c.quality AS current_quality, \
+  \  ca.quality_profile_id AS quality_profile_id, \
+  \  qp.name AS profile_name, \
+  \  qp.cutoff_quality AS cutoff_quality, \
+  \  d_active.id AS active_download_id, \
+  \  d_active.status AS active_download_status, \
+  \  d_active.progress AS progress, \
+  \  d_active.quality AS download_quality, \
+  \  d_active.title AS download_title, \
+  \  d_active.size_bytes AS size_bytes, \
+  \  d_active.started_at AS started_at, \
+  \  d_active.error_message AS error_message, \
+  \  COALESCE(d_count.download_count, 0) AS download_count, \
+  \  d_count.last_download_at AS last_download_at, \
+  \  ca.created_at AS created_at, \
+  \  ca.updated_at AS updated_at, \
+  \  c.created_at AS imported_at, \
+  \  " <> computedStateSql <> " AS computed_state \
+  \FROM catalog_albums ca \
+  \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
+  \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
+  \  AND d_active.status IN " <> activeStatusesSql <> " \
+  \  AND d_active.id = (SELECT MAX(d2.id) FROM downloads d2 WHERE d2.catalog_album_id = ca.id AND d2.status IN " <> activeStatusesSql <> ") \
+  \LEFT JOIN ( \
+  \  SELECT catalog_album_id, COUNT(*) as download_count, MAX(queued_at) as last_download_at \
+  \  FROM downloads \
+  \  GROUP BY catalog_album_id \
+  \) d_count ON ca.id = d_count.catalog_album_id \
+  \LEFT JOIN clusters c ON c.id = ( \
+  \  SELECT MAX(c2.id) FROM clusters c2 WHERE c2.catalog_album_id = ca.id \
+  \) \
+  \WHERE 1=1 "
+
+-- | The optional state filter, applied outside the subquery.
+buildStateClause :: Maybe [Text] -> (Text, [SQLite.SQLData])
+buildStateClause Nothing = ("", [])
+buildStateClause (Just states) =
+  ( " WHERE computed_state IN (" <> T.intercalate "," (replicate (length states) "?") <> ")"
+  , map toField states
+  )
 
 -- * Overview queries
 
 -- | Get catalog albums overview with enhanced information (joins, downloads, state).
---
--- This query joins catalog_albums with:
--- - quality_profiles (for profile names)
--- - downloads (for active download info and counts)
--- - clusters (for import timestamps)
 getCatalogAlbumsOverview
   :: SQLite.Connection
   -> AlbumQuery
   -> IO [CatalogAlbumOverviewRow]
 getCatalogAlbumsOverview conn query = do
-  let limit = aqLimit query
-      offset = aqOffset query
-      maybeStates = aqStates query
-      maybeQualities = aqQualities query
-      maybeAlbumId = aqAlbumId query
-      maybeArtistId = aqArtistId query
-      maybeSearch = aqSearch query
-      maybeSort = aqSort query
-      maybeOrder = aqOrder query
-      maybeReleaseDateAfter = aqReleaseDateAfter query
-      maybeReleaseDateBefore = aqReleaseDateBefore query
-      maybeReleaseGroupMBID = aqReleaseGroupMBID query
-  let baseQuery =
-        "SELECT \
-        \  ca.id, \
-        \  ca.release_group_mbid, \
-        \  ca.title, \
-        \  ca.artist_id, \
-        \  ca.artist_mbid, \
-        \  ca.artist_name, \
-        \  ca.album_type, \
-        \  ca.first_release_date, \
-        \  ca.album_cover_url, \
-        \  ca.album_cover_thumbnail_url, \
-        \  " <> albumWantedSql <> " AS wanted, \
-        \  c.id, \
-        \  c.quality, \
-        \  ca.quality_profile_id, \
-        \  qp.name, \
-        \  qp.cutoff_quality, \
-        \  d_active.id, \
-        \  d_active.status, \
-        \  d_active.progress, \
-        \  d_active.quality, \
-        \  d_active.title, \
-        \  d_active.size_bytes, \
-        \  d_active.started_at, \
-        \  d_active.error_message, \
-        \  COALESCE(d_count.download_count, 0), \
-        \  d_count.last_download_at, \
-        \  ca.created_at, \
-        \  ca.updated_at, \
-        \  c.created_at \
-        \FROM catalog_albums ca \
-        \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
-        \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
-        \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
-        \  AND d_active.id = (SELECT MAX(d2.id) FROM downloads d2 WHERE d2.catalog_album_id = ca.id AND d2.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure')) \
-        \LEFT JOIN ( \
-        \  SELECT catalog_album_id, COUNT(*) as download_count, MAX(queued_at) as last_download_at \
-        \  FROM downloads \
-        \  GROUP BY catalog_album_id \
-        \) d_count ON ca.id = d_count.catalog_album_id \
-        \LEFT JOIN clusters c ON c.id = ( \
-        \  SELECT MAX(c2.id) FROM clusters c2 WHERE c2.catalog_album_id = ca.id \
-        \) \
-        \WHERE 1=1 "
-
-  -- Build filter conditions
-  let (whereClause, params) = buildOverviewFilters maybeAlbumId maybeQualities maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore maybeReleaseGroupMBID
-
-  -- Wrap the base query in a subquery if we need to filter by state
-  let (finalQuery, finalParams, sortClause) = case maybeStates of
-        Nothing ->
-          (baseQuery <> whereClause, params, buildSortClause maybeSort maybeOrder)
-        Just states ->
-          -- Wrap in subquery with computed state column
-          -- Only select the 29 columns needed for CatalogAlbumOverviewRow (exclude computed_state from final SELECT)
-          let subquery = "SELECT id, release_group_mbid, title, artist_id, artist_mbid, artist_name, \
-                         \album_type, first_release_date, album_cover_url, album_cover_thumbnail_url, \
-                         \wanted, cluster_id, current_quality, quality_profile_id, profile_name, cutoff_quality, \
-                         \active_download_id, active_download_status, progress, download_quality, download_title, \
-                         \size_bytes, started_at, error_message, download_count, last_download_at, \
-                         \created_at, updated_at, imported_at \
-                         \FROM (\
-                         \SELECT \
-                         \  ca.id, \
-                         \  ca.release_group_mbid, \
-                         \  ca.title, \
-                         \  ca.artist_id, \
-                         \  ca.artist_mbid, \
-                         \  ca.artist_name, \
-                         \  ca.album_type, \
-                         \  ca.first_release_date, \
-                         \  ca.album_cover_url, \
-                         \  ca.album_cover_thumbnail_url, \
-                         \  " <> albumWantedSql <> " AS wanted, \
-                         \  c.id AS cluster_id, \
-                         \  c.quality AS current_quality, \
-                         \  ca.quality_profile_id, \
-                         \  qp.name AS profile_name, \
-                         \  qp.cutoff_quality, \
-                         \  d_active.id AS active_download_id, \
-                         \  d_active.status AS active_download_status, \
-                         \  d_active.progress, \
-                         \  d_active.quality AS download_quality, \
-                         \  d_active.title AS download_title, \
-                         \  d_active.size_bytes, \
-                         \  d_active.started_at, \
-                         \  d_active.error_message, \
-                         \  COALESCE(d_count.download_count, 0) AS download_count, \
-                         \  d_count.last_download_at, \
-                         \  ca.created_at AS created_at, \
-                         \  ca.updated_at AS updated_at, \
-                         \  c.created_at AS imported_at, \
-                         \  CASE \
-                         \    WHEN ca.quality_profile_id IS NULL AND c.quality IS NULL THEN 'NotWanted' \
-                         \    WHEN ca.quality_profile_id IS NULL AND c.quality IS NOT NULL THEN 'InLibrary' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NULL THEN 'Wanted' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failure' THEN 'IdentificationFailed' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
-                         \    ELSE 'Wanted' \
-                         \  END AS computed_state \
-                         \FROM catalog_albums ca \
-                         \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
-                         \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
-                         \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
-                         \  AND d_active.id = (SELECT MAX(d2.id) FROM downloads d2 WHERE d2.catalog_album_id = ca.id AND d2.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure')) \
-                         \LEFT JOIN ( \
-                         \  SELECT catalog_album_id, COUNT(*) as download_count, MAX(queued_at) as last_download_at \
-                         \  FROM downloads \
-                         \  GROUP BY catalog_album_id \
-                         \) d_count ON ca.id = d_count.catalog_album_id \
-                         \LEFT JOIN clusters c ON c.id = ( \
-                         \  SELECT MAX(c2.id) FROM clusters c2 WHERE c2.catalog_album_id = ca.id \
-                         \) \
-                         \WHERE 1=1 " <> whereClause <> ") sub WHERE computed_state IN (" <> T.intercalate "," (replicate (length states) "?") <> ")"
-              stateParams = map toField states
-              sortClauseForSub = buildSortClauseForSubquery maybeSort maybeOrder
-          in (subquery, params <> stateParams, sortClauseForSub)
-
-  let fullQuery = finalQuery <> sortClause <> " LIMIT ? OFFSET ?"
-
-  queryRows conn fullQuery (finalParams <> [toField limit, toField offset])
+  let (whereClause, params) = buildOverviewFilters (aqAlbumId query) (aqQualities query) (aqArtistId query) (aqSearch query) (aqReleaseDateAfter query) (aqReleaseDateBefore query) (aqReleaseGroupMBID query)
+      (stateClause, stateParams) = buildStateClause (aqStates query)
+      fullQuery =
+        "SELECT * FROM (" <> overviewBaseSelect <> whereClause <> ") sub"
+          <> stateClause
+          <> buildSortClause (aqSort query) (aqOrder query)
+          <> " LIMIT ? OFFSET ?"
+  queryRows conn fullQuery (params <> stateParams <> [toField (aqLimit query), toField (aqOffset query)])
 
 -- | Get total count of albums matching filters.
 getCatalogAlbumsOverviewCount
@@ -250,125 +204,36 @@ getCatalogAlbumsOverviewCount
   -> AlbumQuery
   -> IO Int
 getCatalogAlbumsOverviewCount conn query = do
-  let maybeStates = aqStates query
-      maybeQualities = aqQualities query
-      maybeAlbumId = aqAlbumId query
-      maybeArtistId = aqArtistId query
-      maybeSearch = aqSearch query
-      maybeReleaseDateAfter = aqReleaseDateAfter query
-      maybeReleaseDateBefore = aqReleaseDateBefore query
-      maybeReleaseGroupMBID = aqReleaseGroupMBID query
-  let (whereClause, params) = buildOverviewFilters maybeAlbumId maybeQualities maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore maybeReleaseGroupMBID
-
-  let (fullQuery, finalParams) = case maybeStates of
-        Nothing ->
-          ("SELECT COUNT(*) FROM catalog_albums ca \
-           \LEFT JOIN clusters c ON c.id = ( \
-           \  SELECT MAX(c2.id) FROM clusters c2 WHERE c2.catalog_album_id = ca.id \
-           \) \
-           \WHERE 1=1 " <> whereClause, params)
-        Just states ->
-          -- Use subquery with computed state for filtering
-          let subquery = "SELECT COUNT(*) FROM (\
-                         \SELECT ca.id, \
-                         \  CASE \
-                         \    WHEN ca.quality_profile_id IS NULL AND c.quality IS NULL THEN 'NotWanted' \
-                         \    WHEN ca.quality_profile_id IS NULL AND c.quality IS NOT NULL THEN 'InLibrary' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NULL THEN 'Wanted' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failure' THEN 'IdentificationFailed' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
-                         \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
-                         \    ELSE 'Wanted' \
-                         \  END AS computed_state \
-                         \FROM catalog_albums ca \
-                         \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
-                         \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
-                         \  AND d_active.id = (SELECT MAX(d2.id) FROM downloads d2 WHERE d2.catalog_album_id = ca.id AND d2.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure')) \
-                         \LEFT JOIN clusters c ON c.id = ( \
-                         \  SELECT MAX(c2.id) FROM clusters c2 WHERE c2.catalog_album_id = ca.id \
-                         \) \
-                         \WHERE 1=1 " <> whereClause <> ") sub WHERE computed_state IN (" <> T.intercalate "," (replicate (length states) "?") <> ")"
-              stateParams = map toField states
-          in (subquery, params <> stateParams)
-
-  results <- queryRows conn fullQuery finalParams :: IO [Only Int]
+  let (whereClause, params) = buildOverviewFilters (aqAlbumId query) (aqQualities query) (aqArtistId query) (aqSearch query) (aqReleaseDateAfter query) (aqReleaseDateBefore query) (aqReleaseGroupMBID query)
+      (stateClause, stateParams) = buildStateClause (aqStates query)
+      fullQuery = "SELECT COUNT(*) FROM (" <> overviewBaseSelect <> whereClause <> ") sub" <> stateClause
+  results <- queryRows conn fullQuery (params <> stateParams) :: IO [Only Int]
   pure $ maybe 0 (\(Only n) -> n) (viaNonEmpty head results)
 
 -- | Get statistics by state and quality.
 getCatalogAlbumsOverviewStats
   :: SQLite.Connection
-  -> IO [(Text, Int)]  -- ^ Stats by quality (state stats TODO)
-getCatalogAlbumsOverviewStats conn = do
-  -- For now, just return quality stats
-  -- TODO: Implement state computation and group by state
+  -> IO [(Text, Int)]  -- ^ Stats by quality
+getCatalogAlbumsOverviewStats conn =
   queryRows_ conn
     "SELECT COALESCE(quality, 'unknown'), COUNT(*) \
     \FROM clusters \
     \WHERE catalog_album_id IS NOT NULL \
     \GROUP BY quality"
 
--- | Get all catalog albums for an artist with full overview data.
--- This function returns all albums for a specific artist without pagination,
--- sorted by first release date descending.
+-- | Get all catalog albums for an artist with full overview data, sorted by
+-- first release date descending (no pagination; used by the artist page).
 getCatalogAlbumsByArtistOverview
   :: SQLite.Connection
   -> Int64  -- ^ Artist ID
   -> IO [CatalogAlbumOverviewRow]
-getCatalogAlbumsByArtistOverview conn artistId = do
-  let query =
-        "SELECT \
-        \  ca.id, \
-        \  ca.release_group_mbid, \
-        \  ca.title, \
-        \  ca.artist_id, \
-        \  ca.artist_mbid, \
-        \  ca.artist_name, \
-        \  ca.album_type, \
-        \  ca.first_release_date, \
-        \  ca.album_cover_url, \
-        \  ca.album_cover_thumbnail_url, \
-        \  " <> albumWantedSql <> " AS wanted, \
-        \  c.id, \
-        \  c.quality, \
-        \  ca.quality_profile_id, \
-        \  qp.name, \
-        \  qp.cutoff_quality, \
-        \  d_active.id, \
-        \  d_active.status, \
-        \  d_active.progress, \
-        \  d_active.quality, \
-        \  d_active.title, \
-        \  d_active.size_bytes, \
-        \  d_active.started_at, \
-        \  d_active.error_message, \
-        \  COALESCE(d_count.download_count, 0), \
-        \  d_count.last_download_at, \
-        \  ca.created_at, \
-        \  ca.updated_at, \
-        \  c.created_at \
-        \FROM catalog_albums ca \
-        \LEFT JOIN quality_profiles qp ON ca.quality_profile_id = qp.id \
-        \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
-        \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
-        \  AND d_active.id = (SELECT MAX(d2.id) FROM downloads d2 WHERE d2.catalog_album_id = ca.id AND d2.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure')) \
-        \LEFT JOIN ( \
-        \  SELECT catalog_album_id, COUNT(*) as download_count, MAX(queued_at) as last_download_at \
-        \  FROM downloads \
-        \  GROUP BY catalog_album_id \
-        \) d_count ON ca.id = d_count.catalog_album_id \
-        \LEFT JOIN clusters c ON c.id = ( \
-        \  SELECT MAX(c2.id) FROM clusters c2 WHERE c2.catalog_album_id = ca.id \
-        \) \
-        \WHERE ca.artist_id = ? \
-        \ORDER BY ca.first_release_date DESC"
-  queryRows conn query (Only artistId)
+getCatalogAlbumsByArtistOverview conn artistId =
+  queryRows conn
+    ("SELECT * FROM (" <> overviewBaseSelect <> "AND ca.artist_id = ?) sub \
+     \ORDER BY first_release_date DESC")
+    (Only artistId)
 
--- | Get album count statistics grouped by computed state.
--- This uses SQL-side aggregation to efficiently compute state counts
--- without fetching all albums into memory.
+-- | Get album count statistics grouped by computed state, aggregated in SQL.
 getCatalogAlbumsStatsByState
   :: SQLite.Connection
   -> Maybe Int64    -- ^ Optional artist ID filter
@@ -377,33 +242,11 @@ getCatalogAlbumsStatsByState
   -> Maybe Text     -- ^ Optional release date before filter
   -> IO [(Text, Int)]  -- ^ List of (state name, count)
 getCatalogAlbumsStatsByState conn maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore = do
-  let (whereClause, params) = buildStatsFilters maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore
-  let query =
-        "SELECT computed_state, COUNT(*) as cnt FROM ( \
-        \SELECT \
-        \  CASE \
-        \    WHEN ca.quality_profile_id IS NULL AND c.quality IS NULL THEN 'NotWanted' \
-        \    WHEN ca.quality_profile_id IS NULL AND c.quality IS NOT NULL THEN 'InLibrary' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NULL THEN 'Wanted' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'queued' THEN 'Searching' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status IN ('downloading', 'processing') THEN 'Downloading' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'failed' THEN 'Failed' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NULL AND d_active.id IS NOT NULL AND d_active.status = 'identification_failure' THEN 'IdentificationFailed' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NOT NULL AND d_active.id IS NULL THEN 'Monitored' \
-        \    WHEN ca.quality_profile_id IS NOT NULL AND c.quality IS NOT NULL AND d_active.id IS NOT NULL THEN 'Upgrading' \
-        \    ELSE 'Wanted' \
-        \  END AS computed_state \
-        \FROM catalog_albums ca \
-        \LEFT JOIN downloads d_active ON ca.id = d_active.catalog_album_id \
-        \  AND d_active.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure') \
-        \  AND d_active.id = (SELECT MAX(d2.id) FROM downloads d2 WHERE d2.catalog_album_id = ca.id AND d2.status IN ('queued', 'downloading', 'processing', 'failed', 'identification_failure')) \
-        \LEFT JOIN clusters c ON c.id = ( \
-        \  SELECT MAX(c2.id) FROM clusters c2 WHERE c2.catalog_album_id = ca.id \
-        \) \
-        \WHERE 1=1 " <> whereClause <> "\
-        \) sub \
+  let (whereClause, params) = buildOverviewFilters Nothing Nothing maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore Nothing
+      fullQuery =
+        "SELECT computed_state, COUNT(*) FROM (" <> overviewBaseSelect <> whereClause <> ") sub \
         \GROUP BY computed_state"
-  queryRows conn query params
+  queryRows conn fullQuery params
 
 -- * Helper functions
 
@@ -452,60 +295,20 @@ buildOverviewFilters maybeAlbumId maybeQualities maybeArtistId maybeSearch maybe
         ]
   in (T.unwords clauses, params)
 
--- Helper function to build ORDER BY clause
--- When inSubquery is True, use column aliases without table prefix
+-- Helper function to build the ORDER BY clause. Everything sorts on the
+-- subquery's column aliases.
 buildSortClause :: Maybe Text -> Maybe Text -> Text
 buildSortClause maybeSort maybeOrder =
-  buildSortClauseInternal maybeSort maybeOrder False
-
-buildSortClauseForSubquery :: Maybe Text -> Maybe Text -> Text
-buildSortClauseForSubquery maybeSort maybeOrder =
-  buildSortClauseInternal maybeSort maybeOrder True
-
-buildSortClauseInternal :: Maybe Text -> Maybe Text -> Bool -> Text
-buildSortClauseInternal maybeSort maybeOrder inSubquery =
   let order = case maybeOrder of
         Just "asc" -> " ASC"
         Just "desc" -> " DESC"
         _ -> " DESC"  -- Default to descending
       sortField = case maybeSort of
-        Just "title" -> if inSubquery then "title" else "ca.title"
-        Just "artist" -> if inSubquery then "artist_name" else "ca.artist_name"
-        Just "date" -> if inSubquery then "first_release_date" else "ca.first_release_date"
-        Just "first_release_date" -> if inSubquery then "first_release_date" else "ca.first_release_date"
-        Just "quality" -> if inSubquery then "current_quality" else "c.quality"
-        Just "state" -> if inSubquery then "id" else "ca.id"
-        _ -> if inSubquery then "id" else "ca.id"  -- Default: by ID
+        Just "title" -> "title"
+        Just "artist" -> "artist_name"
+        Just "date" -> "first_release_date"
+        Just "first_release_date" -> "first_release_date"
+        Just "quality" -> "current_quality"
+        Just "state" -> "id"
+        _ -> "id"  -- Default: by ID
   in " ORDER BY " <> sortField <> order
-
--- Helper function to build filter WHERE clauses for stats query
-buildStatsFilters :: Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> (Text, [SQLite.SQLData])
-buildStatsFilters maybeArtistId maybeSearch maybeReleaseDateAfter maybeReleaseDateBefore =
-  let (clauses, params) = mconcat
-        [ case maybeArtistId of
-            Nothing -> ([], [])
-            Just artistId -> (["AND ca.artist_id = ?"], [toField artistId])
-        , case maybeSearch of
-            Nothing -> ([], [])
-            Just query ->
-              let searchWords = T.words query
-                  normalizedWords = filter (not . T.null) $ map normalizeForSearch searchWords
-                  wordClauses = map (\_ -> "(ca.title_normalized LIKE ? OR ca.artist_name_normalized LIKE ?)") normalizedWords
-                  wordParams = concatMap (\w -> [toField ("%" <> w <> "%"), toField ("%" <> w <> "%")]) normalizedWords
-              in if null normalizedWords
-                   then ([], [])
-                   else (["AND (" <> T.intercalate " AND " wordClauses <> ")"], wordParams)
-        , case maybeReleaseDateAfter of
-            Nothing -> ([], [])
-            Just dateValue ->
-              if dateValue == "today"
-                then (["AND date(ca.first_release_date) >= date('now')"], [])
-                else (["AND date(ca.first_release_date) >= ?"], [toField dateValue])
-        , case maybeReleaseDateBefore of
-            Nothing -> ([], [])
-            Just dateValue ->
-              if dateValue == "today"
-                then (["AND date(ca.first_release_date) <= date('now')"], [])
-                else (["AND date(ca.first_release_date) <= ?"], [toField dateValue])
-        ]
-  in (T.unwords clauses, params)
