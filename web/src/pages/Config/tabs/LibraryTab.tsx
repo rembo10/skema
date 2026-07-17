@@ -1,4 +1,4 @@
-import { LibraryConfigSection } from '../../../components/ConfigFields.generated';
+import { ConfigSection } from '../../../components/ConfigSection';
 import type { Config } from '../../../types/api';
 
 interface LibraryTabProps {
@@ -17,7 +17,7 @@ export function LibraryTab({ formData, showAdvanced, onChange }: LibraryTabProps
         </p>
       </div>
       <div className="px-6 py-5">
-        <LibraryConfigSection config={formData} onChange={onChange} showAdvanced={showAdvanced} />
+        <ConfigSection section="library" config={formData} onChange={onChange} showAdvanced={showAdvanced} />
       </div>
     </div>
   );

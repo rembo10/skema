@@ -14,9 +14,7 @@ import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Control.Concurrent.Async (Async, async)
-import qualified Control.Concurrent.STM as STM
-import Control.Concurrent.STM (readTChan)
+import Control.Concurrent.Async (Async)
 import Control.Exception (try)
 import qualified Data.Text as T
 import Database.SQLite.Simple (Only(..))

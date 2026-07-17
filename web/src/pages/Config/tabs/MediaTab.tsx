@@ -1,4 +1,4 @@
-import { MediaConfigSection } from '../../../components/ConfigFields.generated';
+import { ConfigSection } from '../../../components/ConfigSection';
 import type { Config } from '../../../types/api';
 
 interface MediaTabProps {
@@ -17,7 +17,7 @@ export function MediaTab({ formData, showAdvanced, onChange }: MediaTabProps) {
         </p>
       </div>
       <div className="px-6 py-5">
-        <MediaConfigSection config={formData} onChange={onChange} showAdvanced={showAdvanced} />
+        <ConfigSection section="media" config={formData} onChange={onChange} showAdvanced={showAdvanced} />
       </div>
     </div>
   );

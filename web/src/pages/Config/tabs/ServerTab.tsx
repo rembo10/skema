@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ServerConfigSection } from '../../../components/ConfigFields.generated';
+import { ConfigSection } from '../../../components/ConfigSection';
 import { api } from '../../../lib/api';
 import type { Config } from '../../../types/api';
 
@@ -63,7 +63,7 @@ export function ServerTab({
           </p>
         </div>
         <div className="px-6 py-5 space-y-6">
-          <ServerConfigSection config={formData} onChange={onChange} showAdvanced={showAdvanced} />
+          <ConfigSection section="server" config={formData} onChange={onChange} showAdvanced={showAdvanced} exclude={["password"]} />
 
           {/* Custom password field with change tracking */}
           <div>

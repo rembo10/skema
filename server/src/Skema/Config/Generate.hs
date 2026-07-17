@@ -3,32 +3,18 @@
 -- | Generate configuration artifacts from Schema.
 --
 -- Usage:
---   writeConfigArtifacts   -- Write config.example.yaml, TypeScript types, React components
+--   writeConfigArtifacts   -- Write config.example.yaml
 module Skema.Config.Generate
   ( writeConfigArtifacts
   ) where
 
-import Skema.Config.Schema (generateFullYaml, generateTypeScriptTypes, generateReactComponents)
+import Skema.Config.Schema (generateFullYaml)
 import qualified Data.Text.IO as TIO
-import System.Directory (createDirectoryIfMissing)
 
--- | Write all generated artifacts to files.
+-- | Write the generated example config. The settings UI is rendered at
+-- runtime from /api/config/schema, so no frontend artifacts are generated.
 writeConfigArtifacts :: IO ()
 writeConfigArtifacts = do
   putStrLn "Generating configuration artifacts..."
-
-  -- Generate example YAML config
   TIO.writeFile "../config.example.yaml" generateFullYaml
   putStrLn "  Generated: ../config.example.yaml"
-
-  -- Generate TypeScript types
-  createDirectoryIfMissing True "../web/src/types"
-  TIO.writeFile "../web/src/types/config.generated.ts" generateTypeScriptTypes
-  putStrLn "  Generated: ../web/src/types/config.generated.ts"
-
-  -- Generate React components
-  createDirectoryIfMissing True "../web/src/components"
-  TIO.writeFile "../web/src/components/ConfigFields.generated.tsx" generateReactComponents
-  putStrLn "  Generated: ../web/src/components/ConfigFields.generated.tsx"
-
-  putStrLn "Done!"

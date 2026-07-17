@@ -1,4 +1,4 @@
-import { MusicbrainzConfigSection } from '../../../components/ConfigFields.generated';
+import { ConfigSection } from '../../../components/ConfigSection';
 import type { Config } from '../../../types/api';
 
 interface MusicbrainzTabProps {
@@ -17,7 +17,7 @@ export function MusicbrainzTab({ formData, showAdvanced, onChange }: Musicbrainz
         </p>
       </div>
       <div className="px-6 py-5">
-        <MusicbrainzConfigSection config={formData} onChange={onChange} showAdvanced={showAdvanced} />
+        <ConfigSection section="musicbrainz" config={formData} onChange={onChange} showAdvanced={showAdvanced} />
       </div>
     </div>
   );

@@ -724,6 +724,10 @@ export const api = {
     return fetchApi<Config>('/config');
   },
 
+  async getConfigSchema(): Promise<Record<string, unknown>> {
+    return fetchApi<Record<string, unknown>>('/config/schema');
+  },
+
   async updateConfig(updates: Partial<Config>): Promise<Config> {
     return fetchApi<Config>('/config', {
       method: 'PUT',

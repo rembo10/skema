@@ -14,6 +14,8 @@ module Unit.ConfigSpec
 import Test.Tasty
 import Test.Tasty.HUnit
 import Data.Aeson (Value(..), object, (.=))
+import qualified Data.Aeson as Aeson
+import qualified Data.Text as T
 import qualified Data.Aeson.KeyMap as KM
 import System.Environment (setEnv, unsetEnv)
 
@@ -24,7 +26,17 @@ import Skema.Domain.ConfigJSON (configToAPIJSON, applyConfigJSONUpdate, validate
 
 tests :: TestTree
 tests = testGroup "Unit.Config"
-  [ envOverrideTests
+  [
+    testCase "empty config parses to defaultConfig" (
+      Aeson.eitherDecode "{}" @?= Right defaultConfig)
+
+    -- Locks the per-field parse fallbacks to the default records: a config
+    -- of empty sections must behave exactly like a freshly generated one
+  , testCase "sections parsed from empty objects match the default records" (
+      Aeson.eitherDecode
+        "{\"library\":{},\"system\":{},\"server\":{},\"download\":{},\"indexers\":{},\"musicbrainz\":{},\"media\":{},\"notifications\":{}}"
+        @?= Right defaultConfig)
+  , envOverrideTests
   , fieldToEnvVarTests
   , configToAPIJSONTests
   , configUpdateTests
@@ -372,7 +384,14 @@ configUpdateTests = testGroup "Config JSON Update"
 
 schemaTests :: TestTree
 schemaTests = testGroup "Schema Generation"
-  [ testCase "schemaToJSON returns valid JSON with all sections" $ do
+  [ testCase "field metadata carries group headings for the settings UI" $ do
+      -- The frontend renders group headers from this key; it must survive
+      -- the JSON encoding
+      let encoded = decodeUtf8 (Aeson.encode (schemaToJSON allSchemas)) :: Text
+      assertBool "schema JSON should contain a group key"
+        ("\"group\"" `T.isInfixOf` encoded)
+
+  , testCase "schemaToJSON returns valid JSON with all sections" $ do
       let schemaJSON = schemaToJSON allSchemas
 
       case schemaJSON of

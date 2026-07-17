@@ -1,7 +1,7 @@
 import { Plus, Edit2, Trash2, Download } from 'lucide-react';
 import type { Config, DownloadClient, SlskdConfig } from '../../../types/api';
 import { getClientTypeName } from '../useConfigState';
-import { GroupHeader } from '../../../components/ConfigFields.generated';
+import { GroupHeader } from '../../../components/ConfigSection';
 
 interface DownloadTabProps {
   formData: Config;

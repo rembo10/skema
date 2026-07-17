@@ -127,15 +127,15 @@ data LibraryConfig = LibraryConfig
 instance FromJSON LibraryConfig where
   parseJSON = withObject "LibraryConfig" $ \o -> do
     maybePath <- o .:? "path"
-    watch <- o .:? "watch" .!= True
-    autoScan <- o .:? "auto_scan" .!= True
-    interval <- o .:? "auto_scan_interval_mins" .!= 60
-    scanOnStartup <- o .:? "auto_scan_on_startup" .!= True
-    normalizeFeaturing <- o .:? "normalize_featuring" .!= False
-    normalizeFeaturingTo <- o .:? "normalize_featuring_to" .!= "feat."
-    pathFormat <- o .:? "path_format" .!= "{album_artist}/{album} [{year}]"
-    fileFormat <- o .:? "file_format" .!= "{track:02} {artist} - {album} {year} - {title}.{ext}"
-    autoUpgradeExisting <- o .:? "auto_upgrade_existing_albums" .!= False
+    watch <- o .:? "watch" .!= libraryWatch defaultLibraryConfig
+    autoScan <- o .:? "auto_scan" .!= libraryAutoScan defaultLibraryConfig
+    interval <- o .:? "auto_scan_interval_mins" .!= libraryAutoScanIntervalMins defaultLibraryConfig
+    scanOnStartup <- o .:? "auto_scan_on_startup" .!= libraryAutoScanOnStartup defaultLibraryConfig
+    normalizeFeaturing <- o .:? "normalize_featuring" .!= libraryNormalizeFeaturing defaultLibraryConfig
+    normalizeFeaturingTo <- o .:? "normalize_featuring_to" .!= libraryNormalizeFeaturingTo defaultLibraryConfig
+    pathFormat <- o .:? "path_format" .!= libraryPathFormat defaultLibraryConfig
+    fileFormat <- o .:? "file_format" .!= libraryFileFormat defaultLibraryConfig
+    autoUpgradeExisting <- o .:? "auto_upgrade_existing_albums" .!= libraryAutoUpgradeExistingAlbums defaultLibraryConfig
     -- Convert String to OsPath using unsafePerformIO
     -- This is safe because we're converting a constant string from config
     -- Also expand tilde and environment variables in the path
@@ -180,8 +180,8 @@ data SystemConfig = SystemConfig
 
 instance FromJSON SystemConfig where
   parseJSON = withObject "SystemConfig" $ \o -> do
-    watchConfig <- o .:? "watch_config_file" .!= True
-    dbPath <- o .:? "database_path" .!= "skema.db"
+    watchConfig <- o .:? "watch_config_file" .!= systemWatchConfigFile defaultSystemConfig
+    dbPath <- o .:? "database_path" .!= systemDatabasePath defaultSystemConfig
     -- Expand tilde and environment variables in database path
     -- Using unsafePerformIO here is safe because we're just expanding a path string
     let expandedDbPath = unsafePerformIO $ PathExpansion.expandPathIO dbPath
@@ -193,7 +193,7 @@ instance FromJSON SystemConfig where
     cacheDir <- o .:? "cache_dir"
     let expandedCacheDir = fmap (unsafePerformIO . PathExpansion.expandPathIO) cacheDir
 
-    checkUpdates <- o .:? "check_updates" .!= True
+    checkUpdates <- o .:? "check_updates" .!= systemCheckUpdates defaultSystemConfig
 
     pure $ SystemConfig watchConfig expandedDbPath expandedDataDir expandedCacheDir checkUpdates
 
@@ -228,14 +228,14 @@ data ServerConfig = ServerConfig
 
 instance FromJSON ServerConfig where
   parseJSON = withObject "ServerConfig" $ \o -> do
-    host <- o .:? "host" .!= "127.0.0.1"
-    port <- o .:? "port" .!= 8182
-    webRoot <- o .:? "web_root" .!= "/"
+    host <- o .:? "host" .!= serverHost defaultServerConfig
+    port <- o .:? "port" .!= serverPort defaultServerConfig
+    webRoot <- o .:? "web_root" .!= serverWebRoot defaultServerConfig
     username <- o .:? "username"
     password <- o .:? "password"
     apiKey <- o .:? "api_key"
     jwtSecret <- o .:? "jwt_secret"
-    jwtExpHours <- o .:? "jwt_expiration_hours" .!= 24
+    jwtExpHours <- o .:? "jwt_expiration_hours" .!= serverJwtExpirationHours defaultServerConfig
     pure $ ServerConfig host port webRoot username password apiKey jwtSecret jwtExpHours
 
 instance ToJSON ServerConfig where
@@ -398,14 +398,14 @@ instance FromJSON DownloadConfig where
     nzbClient <- o .:? "nzb_client"
     torrentClient <- o .:? "torrent_client"
     slskdClient <- o .:? "slskd_client"
-    checkInterval <- o .:? "check_interval" .!= 5
-    autoImport <- o .:? "auto_import" .!= True
-    minSeeders <- o .:? "min_seeders"
+    checkInterval <- o .:? "check_interval" .!= downloadCheckInterval defaultDownloadConfig
+    autoImport <- o .:? "auto_import" .!= downloadAutoImport defaultDownloadConfig
+    minSeeders <- o .:? "min_seeders" .!= downloadMinSeeders defaultDownloadConfig
     maxSize <- o .:? "max_size_mb"
-    replaceFiles <- o .:? "replace_library_files" .!= False
-    useTrash <- o .:? "use_trash" .!= True
-    trashRetentionDays <- o .:? "trash_retention_days" .!= 7
-    maxSearchRetries <- o .:? "max_search_retries" .!= 5
+    replaceFiles <- o .:? "replace_library_files" .!= downloadReplaceLibraryFiles defaultDownloadConfig
+    useTrash <- o .:? "use_trash" .!= downloadUseTrash defaultDownloadConfig
+    trashRetentionDays <- o .:? "trash_retention_days" .!= downloadTrashRetentionDays defaultDownloadConfig
+    maxSearchRetries <- o .:? "max_search_retries" .!= downloadMaxSearchRetries defaultDownloadConfig
     pure $ DownloadConfig nzbClient torrentClient slskdClient checkInterval autoImport minSeeders maxSize replaceFiles useTrash trashRetentionDays maxSearchRetries
 
 instance ToJSON DownloadConfig where
@@ -432,14 +432,15 @@ data MusicBrainzServer
 
 instance FromJSON MusicBrainzServer where
   parseJSON = withObject "MusicBrainzServer" $ \o -> do
-    serverType <- o .: "server"
-    case serverType of
-      "official" -> pure OfficialMusicBrainz
-      "headphones_vip" -> pure HeadphonesVIP
-      "custom" -> do
+    maybeServerType <- o .:? "server"
+    case maybeServerType of
+      Nothing -> pure (mbServer defaultMusicBrainzConfig)
+      Just "official" -> pure OfficialMusicBrainz
+      Just "headphones_vip" -> pure HeadphonesVIP
+      Just "custom" -> do
         url <- o .: "custom_url"
         pure $ CustomServer url
-      _ -> fail $ "Unknown MusicBrainz server: " <> serverType
+      Just serverType -> fail $ "Unknown MusicBrainz server: " <> toString (serverType :: Text)
 
 instance ToJSON MusicBrainzServer where
   toJSON OfficialMusicBrainz = object ["server" .= ("official" :: Text)]
@@ -474,11 +475,11 @@ instance FromJSON MusicBrainzConfig where
     serverVal <- parseJSON (Object o)
     username <- o .:? "username"
     password <- o .:? "password"
-    albumTypes <- o .:? "album_types" .!= ["Album"]
-    excludeSecondaryTypes <- o .:? "exclude_secondary_types" .!= ["Live", "Compilation"]
-    matchMinConfidence <- o .:? "match_min_confidence" .!= 35
-    maxCandidates <- o .:? "max_candidates" .!= 5
-    searchLimit <- o .:? "search_limit" .!= 20
+    albumTypes <- o .:? "album_types" .!= mbAlbumTypes defaultMusicBrainzConfig
+    excludeSecondaryTypes <- o .:? "exclude_secondary_types" .!= mbExcludeSecondaryTypes defaultMusicBrainzConfig
+    matchMinConfidence <- o .:? "match_min_confidence" .!= mbMatchMinConfidence defaultMusicBrainzConfig
+    maxCandidates <- o .:? "max_candidates" .!= mbMaxCandidates defaultMusicBrainzConfig
+    searchLimit <- o .:? "search_limit" .!= mbSearchLimit defaultMusicBrainzConfig
     pure $ MusicBrainzConfig serverVal username password albumTypes excludeSecondaryTypes matchMinConfidence maxCandidates searchLimit
 
 instance ToJSON MusicBrainzConfig where
@@ -571,9 +572,9 @@ data IndexerConfig = IndexerConfig
 
 instance FromJSON IndexerConfig where
   parseJSON = withObject "IndexerConfig" $ \o -> do
-    idxList <- o .:? "list" .!= []
-    timeout <- o .:? "search_timeout" .!= 30
-    maxResults <- o .:? "max_results_per_indexer" .!= 50
+    idxList <- o .:? "list" .!= indexerList defaultIndexerConfig
+    timeout <- o .:? "search_timeout" .!= indexerSearchTimeout defaultIndexerConfig
+    maxResults <- o .:? "max_results_per_indexer" .!= indexerMaxResultsPerIndexer defaultIndexerConfig
     pure $ IndexerConfig idxList timeout maxResults
 
 instance ToJSON IndexerConfig where
@@ -694,11 +695,11 @@ data NotificationConfig = NotificationConfig
 
 instance FromJSON NotificationConfig where
   parseJSON = withObject "NotificationConfig" $ \o -> do
-    enabled <- o .:? "enabled" .!= False
-    providers <- o .:? "providers" .!= []
-    onAlbumFound <- o .:? "on_album_found" .!= True
-    onAlbumDownloaded <- o .:? "on_album_downloaded" .!= True
-    onAlbumImported <- o .:? "on_album_imported" .!= True
+    enabled <- o .:? "enabled" .!= notificationEnabled defaultNotificationConfig
+    providers <- o .:? "providers" .!= notificationProviders defaultNotificationConfig
+    onAlbumFound <- o .:? "on_album_found" .!= notificationOnAlbumFound defaultNotificationConfig
+    onAlbumDownloaded <- o .:? "on_album_downloaded" .!= notificationOnAlbumDownloaded defaultNotificationConfig
+    onAlbumImported <- o .:? "on_album_imported" .!= notificationOnAlbumImported defaultNotificationConfig
     pure $ NotificationConfig enabled providers onAlbumFound onAlbumDownloaded onAlbumImported
 
 instance ToJSON NotificationConfig where

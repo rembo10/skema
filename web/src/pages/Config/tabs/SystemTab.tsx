@@ -1,4 +1,4 @@
-import { SystemConfigSection } from '../../../components/ConfigFields.generated';
+import { ConfigSection } from '../../../components/ConfigSection';
 import type { Config } from '../../../types/api';
 
 interface SystemTabProps {
@@ -17,7 +17,7 @@ export function SystemTab({ formData, showAdvanced, onChange }: SystemTabProps) 
         </p>
       </div>
       <div className="px-6 py-5">
-        <SystemConfigSection config={formData} onChange={onChange} showAdvanced={showAdvanced} />
+        <ConfigSection section="system" config={formData} onChange={onChange} showAdvanced={showAdvanced} />
       </div>
     </div>
   );
