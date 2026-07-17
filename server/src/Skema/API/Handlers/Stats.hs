@@ -13,10 +13,11 @@ import Skema.Database.Repository
 import qualified Skema.Config.Types as Cfg
 import Skema.FileSystem.Utils (osPathToString)
 import Servant
+import Skema.API.App (Env(..), AppM)
 
 -- | Stats API handler.
-statsServer :: Cfg.ServerConfig -> ConnectionPool -> TVar Cfg.Config -> Server StatsAPI
-statsServer _serverCfg connPool configVar =
+statsServer :: Env -> ServerT StatsAPI AppM
+statsServer Env{envDbPool = connPool, envConfigVar = configVar} =
   liftIO $ withConnection connPool $ \conn -> do
     (totalFiles, totalAlbums, totalArtists, matchedFiles, unmatchedFiles, accuracy, totalDiffs, totalSize, totalRuntime, catalogInLibrary, catalogWanted) <- getLibraryStats conn
 

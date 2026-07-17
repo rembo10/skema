@@ -10,11 +10,12 @@ module Skema.API.Handlers.Version
   , startUpdateChecker
   ) where
 
-import Skema.API.Types.Version (VersionAPI, VersionResponse(..))
+import Skema.API.Types.Version (VersionAPI, VersionResponse(..), LatestRelease(..))
 import Skema.Version (getVersionInfo, VersionInfo(..))
 import qualified Skema.Config.Types as Cfg
 import Skema.HTTP.Client (HttpClient, makeRequestWithRetry, HttpError(..))
 import Servant
+import Skema.API.App (Env(..), AppM)
 import Data.Aeson (FromJSON(..), withObject, (.:), decode)
 import Network.HTTP.Client (parseRequest, responseBody, requestHeaders)
 import Network.HTTP.Types.Header (HeaderName)
@@ -22,12 +23,6 @@ import qualified Data.Text as T
 import Katip
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async)
-
--- | Cached latest release info.
-data LatestRelease = LatestRelease
-  { lrVersion :: Text
-  , lrUpdateAvailable :: Bool
-  } deriving (Show, Eq)
 
 -- | GitHub release response (minimal).
 data GitHubRelease = GitHubRelease
@@ -47,8 +42,8 @@ instance FromJSON GitHubCompare where
     GitHubCompare <$> o .: "status"
 
 -- | Version API handler.
-versionServer :: TVar (Maybe LatestRelease) -> Server VersionAPI
-versionServer latestVar = liftIO $ do
+versionServer :: Env -> ServerT VersionAPI AppM
+versionServer Env{envLatestRelease = latestVar} = liftIO $ do
   vi <- getVersionInfo
   latest <- readTVarIO latestVar
   pure $ VersionResponse

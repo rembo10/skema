@@ -15,7 +15,7 @@ import Skema.API.Types.Common (SourceIO)
 import Skema.API.Types.Library (LibraryStats(..))
 import Skema.API.Handlers.Utils (readConfig)
 import Skema.Auth (checkAuthEnabled)
-import Skema.Auth.JWT (JWTSecret, validateJWT)
+import Skema.Auth.JWT (validateJWT)
 import Skema.Database.Connection
 import Skema.Database.Repository (getLibraryStats)
 import qualified Skema.Config.Types as Cfg
@@ -24,6 +24,7 @@ import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
 import Servant hiding (SourceIO)
+import Skema.API.App (Env(..), AppM)
 import Servant.Types.SourceT (SourceT(..), StepT(..))
 import Katip
 import Data.Aeson ((.:), withObject, toJSON, Value(..))
@@ -33,12 +34,12 @@ import Control.Concurrent.STM (readTChan)
 import qualified Control.Concurrent.STM as STM
 
 -- | Events API handler (Server-Sent Events).
-eventsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ConnectionPool -> Maybe Text -> TVar Cfg.Config -> Server EventsAPI
-eventsServer le bus _serverCfg jwtSecret connPool libPath configVar =
+eventsServer :: Env -> ServerT EventsAPI AppM
+eventsServer Env{envLogEnv = le, envEventBus = bus, envJwtSecret = jwtSecret, envDbPool = connPool, envLibraryPath = libPath, envConfigVar = configVar} =
   getEventsHandler :<|> postEventsHandler
   where
     -- GET /api/events - Stream events via SSE
-    getEventsHandler :: Maybe Text -> Handler (SourceIO ServerEvent)
+    getEventsHandler :: Maybe Text -> AppM (SourceIO ServerEvent)
     getEventsHandler maybeToken = do
       -- Validate JWT from query parameter (since EventSource doesn't support custom headers)
       -- Read current config to check if auth is enabled
@@ -58,7 +59,7 @@ eventsServer le bus _serverCfg jwtSecret connPool libPath configVar =
       pure $ streamEvents le bus connPool libPath
 
     -- POST /api/events - Submit events
-    postEventsHandler :: EventRequest -> Handler EventResponse
+    postEventsHandler :: EventRequest -> AppM EventResponse
     postEventsHandler req = do
       -- Parse and handle the event
       case eventRequestType req of

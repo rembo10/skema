@@ -7,7 +7,6 @@ module Skema.API.Handlers.Library
 
 import Skema.API.Types.Library (LibraryAPI, UpdateTrackRequest(..), TracksResponse(..), TracksPagination(..), TracksStats(..), FileInfo(..))
 import Skema.API.Types.Tasks (TaskRequest(..), TaskResource(..))
-import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import Skema.API.Handlers.Utils (readConfig, parsePagination)
 import Skema.Database.Connection
@@ -15,27 +14,25 @@ import Database.SQLite.Simple (Only(..))
 import Database.SQLite.Simple.ToField (toField)
 import qualified Skema.Config.Types as Cfg
 import Skema.FileSystem.Utils (osPathToString)
-import Skema.Services.Registry (ServiceRegistry)
-import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
 import Servant
-import Katip
+import Skema.API.App (Env(..), AppM)
 import Control.Concurrent.Async (async)
 import Data.Aeson (toJSON, object, (.=))
 import Skema.API.Types.Tasks (TaskResponse(..))
 import qualified Data.Text as T
 
 -- | Library API handlers.
-libraryServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> ServiceRegistry -> TaskManager -> ConnectionPool -> TVar Cfg.Config -> Server LibraryAPI
-libraryServer le bus _serverCfg _registry tm pool configVar =
+libraryServer :: Env -> ServerT LibraryAPI AppM
+libraryServer Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envDbPool = pool, envConfigVar = configVar} =
   taskHandler
   :<|> filesHandler
   :<|> tracksHandler
   :<|> tracksStatsHandler
   :<|> updateTrackHandler
   where
-    taskHandler :: TaskRequest -> Handler TaskResponse
+    taskHandler :: TaskRequest -> AppM TaskResponse
     taskHandler req = do
       config <- liftIO $ readConfig configVar
 
@@ -71,12 +68,12 @@ libraryServer le bus _serverCfg _registry tm pool configVar =
           pure taskResp
         _ -> throwError err400 { errBody = "Unknown task type" }
 
-    filesHandler :: Handler [FileInfo]
+    filesHandler :: AppM [FileInfo]
     filesHandler =
       -- TODO: Fetch from database
       pure []
 
-    tracksHandler :: Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler TracksResponse
+    tracksHandler :: Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> AppM TracksResponse
     tracksHandler maybeOffset maybeLimit maybeFilter maybeSort maybeOrder maybeSearch = do
       let (offset, limit) = parsePagination maybeOffset maybeLimit
       let filterStatus = fromMaybe "all" maybeFilter
@@ -158,7 +155,7 @@ libraryServer le bus _serverCfg _registry tm pool configVar =
           , tracksResponseTracks = tracks
           }
 
-    tracksStatsHandler :: Handler TracksStats
+    tracksStatsHandler :: AppM TracksStats
     tracksStatsHandler =
       liftIO $ withConnection pool $ \conn -> do
         -- Get total count
@@ -189,7 +186,7 @@ libraryServer le bus _serverCfg _registry tm pool configVar =
           , tracksStatsLocked = locked
           }
 
-    updateTrackHandler :: Int64 -> UpdateTrackRequest -> Handler NoContent
+    updateTrackHandler :: Int64 -> UpdateTrackRequest -> AppM NoContent
     updateTrackHandler trackId req = do
       liftIO $ withConnection pool $ \conn ->
         executeQuery conn

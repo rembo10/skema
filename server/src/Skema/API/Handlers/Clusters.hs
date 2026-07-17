@@ -9,7 +9,6 @@ module Skema.API.Handlers.Clusters
 
 import Skema.API.Types.Clusters (ClustersAPI, ClusterResponse(..), ClustersResponse(..), ClustersPagination(..), ClustersStats(..), ClusterWithTracksResponse(..), ClusterTrackInfo(..), MBTrackInfo(..), CandidateRelease(..), AssignReleaseRequest(..), UpdateTrackRecordingRequest(..), CreateClusterRequest(..), SetLockRequest(..))
 import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..))
-import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import Skema.API.Handlers.Utils (throw404, throw500, readConfig, parsePagination)
 import Skema.Database.Connection
@@ -18,13 +17,12 @@ import qualified Skema.Database.Types as DBTypes
 import qualified Skema.Config.Types as Cfg
 import Skema.Domain.Converters (clusterToResponse)
 import Skema.FileSystem.Utils (osPathToString)
-import Skema.Services.Registry (ServiceRegistry(..))
 import Skema.MusicBrainz.Client (getRelease, searchReleases, searchRecordings)
 import Skema.MusicBrainz.Identify (identifyFileGroup)
 import Skema.Services.Identifier (clusterToFileGroup)
 import Skema.MusicBrainz.Types
 import Skema.Domain.Identification (mkIdentifyConfig)
-import Skema.Events.Bus (EventBus, publishAndLog)
+import Skema.Events.Bus (publishAndLog)
 import Skema.Events.Types (Event(..))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -34,6 +32,7 @@ import Skema.Clock (getNow)
 import Database.SQLite.Simple (Only(..))
 import Control.Concurrent.Async (async)
 import Servant
+import Skema.API.App (Env(..), AppM)
 import Katip
 
 -- | Convert an MBRelease to a CandidateRelease for the API response.
@@ -52,8 +51,8 @@ mbReleaseToCandidateRelease release = CandidateRelease
   }
 
 -- | Clusters API handlers.
-clustersServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> ServiceRegistry -> TaskManager -> ConnectionPool -> TVar Cfg.Config -> Server ClustersAPI
-clustersServer le bus _serverCfg registry tm connPool configVar =
+clustersServer :: Env -> ServerT ClustersAPI AppM
+clustersServer Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envDbPool = connPool, envConfigVar = configVar, envMBClient = mbClient, envClock = clock} =
   taskHandler
   :<|> getAllClustersHandler
   :<|> getClusterHandler
@@ -67,7 +66,7 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
   :<|> createClusterHandler
   :<|> deleteClusterHandler
   where
-    taskHandler :: TaskRequest -> Handler TaskResponse
+    taskHandler :: TaskRequest -> AppM TaskResponse
     taskHandler req = do
       config <- liftIO $ readConfig configVar
 
@@ -89,7 +88,7 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
               Nothing -> do
                 TM.failTask tm taskId $ "Cluster not found: " <> show clusterId
               Just cluster -> do
-                let mbEnv = srMBClientEnv registry
+                let mbEnv = mbClient
                 let libConfig = Cfg.library config
 
                 -- Build identify config
@@ -165,7 +164,7 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
 
           pure taskResp
         _ -> throwError err400 { errBody = "Unknown task type" }
-    getAllClustersHandler :: Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler ClustersResponse
+    getAllClustersHandler :: Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> AppM ClustersResponse
     getAllClustersHandler maybeOffset maybeLimit maybeSearch maybeFilter maybeSortField maybeOrder = do
       let (offset, limit) = parsePagination maybeOffset maybeLimit
       let searchQuery = maybeSearch
@@ -252,7 +251,7 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
                 _ -> EQ
           in if order == "desc" then case cmp of { LT -> GT; GT -> LT; EQ -> EQ } else cmp
 
-    getClusterHandler :: Int64 -> Handler ClusterWithTracksResponse
+    getClusterHandler :: Int64 -> AppM ClusterWithTracksResponse
     getClusterHandler clusterId = do
       maybeResult <- liftIO $ withConnection connPool $ \conn ->
         DB.getClusterWithTracks conn clusterId
@@ -303,7 +302,7 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
             , clusterWithTracksMBTracks = mbTracks
             }
 
-    getCandidatesHandler :: Int64 -> Handler [CandidateRelease]
+    getCandidatesHandler :: Int64 -> AppM [CandidateRelease]
     getCandidatesHandler clusterId = do
       maybeCluster <- liftIO $ withConnection connPool $ \conn ->
         DB.getClusterById conn clusterId
@@ -321,9 +320,9 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
               -- Convert MBRelease to CandidateRelease format
               pure $ map mbReleaseToCandidateRelease releases
 
-    assignReleaseHandler :: Int64 -> AssignReleaseRequest -> Handler ClusterResponse
+    assignReleaseHandler :: Int64 -> AssignReleaseRequest -> AppM ClusterResponse
     assignReleaseHandler clusterId req = do
-      let mbEnv = srMBClientEnv registry
+      let mbEnv = mbClient
       let idText = assignReleaseId req
 
       liftIO $ runKatipContextT le () "api.assign_release" $ do
@@ -355,13 +354,13 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
                 Just (_, _, metadata, _, _) -> Just metadata
           pure $ clusterToResponse cluster firstTrackMeta
 
-    removeReleaseHandler :: Int64 -> Handler NoContent
+    removeReleaseHandler :: Int64 -> AppM NoContent
     removeReleaseHandler clusterId = do
       liftIO $ withConnection connPool $ \conn ->
         DB.clearClusterRelease conn clusterId False
       pure NoContent
 
-    setLockHandler :: Int64 -> SetLockRequest -> Handler ClusterResponse
+    setLockHandler :: Int64 -> SetLockRequest -> AppM ClusterResponse
     setLockHandler clusterId req = do
       let locked = setLockLocked req
       -- Verify the cluster exists (and, when locking, that it has a match to lock)
@@ -385,7 +384,7 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
                     Just (_, _, metadata, _, _) -> Just metadata
               pure $ clusterToResponse updated firstTrackMeta
 
-    updateTrackRecordingHandler :: Int64 -> Int64 -> UpdateTrackRecordingRequest -> Handler NoContent
+    updateTrackRecordingHandler :: Int64 -> Int64 -> UpdateTrackRecordingRequest -> AppM NoContent
     updateTrackRecordingHandler clusterId trackId req = do
       let recordingId = updateRecordingId req
       let recordingTitle = updateRecordingTitle req
@@ -408,9 +407,9 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
 
       pure NoContent
 
-    searchReleasesHandler :: Text -> Maybe Int -> Handler [CandidateRelease]
+    searchReleasesHandler :: Text -> Maybe Int -> AppM [CandidateRelease]
     searchReleasesHandler query maybeLimit = do
-      let mbEnv = srMBClientEnv registry
+      let mbEnv = mbClient
       let limit = fromMaybe 10 maybeLimit
 
       -- Search for releases (user input - use dismax for better relevance)
@@ -421,9 +420,9 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
           -- Convert MBRelease to CandidateRelease
           pure $ map mbReleaseToCandidateRelease (mbSearchReleases searchResp)
 
-    searchRecordingsHandler :: Text -> Maybe Int -> Handler [MBTrackInfo]
+    searchRecordingsHandler :: Text -> Maybe Int -> AppM [MBTrackInfo]
     searchRecordingsHandler query maybeLimit = do
-      let mbEnv = srMBClientEnv registry
+      let mbEnv = mbClient
       let limit = fromMaybe 25 maybeLimit
 
       -- Search for recordings
@@ -444,7 +443,7 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
           , mbTrackInfoDiscNumber = 1
           }
 
-    createClusterHandler :: CreateClusterRequest -> Handler ClusterResponse
+    createClusterHandler :: CreateClusterRequest -> AppM ClusterResponse
     createClusterHandler req = do
       let trackIds = createClusterTrackIds req
       let album = createClusterAlbum req
@@ -469,7 +468,7 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
       getClusterHandler newClusterId >>= \resp ->
         pure (clusterWithTracksCluster resp)
 
-    deleteClusterHandler :: Int64 -> Maybe Int64 -> Handler NoContent
+    deleteClusterHandler :: Int64 -> Maybe Int64 -> AppM NoContent
     deleteClusterHandler clusterId maybeMergeInto = do
 
       -- Get all tracks in this cluster
@@ -493,7 +492,7 @@ clustersServer le bus _serverCfg registry tm connPool configVar =
               -- Move all tracks and update counts
               liftIO $ withConnection connPool $ \conn -> do
                 DB.updateTrackCluster conn targetClusterId trackIds
-                now <- getNow (srClock registry)
+                now <- getNow (clock)
                 executeQuery conn
                   "UPDATE clusters SET track_count = track_count + ?, updated_at = ? WHERE id = ?"
                   (length trackIds, now, targetClusterId)

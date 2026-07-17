@@ -8,7 +8,6 @@ module Skema.API.Handlers.Downloads
 
 import Skema.API.Types.Downloads (DownloadsAPI, DownloadResponse(..), DownloadsPagination(..), DownloadsResponse(..), QueueDownloadRequest(..), SlskdFileRequest(..), QueueDownloadResponse(..))
 import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..))
-import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import Skema.API.Handlers.Utils (throw400, throw404, readConfig, parsePagination)
 import Skema.Database.Connection
@@ -16,10 +15,8 @@ import Skema.Domain.Converters (downloadRecordToResponse)
 import qualified Skema.Database.Types as DBTypes
 import qualified Skema.Database.Repository.Downloads as DownloadsRepo
 import qualified Skema.Config.Types as Cfg
-import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
-import Skema.Services.Registry (ServiceRegistry(..))
 import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
 import Skema.Services.Download.Cancel (cancelDownload)
 import Skema.Indexer.Types (ReleaseInfo(..), DownloadType(..), SlskdFile(..))
@@ -28,22 +25,22 @@ import Control.Concurrent.Async (async)
 import Data.Aeson (toJSON, object, (.=))
 import Skema.Clock (getNow)
 import Servant
-import Katip
+import Skema.API.App (Env(..), AppM)
 import Database.SQLite.Simple (Only(..))
 import qualified Data.Map.Strict as Map
 import qualified Control.Concurrent.STM as STM
 import qualified Data.Text as T
 
 -- | Downloads API handlers.
-downloadsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> ServiceRegistry -> TaskManager -> ConnectionPool -> STM.TVar (Map.Map Int64 (Double, Text)) -> TVar Cfg.Config -> Server DownloadsAPI
-downloadsServer le bus _serverCfg registry tm connPool progressMap configVar =
+downloadsServer :: Env -> ServerT DownloadsAPI AppM
+downloadsServer Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envDbPool = connPool, envProgressMap = progressMap, envConfigVar = configVar, envHttpClient = httpClient, envClock = clock} =
   taskHandler
   :<|> getAllDownloadsHandler
   :<|> getDownloadHandler
   :<|> queueDownloadHandler
   :<|> deleteDownloadHandler
   where
-    taskHandler :: TaskRequest -> Handler TaskResponse
+    taskHandler :: TaskRequest -> AppM TaskResponse
     taskHandler req = do
       let downloadId = fromMaybe 0 (taskRequestResourceId req)
 
@@ -145,7 +142,7 @@ downloadsServer le bus _serverCfg registry tm connPool progressMap configVar =
 
         _ -> throwError err400 { errBody = "Unknown task type" }
 
-    getAllDownloadsHandler :: Maybe Int -> Maybe Int -> Maybe Int64 -> Handler DownloadsResponse
+    getAllDownloadsHandler :: Maybe Int -> Maybe Int -> Maybe Int64 -> AppM DownloadsResponse
     getAllDownloadsHandler maybeOffset maybeLimit maybeCatalogAlbumId = do
       let (offset, limit) = parsePagination maybeOffset maybeLimit
 
@@ -189,7 +186,7 @@ downloadsServer le bus _serverCfg registry tm connPool progressMap configVar =
         , downloadsResponseDownloads = responses
         }
 
-    getDownloadHandler :: Int64 -> Handler DownloadResponse
+    getDownloadHandler :: Int64 -> AppM DownloadResponse
     getDownloadHandler downloadId = do
       maybeDownload <- liftIO $ withConnection connPool $ \conn ->
         DownloadsRepo.getDownloadById conn downloadId
@@ -208,7 +205,7 @@ downloadsServer le bus _serverCfg registry tm connPool progressMap configVar =
             Just displayStatus -> response { downloadResponseStatus = displayStatus }
             Nothing -> response
 
-    queueDownloadHandler :: QueueDownloadRequest -> Handler QueueDownloadResponse
+    queueDownloadHandler :: QueueDownloadRequest -> AppM QueueDownloadResponse
     queueDownloadHandler req = do
       -- Read current config from TVar
       config <- liftIO $ readConfig configVar
@@ -250,7 +247,7 @@ downloadsServer le bus _serverCfg registry tm connPool progressMap configVar =
             }
 
       -- Create ReleaseInfo from request
-      now <- liftIO (getNow (srClock registry))
+      now <- liftIO (getNow (clock))
       let release = ReleaseInfo
             { riTitle = title
             , riGuid = Nothing
@@ -273,10 +270,10 @@ downloadsServer le bus _serverCfg registry tm connPool progressMap configVar =
             { dscEventBus = bus
             , dscLogEnv = le
             , dscDbPool = connPool
-            , dscHttpClient = srHttpClient registry
+            , dscHttpClient = httpClient
             , dscDownloadConfig = Cfg.download config
             , dscIndexerName = indexerName
-            , dscClock = srClock registry
+            , dscClock = clock
             }
 
       -- Submit download
@@ -294,8 +291,8 @@ downloadsServer le bus _serverCfg registry tm connPool progressMap configVar =
           , queueDownloadResponseMessage = Just "Failed to queue download - check logs for details"
           }
 
-    deleteDownloadHandler :: Int64 -> Handler NoContent
+    deleteDownloadHandler :: Int64 -> AppM NoContent
     deleteDownloadHandler downloadId = do
       config <- liftIO $ readConfig configVar
-      liftIO $ cancelDownload le (srHttpClient registry) (Cfg.download config) connPool downloadId
+      liftIO $ cancelDownload le (httpClient) (Cfg.download config) connPool downloadId
       pure NoContent

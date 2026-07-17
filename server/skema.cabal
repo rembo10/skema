@@ -97,6 +97,7 @@ library
     Skema.API.Types.Tasks
     Skema.API.Types.Version
     Skema.API.OpenApi
+    Skema.API.App
     Skema.API.Server
     Skema.API.Handlers.Auth
     Skema.API.Handlers.Library

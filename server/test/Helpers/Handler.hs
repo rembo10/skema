@@ -12,6 +12,8 @@
 -- destructure) and applies a 'Nothing' auth header.
 module Helpers.Handler
   ( dummyJWTSecret
+  , mkAppEnv
+  , runApp
   , runOk
   , runStatus
   ) where
@@ -21,8 +23,13 @@ import qualified Data.Text as T
 import Servant (Handler, ServerError(..))
 import Servant.Server (runHandler)
 
+import System.FilePath ((</>))
+
+import Skema.API.App (Env(..), AppM)
 import Skema.Auth.JWT (JWTSecret, getJWTSecret)
+import Skema.Services.TaskManager (newTaskManager)
 import qualified Skema.Config.Types as Cfg
+import Helpers.TestEnv (TestEnv(..))
 
 -- | Build a real 'JWTSecret' for tests. Its value is never inspected
 -- because auth is disabled under 'Cfg.defaultConfig', but handler
@@ -43,3 +50,32 @@ runStatus h = do
   case result of
     Left err -> pure (errHTTPCode err)
     Right _ -> assertFailure "expected an error response, got success"
+
+-- | Build an API 'Env' from a test environment. The library path is unset
+-- and the config path points into the temporary cache directory.
+mkAppEnv :: TestEnv -> IO Env
+mkAppEnv env = do
+  jwtSecret <- dummyJWTSecret
+  tm <- newTaskManager (teEventBus env) (teLogEnv env) (teClock env)
+  latestVar <- newTVarIO Nothing
+  pure Env
+    { envLogEnv = teLogEnv env
+    , envEventBus = teEventBus env
+    , envJwtSecret = jwtSecret
+    , envTaskManager = tm
+    , envDbPool = tePool env
+    , envConfigVar = teConfigVar env
+    , envHttpClient = teHttpClient env
+    , envMBClient = teMBClientEnv env
+    , envClock = teClock env
+    , envProgressMap = teProgressMap env
+    , envLibraryPath = Nothing
+    , envCacheDir = teCacheDir env
+    , envConfigPath = teCacheDir env </> "config.yaml"
+    , envLatestRelease = latestVar
+    }
+
+-- | Run an 'AppM' handler against an 'Env', yielding a plain 'Handler'.
+-- Usable directly as the natural transformation for 'hoistServer'.
+runApp :: Env -> AppM a -> Handler a
+runApp env m = runReaderT m env

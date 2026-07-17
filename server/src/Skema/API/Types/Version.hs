@@ -7,6 +7,7 @@
 module Skema.API.Types.Version
   ( VersionAPI
   , VersionResponse(..)
+  , LatestRelease(..)
   ) where
 
 import Data.Aeson (ToJSON(..), object, (.=))
@@ -16,6 +17,12 @@ import Servant
 
 -- | Version endpoint - no auth required so anyone can check their version.
 type VersionAPI = "version" :> Get '[JSON] VersionResponse
+
+-- | Cached latest release info from the update checker.
+data LatestRelease = LatestRelease
+  { lrVersion :: Text
+  , lrUpdateAvailable :: Bool
+  } deriving (Show, Eq)
 
 -- | Version information response.
 data VersionResponse = VersionResponse

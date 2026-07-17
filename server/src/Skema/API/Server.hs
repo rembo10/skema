@@ -9,6 +9,8 @@ module Skema.API.Server
   ) where
 
 import Skema.API.Types
+import Skema.API.App (Env(..), AppM)
+import Skema.API.Types.Config (ConfigSchemaAPI)
 import Skema.API.OpenApi (openApiSpec, swaggerUiHtml)
 import Skema.API.Handlers.Auth (authServer)
 import Skema.API.Handlers.Library (libraryServer)
@@ -23,9 +25,8 @@ import Skema.API.Handlers.Events (eventsServer)
 import Skema.API.Handlers.Filesystem (filesystemServer)
 import Skema.API.Handlers.QualityProfiles (qualityProfilesServer)
 import Skema.API.Handlers.Tasks (tasksServer)
-import Skema.API.Handlers.Version (versionServer, LatestRelease)
+import Skema.API.Handlers.Version (versionServer)
 import Skema.API.Handlers.Static (staticFileServer, frontendServer)
-import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import Skema.Auth (checkAuthEnabled)
 import Skema.Auth.JWT (JWTSecret, getJWTSecret, validateJWT)
@@ -147,33 +148,43 @@ authMiddleware configVar jwtSecret application req responseHandler = do
       decodeUtf8 <$> (lookup hAuthorization (requestHeaders req) >>= BS.stripPrefix "Bearer ")
 
 -- | WAI application with logging and central authentication middleware.
-app :: LogEnv -> EventBus -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> FilePath -> TVar (Maybe LatestRelease) -> Application
-app le bus serverCfg jwtSecret registry tm connPool libPath cacheDir configPath latestVar =
-  requestLoggingMiddleware le $
-  authMiddleware (srConfigVar registry) jwtSecret $
-    serve (Proxy :: Proxy API) (server le bus serverCfg jwtSecret registry tm connPool libPath cacheDir (srConfigVar registry) configPath latestVar)
+app :: Env -> Application
+app env =
+  requestLoggingMiddleware (envLogEnv env) $
+  authMiddleware (envConfigVar env) (envJwtSecret env) $
+    serve (Proxy :: Proxy API) (server env)
 
--- | Servant server.
-server :: LogEnv -> EventBus -> ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> Maybe Text -> FilePath -> TVar Config -> FilePath -> TVar (Maybe LatestRelease) -> Server API
-server le bus serverCfg jwtSecret registry tm connPool libPath cacheDir configVar configPath latestVar =
-  ((authServer jwtSecret configVar (srClock registry)
-   :<|> libraryServer le bus serverCfg registry tm connPool configVar
-   :<|> configServer le bus serverCfg connPool configVar configPath
-   :<|> configSchemaServer
-   :<|> diffsServer le bus serverCfg registry connPool
-   :<|> clustersServer le bus serverCfg registry tm connPool configVar
-   :<|> statsServer serverCfg connPool configVar
-   :<|> acquisitionServer le bus serverCfg connPool (srMBClientEnv registry) (srHttpClient registry) tm
-   :<|> catalogServer le bus serverCfg jwtSecret registry tm connPool cacheDir configVar
-   :<|> downloadsServer le bus serverCfg registry tm connPool (srDownloadProgressMap registry) configVar
-   :<|> eventsServer le bus serverCfg jwtSecret connPool libPath configVar
-   :<|> filesystemServer serverCfg
-   :<|> qualityProfilesServer serverCfg connPool
-   :<|> tasksServer tm)
-   :<|> versionServer latestVar
+-- | Servant server: the AppM server hoisted back into Handler with the
+-- environment applied.
+server :: Env -> Server API
+server env = hoistServer (Proxy :: Proxy API) (`runReaderT` env) (serverT env)
+
+-- | The API server in AppM. Raw sub-servers (static files, frontend) need the
+-- environment at construction time, so it is passed alongside the hoist.
+serverT :: Env -> ServerT API AppM
+serverT env =
+  ((authServer env
+   :<|> libraryServer env
+   :<|> configServer env
+   :<|> configSchemaServerT
+   :<|> diffsServer env
+   :<|> clustersServer env
+   :<|> statsServer env
+   :<|> acquisitionServer env
+   :<|> catalogServer env
+   :<|> downloadsServer env
+   :<|> eventsServer env
+   :<|> filesystemServer
+   :<|> qualityProfilesServer env
+   :<|> tasksServer env)
+   :<|> versionServer env
    :<|> (pure swaggerUiHtml :<|> pure openApiSpec))
-  :<|> staticFileServer bus le cacheDir
-  :<|> frontendServer configVar
+  :<|> staticFileServer env
+  :<|> frontendServer env
+  where
+    configSchemaServerT = hoistServer (Proxy :: Proxy ConfigSchemaAPI) liftIO' configSchemaServer
+    liftIO' :: Handler a -> AppM a
+    liftIO' = lift
 
 -- | Start a background worker that emits heartbeat events periodically.
 -- This keeps SSE connections alive during quiet periods.
@@ -233,8 +244,25 @@ startServer le bus serverCfg registry connPool libPath cacheDir configPath cliPo
                  $ setPort port
                  $ defaultSettings
 
+    let env = Env
+          { envLogEnv = le
+          , envEventBus = bus
+          , envJwtSecret = jwtSecret
+          , envTaskManager = taskManager
+          , envDbPool = connPool
+          , envConfigVar = srConfigVar registry
+          , envHttpClient = srHttpClient registry
+          , envMBClient = srMBClientEnv registry
+          , envClock = srClock registry
+          , envProgressMap = srDownloadProgressMap registry
+          , envLibraryPath = libPath
+          , envCacheDir = cacheDir
+          , envConfigPath = configPath
+          , envLatestRelease = latestVar
+          }
+
     -- Run server with exception handling
-    liftIO (runSettings settings (app le bus serverCfg jwtSecret registry taskManager connPool libPath cacheDir configPath latestVar)) `catch` handleStartupException host port
+    liftIO (runSettings settings (app env)) `catch` handleStartupException host port
   where
     handleStartupException :: Text -> Int -> E.SomeException -> KatipContextT IO ()
     handleStartupException _h p ex =

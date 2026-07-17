@@ -9,13 +9,13 @@ import Skema.API.Types.QualityProfiles (QualityProfilesAPI, CreateQualityProfile
 import Skema.API.Handlers.Utils (throw404, withDB)
 import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
-import qualified Skema.Config.Types as Cfg
 import Skema.Domain.Quality (QualityProfile(..))
 import Servant
+import Skema.API.App (Env(..), AppM)
 
 -- | Quality Profiles API handlers.
-qualityProfilesServer :: Cfg.ServerConfig -> ConnectionPool -> Server QualityProfilesAPI
-qualityProfilesServer _serverCfg connPool =
+qualityProfilesServer :: Env -> ServerT QualityProfilesAPI AppM
+qualityProfilesServer Env{envDbPool = connPool} =
   getAllProfilesHandler
   :<|> getProfileHandler
   :<|> createProfileHandler
@@ -24,11 +24,11 @@ qualityProfilesServer _serverCfg connPool =
   :<|> getDefaultProfileHandler
   :<|> setDefaultProfileHandler
   where
-    getAllProfilesHandler :: Handler [QualityProfile]
+    getAllProfilesHandler :: AppM [QualityProfile]
     getAllProfilesHandler =
       withDB connPool DB.getAllQualityProfiles
 
-    getProfileHandler :: Int64 -> Handler QualityProfile
+    getProfileHandler :: Int64 -> AppM QualityProfile
     getProfileHandler profileId = do
       maybeProfile <- liftIO $ withConnection connPool $ \conn ->
         DB.getQualityProfile conn profileId
@@ -36,7 +36,7 @@ qualityProfilesServer _serverCfg connPool =
         Nothing -> throw404 $ "Quality profile not found: " <> show profileId
         Just profile -> pure profile
 
-    createProfileHandler :: CreateQualityProfileRequest -> Handler QualityProfile
+    createProfileHandler :: CreateQualityProfileRequest -> AppM QualityProfile
     createProfileHandler req = do
       -- Create profile in database
       newId <- liftIO $ withConnection connPool $ \conn ->
@@ -56,7 +56,7 @@ qualityProfilesServer _serverCfg connPool =
         , qfUpgradeAutomatically = createQualityProfileUpgradeAutomatically req
         }
 
-    updateProfileHandler :: Int64 -> UpdateQualityProfileRequest -> Handler QualityProfile
+    updateProfileHandler :: Int64 -> UpdateQualityProfileRequest -> AppM QualityProfile
     updateProfileHandler profileId req = do
       -- Update profile in database
       liftIO $ withConnection connPool $ \conn ->
@@ -77,13 +77,13 @@ qualityProfilesServer _serverCfg connPool =
         , qfUpgradeAutomatically = updateQualityProfileUpgradeAutomatically req
         }
 
-    deleteProfileHandler :: Int64 -> Handler NoContent
+    deleteProfileHandler :: Int64 -> AppM NoContent
     deleteProfileHandler profileId = do
       withDB connPool $ \conn ->
         DB.deleteQualityProfile conn profileId
       pure NoContent
 
-    getDefaultProfileHandler :: Handler (Maybe QualityProfile)
+    getDefaultProfileHandler :: AppM (Maybe QualityProfile)
     getDefaultProfileHandler = do
       maybeProfileId <- liftIO $ withConnection connPool $ \conn ->
         DB.getDefaultQualityProfileId conn
@@ -92,7 +92,7 @@ qualityProfilesServer _serverCfg connPool =
         Just profileId -> liftIO $ withConnection connPool $ \conn ->
           DB.getQualityProfile conn profileId
 
-    setDefaultProfileHandler :: Int64 -> Handler NoContent
+    setDefaultProfileHandler :: Int64 -> AppM NoContent
     setDefaultProfileHandler profileId = do
       withDB connPool $ \conn ->
         DB.setDefaultQualityProfileId conn (Just profileId)

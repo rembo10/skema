@@ -15,12 +15,13 @@ module Integration.QualityProfilesHandlerSpec (tests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Servant (Handler, NoContent, (:<|>)(..))
+import Servant (Handler, NoContent, hoistServer, (:<|>)(..))
 
 import Helpers.TestEnv (TestEnv(..), withTestEnv)
-import Helpers.Handler (runOk, runStatus)
+import Helpers.Handler (mkAppEnv, runApp, runOk, runStatus)
 
 import Skema.API.Handlers.QualityProfiles (qualityProfilesServer)
+import Skema.API.Types.QualityProfiles (QualityProfilesAPI)
 import Skema.API.Types.QualityProfiles
   ( CreateQualityProfileRequest(..)
   , UpdateQualityProfileRequest(..)
@@ -30,7 +31,6 @@ import Skema.Domain.Quality
   , QualityPreference(..)
   , Quality(..)
   )
-import qualified Skema.Config.Types as Cfg
 
 tests :: TestTree
 tests = testGroup "Integration.QualityProfilesHandler"
@@ -58,7 +58,9 @@ data Handlers = Handlers
 -- | Wire the handlers to a test env (auth disabled → no auth header needed).
 mkHandlers :: TestEnv -> IO Handlers
 mkHandlers env = do
-  let server = qualityProfilesServer (Cfg.server Cfg.defaultConfig) (tePool env)
+  appEnv <- mkAppEnv env
+  let server = hoistServer (Proxy :: Proxy QualityProfilesAPI) (runApp appEnv)
+                 (qualityProfilesServer appEnv)
       getAll :<|> getOne :<|> create :<|> update :<|> delete :<|> getDefault :<|> setDefault =
         server
   pure Handlers

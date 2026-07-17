@@ -6,16 +6,16 @@ module Skema.API.Handlers.Filesystem
   ) where
 
 import Skema.API.Types.Filesystem (FilesystemAPI, FilesystemBrowseResponse)
-import qualified Skema.Config.Types as Cfg
 import Skema.FileSystem.Browser (browsePath)
 import Servant
+import Skema.API.App (AppM)
 
 -- | Filesystem API handlers.
-filesystemServer :: Cfg.ServerConfig -> Server FilesystemAPI
-filesystemServer _serverCfg =
+filesystemServer :: ServerT FilesystemAPI AppM
+filesystemServer =
   browseHandler
   where
-    browseHandler :: Maybe Text -> Handler FilesystemBrowseResponse
+    browseHandler :: Maybe Text -> AppM FilesystemBrowseResponse
     browseHandler maybePath = do
       let path = fromMaybe "/" maybePath
 

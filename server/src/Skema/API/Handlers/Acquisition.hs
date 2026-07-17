@@ -13,23 +13,18 @@ import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
 import qualified Skema.Database.Utils as DBUtils
-import qualified Skema.Config.Types as Cfg
-import Skema.Events.Bus (EventBus)
-import Skema.MusicBrainz.Client (MBClientEnv)
-import Skema.HTTP.Client (HttpClient)
 import Skema.Services.SourceEvaluator (evaluateSource)
-import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import Data.Aeson (toJSON, object, (.=))
 import Control.Concurrent.Async (async)
 import Control.Exception (try)
 import Servant
-import Katip (LogEnv)
+import Skema.API.App (Env(..), AppM)
 import Skema.Domain.Converters (timestampToText)
 
 -- | Acquisition API handlers.
-acquisitionServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> ConnectionPool -> MBClientEnv -> HttpClient -> TaskManager -> Server AcquisitionAPI
-acquisitionServer le bus _serverCfg connPool mbClient httpClient tm =
+acquisitionServer :: Env -> ServerT AcquisitionAPI AppM
+acquisitionServer Env{envLogEnv = le, envEventBus = bus, envDbPool = connPool, envMBClient = mbClient, envHttpClient = httpClient, envTaskManager = tm} =
   getRulesHandler
   :<|> createRuleHandler
   :<|> updateRuleHandler
@@ -37,7 +32,7 @@ acquisitionServer le bus _serverCfg connPool mbClient httpClient tm =
   :<|> taskHandler
   :<|> getSummaryHandler
   where
-    getRulesHandler :: Handler [AcquisitionRuleResponse]
+    getRulesHandler :: AppM [AcquisitionRuleResponse]
     getRulesHandler =
       withDB connPool $ \conn -> do
         sources <- DB.getAllAcquisitionRules conn
@@ -53,7 +48,7 @@ acquisitionServer le bus _serverCfg connPool mbClient httpClient tm =
           , acquisitionRuleResponseUpdatedAt = maybe "" timestampToText (DBTypes.sourceUpdatedAt source)
           }
 
-    createRuleHandler :: CreateRuleRequest -> Handler AcquisitionRuleResponse
+    createRuleHandler :: CreateRuleRequest -> AppM AcquisitionRuleResponse
     createRuleHandler req = do
       -- Parse and validate source type
       sourceType <- case DBUtils.textToSourceType (createRuleType req) of
@@ -84,7 +79,7 @@ acquisitionServer le bus _serverCfg connPool mbClient httpClient tm =
         , acquisitionRuleResponseUpdatedAt = ""  -- Will be set by database
         }
 
-    updateRuleHandler :: Int64 -> UpdateRuleRequest -> Handler AcquisitionRuleResponse
+    updateRuleHandler :: Int64 -> UpdateRuleRequest -> AppM AcquisitionRuleResponse
     updateRuleHandler sourceId req = do
       -- Parse and validate source type
       sourceType <- case DBUtils.textToSourceType (updateRuleType req) of
@@ -116,13 +111,13 @@ acquisitionServer le bus _serverCfg connPool mbClient httpClient tm =
         , acquisitionRuleResponseUpdatedAt = ""  -- Will be set by database
         }
 
-    deleteRuleHandler :: Int64 -> Handler NoContent
+    deleteRuleHandler :: Int64 -> AppM NoContent
     deleteRuleHandler sourceId = do
       withDB connPool $ \conn ->
         DB.deleteAcquisitionRule conn sourceId
       pure NoContent
 
-    taskHandler :: TaskRequest -> Handler TaskResponse
+    taskHandler :: TaskRequest -> AppM TaskResponse
     taskHandler req = do
       case taskRequestType req of
         "evaluate" -> liftIO $ do
@@ -153,7 +148,7 @@ acquisitionServer le bus _serverCfg connPool mbClient httpClient tm =
 
         _ -> throwError err400 { errBody = "Unknown task type" }
 
-    getSummaryHandler :: Handler AcquisitionSummaryResponse
+    getSummaryHandler :: AppM AcquisitionSummaryResponse
     getSummaryHandler =
       withDB connPool $ \conn -> do
         (perSource, totalArtists, totalWanted) <- DB.getAcquisitionSummary conn

@@ -10,9 +10,10 @@ module Skema.API.Handlers.Static
 import Network.Wai.Application.Static (staticApp, defaultFileServerSettings)
 import WaiAppStatic.Types (StaticSettings(..), MaxAge(..), LookupResult(..), Pieces, toPiece, fromPiece)
 import Servant
+import Skema.API.App (Env(..), AppM)
 import System.FilePath ((</>))
 import qualified System.Environment as Env
-import Skema.Config.Types (Config, serverWebRoot, server)
+import Skema.Config.Types (serverWebRoot, server)
 import Skema.Events.Bus (EventBus, publishAndLog)
 import Skema.Events.Types (Event(..))
 import qualified Control.Concurrent.STM as STM
@@ -33,8 +34,8 @@ import qualified Data.ByteString.Lazy as LBS
 -- event so the image service re-fetches the artwork and reconciles the database
 -- with disk. The request itself still 404s; the UI updates over SSE once the
 -- re-fetch completes.
-staticFileServer :: EventBus -> LogEnv -> FilePath -> Server Raw
-staticFileServer bus le cacheDir = Tagged $ app
+staticFileServer :: Env -> ServerT Raw AppM
+staticFileServer Env{envEventBus = bus, envLogEnv = le, envCacheDir = cacheDir} = Tagged $ app
   where
     imagesDir = cacheDir </> "images"
 
@@ -86,8 +87,8 @@ missingImageEvent _ = Nothing
 -- Checks multiple locations in order:
 --   1. SKEMA_FRONTEND_DIR environment variable (for nix/docker builds)
 --   2. ../web/dist (for development)
-frontendServer :: TVar Config -> Server Raw
-frontendServer configVar = Tagged $ \req sendResponse -> do
+frontendServer :: Env -> ServerT Raw AppM
+frontendServer Env{envConfigVar = configVar} = Tagged $ \req sendResponse -> do
   -- Determine frontend directory at request time
   -- This allows the path to be resolved dynamically
   maybeFrontendRoot <- Env.lookupEnv "SKEMA_FRONTEND_DIR"

@@ -8,17 +8,17 @@ module Skema.API.Handlers.Auth
 import Skema.API.Types.Auth (AuthAPI, AuthStatusResponse(..))
 import Skema.API.Handlers.Utils (throw401, throw500, readConfig)
 import Skema.Auth
-import Skema.Auth.JWT (JWTSecret, generateJWT)
-import Skema.Clock (Clock)
+import Skema.Auth.JWT (generateJWT)
 import qualified Skema.Config.Types as Cfg
 import Servant
+import Skema.API.App (Env(..), AppM)
 
 -- | Auth API handlers.
-authServer :: JWTSecret -> TVar Cfg.Config -> Clock -> Server AuthAPI
-authServer jwtSecret configVar clock =
+authServer :: Env -> ServerT AuthAPI AppM
+authServer Env{envJwtSecret = jwtSecret, envConfigVar = configVar, envClock = clock} =
   statusHandler :<|> credentialsHandler
   where
-    statusHandler :: Handler AuthStatusResponse
+    statusHandler :: AppM AuthStatusResponse
     statusHandler = do
       -- Read current config to check if auth is enabled
       currentCfg <- liftIO $ readConfig configVar
@@ -26,7 +26,7 @@ authServer jwtSecret configVar clock =
       authEnabled <- liftIO $ checkAuthEnabled serverCfg
       pure $ AuthStatusResponse { authStatusEnabled = authEnabled }
 
-    credentialsHandler :: CredentialsRequest -> Handler AuthResponse
+    credentialsHandler :: CredentialsRequest -> AppM AuthResponse
     credentialsHandler req = do
       -- Read current config from TVar to get latest credentials
       currentCfg <- liftIO $ readConfig configVar

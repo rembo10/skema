@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Config API handlers.
@@ -12,22 +13,20 @@ module Skema.API.Handlers.Config
 import Skema.API.Types.Config (ConfigAPI, ConfigSchemaAPI)
 import Skema.API.Handlers.Utils (throw400, throw500, readConfig)
 import Skema.Auth.JWT (generateApiKey)
-import Skema.Database.Connection
 import Skema.Config.Discovery (saveConfigToFile)
 import Skema.Config.Schema (schemaToJSON, allSchemas)
 import qualified Skema.Config.Types as Cfg
 import Skema.Domain.ConfigJSON (configToAPIJSON, applyConfigJSONUpdate)
-import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
 import Servant
-import Katip
+import Skema.API.App (Env(..), AppM)
 import Data.Aeson (Value(..), object, (.=))
 import qualified Data.Aeson.KeyMap as KM
 
 -- | Config API handlers.
-configServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> ConnectionPool -> TVar Cfg.Config -> FilePath -> Server ConfigAPI
-configServer le bus _serverCfg _connPool configVar configPath =
+configServer :: Env -> ServerT ConfigAPI AppM
+configServer Env{envLogEnv = le, envEventBus = bus, envConfigVar = configVar, envConfigPath = configPath} =
   getConfigHandler
   :<|> updateConfigHandler
   :<|> generateApiKeyHandler

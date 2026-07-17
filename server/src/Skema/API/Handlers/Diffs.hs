@@ -10,20 +10,17 @@ import Skema.API.Handlers.Utils (throw500, parsePagination, withDB)
 import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
-import qualified Skema.Config.Types as Cfg
 import Skema.FileSystem.Utils (osPathToString)
-import Skema.Services.Registry (ServiceRegistry)
-import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
 import qualified Data.Map.Strict as Map
 import Servant
-import Katip
+import Skema.API.App (Env(..), AppM)
 import Skema.Domain.Converters (timestampToText)
 
 -- | Diffs API handlers (includes both diffs and metadata-changes endpoints).
-diffsServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> ServiceRegistry -> ConnectionPool -> Server DiffsAPI
-diffsServer le bus _serverCfg _registry connPool =
+diffsServer :: Env -> ServerT DiffsAPI AppM
+diffsServer Env{envLogEnv = le, envEventBus = bus, envDbPool = connPool} =
   ( getAllDiffsHandler
     :<|> getGroupedDiffsHandler)
   :<|>
@@ -32,7 +29,7 @@ diffsServer le bus _serverCfg _registry connPool =
     :<|> revertChangeHandler)
   where
     -- Diffs handlers
-    getAllDiffsHandler :: Handler [MetadataDiffResponse]
+    getAllDiffsHandler :: AppM [MetadataDiffResponse]
     getAllDiffsHandler =
       withDB connPool $ \conn -> do
         diffs <- DB.getAllMetadataDiffs conn
@@ -48,7 +45,7 @@ diffsServer le bus _serverCfg _registry connPool =
             , diffCreatedAt = maybe "" timestampToText (DBTypes.diffCreatedAt diff)
             }
 
-    getGroupedDiffsHandler :: Maybe Int -> Maybe Int -> Handler GroupedDiffsResponse
+    getGroupedDiffsHandler :: Maybe Int -> Maybe Int -> AppM GroupedDiffsResponse
     getGroupedDiffsHandler maybeOffset maybeLimit = do
       let (offset, limit) = parsePagination maybeOffset maybeLimit
 
@@ -95,7 +92,7 @@ diffsServer le bus _serverCfg _registry connPool =
           }
 
     -- Metadata changes handlers
-    applyChangesHandler :: ApplyChangesRequest -> Handler [MetadataChangeResponse]
+    applyChangesHandler :: ApplyChangesRequest -> AppM [MetadataChangeResponse]
     applyChangesHandler req = do
       let diffIds = applyChangesDiffIds req
 
@@ -107,7 +104,7 @@ diffsServer le bus _serverCfg _registry connPool =
       -- Return empty list immediately - client will receive updates via SSE
       pure []
 
-    getChangesHandler :: Maybe Int -> Maybe Int -> Handler MetadataChangesResponse
+    getChangesHandler :: Maybe Int -> Maybe Int -> AppM MetadataChangesResponse
     getChangesHandler maybeOffset maybeLimit = do
       let (offset, limit) = parsePagination maybeOffset maybeLimit
 
@@ -138,7 +135,7 @@ diffsServer le bus _serverCfg _registry connPool =
           , metadataChangesResponseChanges = paginated
           }
 
-    revertChangeHandler :: Int64 -> Handler NoContent
+    revertChangeHandler :: Int64 -> AppM NoContent
     revertChangeHandler changeId = do
       result <- liftIO $ DB.revertMetadataChange connPool changeId
       case result of

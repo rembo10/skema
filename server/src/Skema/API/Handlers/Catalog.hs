@@ -11,22 +11,18 @@ import Skema.API.Types.Common (SourceIO)
 import Skema.Auth (checkAuthEnabled)
 import Skema.Auth.JWT (validateJWT)
 import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..))
-import Skema.Services.TaskManager (TaskManager)
 import qualified Skema.Services.TaskManager as TM
 import qualified Skema.Domain.Catalog as Core
 import Skema.API.Handlers.Utils (throw400, throw404, throw500, readConfig, parsePagination)
-import Skema.Auth.JWT (JWTSecret)
 import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
 import Database.SQLite.Simple (Only(..))
 import qualified Skema.Config.Types as Cfg
-import Skema.Services.Registry (ServiceRegistry(..))
 import Skema.Services.Download.Cancel (cancelDownload)
 import Skema.MusicBrainz.Client (searchArtists, searchReleaseGroups, getRelease, getReleaseGroup, getReleaseGroupReleases, pickRepresentativeRelease, prettyClientError)
 import Skema.MusicBrainz.Types (MBRelease(..), MBReleaseGroup(..), MBMedium(..), MBTrack(..), mbasArtists, mbasArtistId, mbrgsReleaseGroups, mbrgsReleaseGroupId, MBID(..), unMBID)
 import Skema.Domain.Converters (mbArtistSearchToCatalogResponse, mbReleaseGroupSearchToCatalogResponse, timestampToText)
-import Skema.Events.Bus (EventBus)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
 import Skema.Indexer.Client (searchIndexer)
@@ -39,8 +35,8 @@ import qualified Skema.Domain.Quality as Qual
 import Control.Concurrent.Async (async, wait)
 import Data.Aeson (toJSON, object, (.=), decodeStrict)
 import Servant hiding (SourceIO)
+import Skema.API.App (Env(..), AppM)
 import Servant.Types.SourceT (SourceT(..), StepT(..))
-import Katip
 import Control.Concurrent.STM.TChan (TChan, newTChanIO, writeTChan, readTChan)
 import qualified Data.IORef as IORef
 import Data.Time (getCurrentTime, diffUTCTime)
@@ -49,8 +45,8 @@ import qualified Data.Text.Encoding as TE
 import qualified Control.Concurrent.STM as STM
 
 -- | Catalog API handlers.
-catalogServer :: LogEnv -> EventBus -> Cfg.ServerConfig -> JWTSecret -> ServiceRegistry -> TaskManager -> ConnectionPool -> FilePath -> TVar Cfg.Config -> Server CatalogAPI
-catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configVar =
+catalogServer :: Env -> ServerT CatalogAPI AppM
+catalogServer Env{envLogEnv = le, envEventBus = bus, envJwtSecret = jwtSecret, envTaskManager = tm, envDbPool = connPool, envConfigVar = configVar, envMBClient = mbClient, envHttpClient = httpClient} =
   taskHandler
   :<|> queryHandler
   :<|> getArtistsHandler
@@ -68,7 +64,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
   :<|> getAlbumHandler
   :<|> bulkActionHandler
   where
-    taskHandler :: TaskRequest -> Handler TaskResponse
+    taskHandler :: TaskRequest -> AppM TaskResponse
     taskHandler req = do
 
       -- Create task based on request type
@@ -131,9 +127,9 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
         _ -> throwError err400 { errBody = "Unknown task type" }
     -- Universal search handler - searches both artists and albums
-    queryHandler :: Text -> Maybe Int -> Handler CatalogQueryResponse
+    queryHandler :: Text -> Maybe Int -> AppM CatalogQueryResponse
     queryHandler query maybeLimit = do
-      let mbEnv = srMBClientEnv registry
+      let mbEnv = mbClient
       let limit = fromMaybe 10 maybeLimit
 
       -- Search artists and albums in parallel
@@ -181,7 +177,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         }
 
     -- Get catalog artists
-    getArtistsHandler :: Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Text -> Maybe Text -> Maybe Text -> Handler ArtistsResponse
+    getArtistsHandler :: Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Text -> Maybe Text -> Maybe Text -> AppM ArtistsResponse
     getArtistsHandler maybeOffset maybeLimit maybeFollowed maybeSearch maybeSort maybeOrder = do
 
       let (offset, limit) = parsePagination maybeOffset maybeLimit
@@ -229,7 +225,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
         }
 
     -- Get single catalog artist by ID
-    getArtistHandler :: Int64 -> Handler CatalogArtistResponse
+    getArtistHandler :: Int64 -> AppM CatalogArtistResponse
     getArtistHandler artistId = do
 
       maybeArtist <- liftIO $ withConnection connPool $ \conn ->
@@ -264,7 +260,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             }
 
     -- Create/upsert catalog artist
-    createArtistHandler :: CreateCatalogArtistRequest -> Handler CatalogArtistResponse
+    createArtistHandler :: CreateCatalogArtistRequest -> AppM CatalogArtistResponse
     createArtistHandler req = do
 
       -- Skip "Various Artists" - it's not a trackable artist
@@ -328,7 +324,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           }
 
     -- Update catalog artist (followed status and quality profile)
-    updateArtistHandler :: Int64 -> UpdateCatalogArtistRequest -> Handler CatalogArtistResponse
+    updateArtistHandler :: Int64 -> UpdateCatalogArtistRequest -> AppM CatalogArtistResponse
     updateArtistHandler artistId req = do
       liftIO $ withConnection connPool $ \conn ->
         DB.updateCatalogArtist conn artistId
@@ -359,16 +355,16 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           }
 
     -- Delete catalog artist
-    deleteArtistHandler :: Int64 -> Handler NoContent
+    deleteArtistHandler :: Int64 -> AppM NoContent
     deleteArtistHandler artistId = do
       liftIO $ withConnection connPool $ \conn ->
         DB.deleteCatalogArtist conn artistId
       pure NoContent
 
     -- Create/upsert catalog album
-    createAlbumHandler :: CreateCatalogAlbumRequest -> Handler CatalogAlbumResponse
+    createAlbumHandler :: CreateCatalogAlbumRequest -> AppM CatalogAlbumResponse
     createAlbumHandler req = do
-      let mbEnv = srMBClientEnv registry
+      let mbEnv = mbClient
 
       -- Resolve metadata: either from request fields or by looking up MusicBrainz
       (rgMbid, title, artistMbid, artistName, albumType, firstReleaseDate) <- do
@@ -502,7 +498,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             }
 
     -- Update catalog album (wanted status and quality profile)
-    updateAlbumHandler :: Int64 -> UpdateCatalogAlbumRequest -> Handler CatalogAlbumResponse
+    updateAlbumHandler :: Int64 -> UpdateCatalogAlbumRequest -> AppM CatalogAlbumResponse
     updateAlbumHandler albumId req = do
 
       -- Fetch the album BEFORE updating to get current status
@@ -577,7 +573,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
           case (shouldCancel, maybeActiveDownloadId) of
             (True, Just downloadId) -> do
               config <- liftIO $ readConfig configVar
-              liftIO $ cancelDownload le (srHttpClient registry) (Cfg.download config) connPool downloadId
+              liftIO $ cancelDownload le (httpClient) (Cfg.download config) connPool downloadId
             _ -> pure ()
 
           -- Emit WantedAlbumAdded event if album is being marked as wanted (was not wanted before)
@@ -657,14 +653,14 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
                 }
 
     -- Delete catalog album
-    deleteAlbumHandler :: Int64 -> Handler NoContent
+    deleteAlbumHandler :: Int64 -> AppM NoContent
     deleteAlbumHandler albumId = do
       liftIO $ withConnection connPool $ \conn ->
         DB.deleteCatalogAlbum conn albumId
       pure NoContent
 
     -- Get catalog albums with enhanced state information (replaces simple GET /albums)
-    albumOverviewHandler :: Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Handler AlbumOverviewResponse
+    albumOverviewHandler :: Maybe Int -> Maybe Int -> Maybe Bool -> Maybe Int64 -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Text -> AppM AlbumOverviewResponse
     albumOverviewHandler maybeOffset maybeLimit _maybeWanted maybeArtistId maybeSearch maybeSort maybeOrder maybeStateFilter maybeQualityFilter maybeReleaseDateAfter maybeReleaseDateBefore maybeMBID = do
 
       let (offset, limit) = parsePagination maybeOffset maybeLimit
@@ -811,7 +807,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       _ -> Nothing
 
     -- Get a single catalog album's overview by ID
-    getAlbumHandler :: Int64 -> Handler CatalogAlbumOverviewResponse
+    getAlbumHandler :: Int64 -> AppM CatalogAlbumOverviewResponse
     getAlbumHandler albumId = do
       maybeRow <- liftIO $ withConnection connPool $ \conn -> do
         rows <- DB.getCatalogAlbumsOverview conn DB.defaultAlbumQuery { DB.aqAlbumId = Just albumId, DB.aqLimit = 1 }
@@ -824,9 +820,9 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
     --
     -- Uses the release actually matched in the library when available,
     -- otherwise a representative release chosen from the release group.
-    getAlbumTracksHandler :: Int64 -> Handler AlbumTracksResponse
+    getAlbumTracksHandler :: Int64 -> AppM AlbumTracksResponse
     getAlbumTracksHandler albumId = do
-      let mbEnv = srMBClientEnv registry
+      let mbEnv = mbClient
 
       maybeAlbum <- liftIO $ withConnection connPool $ \conn ->
         DB.getCatalogAlbumById conn albumId
@@ -888,7 +884,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
                     }
 
     -- Bulk operations on catalog albums
-    bulkActionHandler :: BulkAlbumActionRequest -> Handler NoContent
+    bulkActionHandler :: BulkAlbumActionRequest -> AppM NoContent
     bulkActionHandler req = do
 
       let albumIds = bulkAlbumActionAlbumIds req
@@ -959,7 +955,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
       pure NoContent
 
     -- Search for available releases from indexers for a specific album
-    searchAlbumReleasesHandler :: Int64 -> Handler AlbumReleasesResponse
+    searchAlbumReleasesHandler :: Int64 -> AppM AlbumReleasesResponse
     searchAlbumReleasesHandler albumId = do
 
       -- Get the album from the database
@@ -1017,7 +1013,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             }
 
     -- Stream album releases via SSE (results sent as they arrive)
-    streamAlbumReleasesHandler :: Int64 -> Maybe Text -> Handler (SourceIO ReleaseStreamEvent)
+    streamAlbumReleasesHandler :: Int64 -> Maybe Text -> AppM (SourceIO ReleaseStreamEvent)
     streamAlbumReleasesHandler albumId maybeToken = do
       -- Validate JWT from query parameter (since EventSource doesn't support custom headers)
       currentCfg <- liftIO $ readConfig configVar
@@ -1061,19 +1057,16 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
                 }
 
           -- Return the streaming source
-          pure $ streamSearchResults le registry configVar enabledIndexers maybeSlskdConfig searchQuery albumId
+          pure $ streamSearchResults enabledIndexers maybeSlskdConfig searchQuery albumId
 
     -- Stream search results from all sources
     streamSearchResults ::
-      LogEnv ->
-      ServiceRegistry ->
-      TVar Cfg.Config ->
       [Cfg.Indexer] ->
       Maybe Cfg.SlskdConfig ->
       SearchQuery ->
       Int64 ->
       SourceIO ReleaseStreamEvent
-    streamSearchResults logEnv svcRegistry _cfgVar indexers maybeSlskd query albumId = SourceT $ \k -> k $ Effect $ do
+    streamSearchResults indexers maybeSlskd query albumId = SourceT $ \k -> k $ Effect $ do
       -- Create a channel for results
       chan <- newTChanIO
 
@@ -1081,7 +1074,6 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
 
       -- Start all searches concurrently, writing results to channel
       _ <- async $ do
-        let httpClient = srHttpClient svcRegistry
 
         -- Search indexers concurrently
         indexerSearches <- forM indexers $ \indexer -> async $ do
@@ -1114,7 +1106,7 @@ catalogServer le bus _serverCfg jwtSecret registry tm connPool _cacheDir configV
             -- Use streaming search - emit each candidate as it's found
             let minTrackCount = Cfg.slskdMinTrackCount slskdConfig
             resultCountRef <- IORef.newIORef (0 :: Int)
-            result <- searchSlskdStreaming logEnv client artistName albumName 60 minTrackCount $ \candidate -> do
+            result <- searchSlskdStreaming le client artistName albumName 60 minTrackCount $ \candidate -> do
               let release = slskdCandidateToReleaseInfo candidate
               now <- getCurrentTime
               withConnection connPool $ \conn ->

@@ -17,7 +17,7 @@ module Integration.IndexerStreamingSpec (tests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Servant (Handler, (:<|>)(..))
+import Servant (Handler, hoistServer, (:<|>)(..))
 import Servant.Types.SourceT (SourceT(..), StepT(..))
 
 import Control.Concurrent (threadDelay)
@@ -25,18 +25,15 @@ import qualified Control.Concurrent.STM as STM
 import qualified Data.Text as T
 
 import Helpers.TestEnv (TestEnv(..), withTestEnvTransport)
-import Helpers.Handler (runOk)
+import Helpers.Handler (mkAppEnv, runApp, runOk)
 import Helpers.Builders (seedCatalogAlbum)
 import Helpers.MockHttp (mockTransport, respond, methodIs, hostIs, textResponse, (.&.))
 
 import Skema.API.Handlers.Catalog (catalogServer)
-import Skema.API.Types.Catalog (ReleaseStreamEvent(..), AlbumReleasesResponse(..))
+import Skema.API.Types.Catalog (CatalogAPI, ReleaseStreamEvent(..), AlbumReleasesResponse(..))
 import Skema.API.Types.Common (SourceIO)
 import Skema.Database.Connection (withConnection)
 import Skema.HTTP.Client (HttpTransport(..))
-import Skema.Services.Registry (ServiceRegistry(..))
-import Skema.Services.TaskManager (newTaskManager)
-import Skema.Auth.JWT (getJWTSecret, generateJWTSecretString)
 import qualified Skema.Config.Types as Cfg
 
 tests :: TestTree
@@ -99,19 +96,8 @@ enableMockIndexer env =
 -- exercise (auth is disabled under 'defaultConfig', so no token is needed).
 mkCatalogHandlers :: TestEnv -> IO CatalogHandlers
 mkCatalogHandlers env = do
-  hex <- generateJWTSecretString
-  mSecret <- getJWTSecret ((Cfg.server Cfg.defaultConfig) { Cfg.serverJwtSecret = Just hex })
-  jwtSecret <- maybe (assertFailure "getJWTSecret returned Nothing") pure mSecret
-  tm <- newTaskManager (teEventBus env) (teLogEnv env) (teClock env)
-  let registry = ServiceRegistry
-        { srMBClientEnv = teMBClientEnv env
-        , srHttpClient = teHttpClient env
-        , srConfigVar = teConfigVar env
-        , srDownloadProgressMap = teProgressMap env
-        , srClock = teClock env
-        }
-      server = catalogServer (teLogEnv env) (teEventBus env) (Cfg.server Cfg.defaultConfig)
-                 jwtSecret registry tm (tePool env) (teCacheDir env) (teConfigVar env)
+  appEnv <- mkAppEnv env
+  let server = hoistServer (Proxy :: Proxy CatalogAPI) (runApp appEnv) (catalogServer appEnv)
       _taskH :<|> _queryH :<|> _getArtistsH :<|> _getArtistH :<|> _createArtistH
         :<|> _updateArtistH :<|> _deleteArtistH :<|> _albumOverviewH :<|> _createAlbumH
         :<|> _updateAlbumH :<|> _deleteAlbumH :<|> cachedH :<|> streamH
