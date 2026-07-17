@@ -20,6 +20,7 @@ module Skema.Domain.Catalog
   , isAlbumWanted
   , computeAlbumState
   , albumStateToText
+  , textToAlbumState
     -- * Download Decisions
   , shouldInitiateDownload
   , shouldCancelDownload
@@ -30,6 +31,7 @@ module Skema.Domain.Catalog
   , artistQualityProfileChanged
   ) where
 
+import qualified Data.Text as T
 import Skema.Domain.Quality
   ( Quality
   , QualityProfile
@@ -74,6 +76,24 @@ albumStateToText IdentificationFailed = "identification_failed"
 albumStateToText InLibrary = "in_library"
 albumStateToText Monitored = "monitored"
 albumStateToText Upgrading = "upgrading"
+
+-- | Parse an AlbumState from its wire text. Accepts both the Show-style
+-- constructor names ("NotWanted") and the snake_case form ("not_wanted").
+textToAlbumState :: Text -> Maybe AlbumState
+textToAlbumState txt = case T.toLower txt of
+  "notwanted" -> Just NotWanted
+  "not_wanted" -> Just NotWanted
+  "wanted" -> Just Wanted
+  "searching" -> Just Searching
+  "downloading" -> Just Downloading
+  "failed" -> Just Failed
+  "identificationfailed" -> Just IdentificationFailed
+  "identification_failed" -> Just IdentificationFailed
+  "inlibrary" -> Just InLibrary
+  "in_library" -> Just InLibrary
+  "monitored" -> Just Monitored
+  "upgrading" -> Just Upgrading
+  _ -> Nothing
 
 -- | Decision about what action to take for downloads.
 data DownloadDecision

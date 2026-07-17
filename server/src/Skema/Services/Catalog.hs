@@ -15,10 +15,15 @@
 module Skema.Services.Catalog
   ( startCatalogService
   , startCatalogRefreshScheduler
+  , updateAlbumQualityProfile
   ) where
 
 import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
+import Skema.Services.Download.Cancel (cancelDownload)
+import qualified Skema.Domain.Catalog as Core
+import qualified Skema.Domain.Quality as Qual
+import Skema.Domain.Quality (textToQuality)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
@@ -465,3 +470,114 @@ shouldIncludeReleaseGroup allowedTypes excludedSecondaryTypes rg =
            not (any (`elem` excludedSecondaryTypes) secondaryTypes)
 
   in primaryTypeOk && secondaryTypesOk
+
+-- | Apply a quality-profile change to an album ("wanted" is derived from the
+-- profile, so this is also how albums are wanted and unwanted).
+--
+-- Computes the wanted transition and the download-cancellation decision with
+-- the domain logic, updates the profile, cancels a now-unwanted active
+-- download at its client, and emits WantedAlbumAdded / CatalogAlbumUpdated.
+-- Returns the refreshed album and its wanted status for the API response.
+updateAlbumQualityProfile
+  :: ServiceContext
+  -> Int64                 -- ^ Album id
+  -> Maybe (Maybe Int64)   -- ^ Nothing = keep profile; Just Nothing = clear;
+                           --   Just (Just p) = assign profile p
+  -> IO (Either Text (DB.CatalogAlbumRecord, Bool))
+updateAlbumQualityProfile ServiceContext{..} albumId requestedProfile = do
+  let le = scLogEnv
+      pool = scDbPool
+      bus = scEventBus
+  maybeAlbumBefore <- withConnection pool $ \conn -> getCatalogAlbumById conn albumId
+  case maybeAlbumBefore of
+    Nothing -> pure $ Left $ "Album not found: " <> show albumId
+    Just albumBefore -> do
+      let newProfileId = case requestedProfile of
+            Nothing -> DB.catalogAlbumQualityProfileId albumBefore
+            Just maybeId -> maybeId
+
+      -- Active download info from the overview
+      maybeAlbumWithDownload <- withConnection pool $ \conn -> do
+        overviews <- getCatalogAlbumsOverview conn defaultAlbumQuery { aqAlbumId = Just albumId, aqLimit = 1 }
+        pure $ viaNonEmpty head overviews
+
+      let maybeActiveDownloadId = maybeAlbumWithDownload >>= caorActiveDownloadId
+          maybeActiveDownloadQuality = maybeAlbumWithDownload >>= caorActiveDownloadQuality >>= textToQuality
+
+      (wasWanted, newWanted, shouldCancel) <- withConnection pool $ \conn -> do
+        maybeOldProfile <- maybe (pure Nothing) (getQualityProfile conn) (DB.catalogAlbumQualityProfileId albumBefore)
+        maybeNewProfile <- maybe (pure Nothing) (getQualityProfile conn) newProfileId
+        let mkContext profile = Core.AlbumContext
+              { Core.acQualityProfile = profile
+              , Core.acCurrentQuality = DB.catalogAlbumCurrentQuality albumBefore >>= textToQuality
+              , Core.acInLibrary = isJust (DB.catalogAlbumCurrentQuality albumBefore)
+              , Core.acActiveDownloadStatus = Nothing
+              }
+            newContext = mkContext maybeNewProfile
+            downloadCtx = Core.DownloadContext
+              { Core.dcAlbumContext = newContext
+              , Core.dcDownloadQuality = fromMaybe Qual.Unknown maybeActiveDownloadQuality
+              , Core.dcNewProfile = maybeNewProfile
+              }
+        pure ( Core.isAlbumWanted (mkContext maybeOldProfile)
+             , Core.isAlbumWanted newContext
+             , isJust (Core.shouldCancelDownload downloadCtx)
+             )
+
+      -- Update the profile (wanted is computed, never stored)
+      withConnection pool $ \conn -> updateCatalogAlbum conn albumId (Just newProfileId)
+
+      -- Cancel the active download if the domain logic says to
+      case (shouldCancel, maybeActiveDownloadId) of
+        (True, Just downloadId) -> do
+          config <- readTVarIO scConfigVar
+          cancelDownload le scHttpClient (download config) pool downloadId
+        _ -> pure ()
+
+      -- Newly wanted: kick off a search
+      when (newWanted && not wasWanted) $
+        publishAndLog bus le "catalog" $ WantedAlbumAdded
+          { wantedCatalogAlbumId = albumId
+          , wantedReleaseGroupId = DB.catalogAlbumReleaseGroupMBID albumBefore
+          , wantedAlbumTitle = DB.catalogAlbumTitle albumBefore
+          , wantedArtistName = DB.catalogAlbumArtistName albumBefore
+          }
+
+      -- Refresh for the update event and the response
+      maybeAlbum <- withConnection pool $ \conn -> getCatalogAlbumById conn albumId
+      case maybeAlbum of
+        Nothing -> pure $ Left $ "Album not found: " <> show albumId
+        Just album -> do
+          overviewRow <- withConnection pool $ \conn -> do
+            overviews <- getCatalogAlbumsOverview conn defaultAlbumQuery { aqAlbumId = Just albumId, aqLimit = 1 }
+            pure $ viaNonEmpty head overviews
+
+          -- Effective profile (the album's own, or inherited from the artist)
+          maybeProfile <- maybe (pure Nothing) (getEffectiveQualityProfile pool) (DB.catalogAlbumId album)
+
+          let wanted = Core.isAlbumWanted Core.AlbumContext
+                { Core.acQualityProfile = maybeProfile
+                , Core.acCurrentQuality = DB.catalogAlbumCurrentQuality album >>= textToQuality
+                , Core.acInLibrary = isJust (DB.catalogAlbumCurrentQuality album)
+                , Core.acActiveDownloadStatus = Nothing
+                }
+              albumState = fromMaybe (if wanted then Core.Wanted else Core.NotWanted)
+                (overviewRow >>= Core.textToAlbumState . caorState)
+
+          publishAndLog bus le "catalog" $ CatalogAlbumUpdated
+            { updatedAlbumId = albumId
+            , updatedAlbumReleaseGroupMBID = DB.catalogAlbumReleaseGroupMBID album
+            , updatedAlbumTitle = DB.catalogAlbumTitle album
+            , updatedAlbumArtistMBID = DB.catalogAlbumArtistMBID album
+            , updatedAlbumArtistName = DB.catalogAlbumArtistName album
+            , updatedAlbumType = DB.catalogAlbumType album
+            , updatedAlbumFirstReleaseDate = DB.catalogAlbumFirstReleaseDate album
+            , updatedAlbumState = show albumState
+            , updatedAlbumCurrentQuality = DB.catalogAlbumCurrentQuality album
+            , updatedAlbumQualityProfileId = DB.catalogAlbumQualityProfileId album
+            , updatedAlbumQualityProfileName = fmap Qual.qfName maybeProfile
+            , updatedAlbumCoverUrl = DB.catalogAlbumCoverUrl album
+            , updatedAlbumCoverThumbnailUrl = DB.catalogAlbumCoverThumbnailUrl album
+            }
+
+          pure $ Right (album, wanted)
