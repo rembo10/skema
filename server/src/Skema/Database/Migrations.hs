@@ -721,6 +721,50 @@ runIncrementalMigrations le conn = do
         recordMigration conn "013_add_release_cache"
       $(logTM) InfoS "Completed migration: 013_add_release_cache"
 
+    -- Migration 014: Drop the never-used scan_history table and the
+    -- deprecated artist_mbid/priority columns from acquisition_rules.
+    applied014 <- liftIO $ migrationApplied conn "014_drop_scan_history_and_source_tombstones"
+    unless applied014 $ do
+      $(logTM) InfoS "Running migration: 014_drop_scan_history_and_source_tombstones"
+      -- Foreign keys are disabled around the table rebuild: with them on,
+      -- DROP TABLE performs an implicit DELETE that would fire
+      -- catalog_artists.added_by_rule_id's ON DELETE SET NULL and sever the
+      -- artist-to-source links. Pragmas cannot change inside a transaction,
+      -- so the toggle wraps it.
+      liftIO $ do
+        executeQuery_ conn "PRAGMA foreign_keys=OFF"
+        SQLite.withImmediateTransaction conn $ do
+          executeQuery_ conn "DROP TABLE IF EXISTS scan_history"
+
+          artistMbidExists <- columnExists conn "acquisition_rules" "artist_mbid"
+          when artistMbidExists $ do
+            executeQuery_ conn
+              "CREATE TABLE acquisition_rules_new ( \
+              \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
+              \  name TEXT NOT NULL, \
+              \  description TEXT, \
+              \  rule_type TEXT NOT NULL, \
+              \  enabled INTEGER NOT NULL DEFAULT 1, \
+              \  filters TEXT, \
+              \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
+              \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
+              \  quality_profile_id INTEGER REFERENCES quality_profiles(id) ON DELETE SET NULL, \
+              \  last_seen_url TEXT \
+              \)"
+            executeQuery_ conn
+              "INSERT INTO acquisition_rules_new \
+              \  (id, name, description, rule_type, enabled, filters, created_at, updated_at, quality_profile_id, last_seen_url) \
+              \SELECT id, name, description, rule_type, enabled, filters, created_at, updated_at, quality_profile_id, last_seen_url \
+              \FROM acquisition_rules"
+            executeQuery_ conn "DROP TABLE acquisition_rules"
+            executeQuery_ conn "ALTER TABLE acquisition_rules_new RENAME TO acquisition_rules"
+            executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_acquisition_rules_enabled ON acquisition_rules(enabled)"
+            executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_acquisition_rules_rule_type ON acquisition_rules(rule_type)"
+
+          recordMigration conn "014_drop_scan_history_and_source_tombstones"
+        executeQuery_ conn "PRAGMA foreign_keys=ON"
+      $(logTM) InfoS "Completed migration: 014_drop_scan_history_and_source_tombstones"
+
 -- | Normalize text for search by:
 -- 1. Decomposing accented characters (NFD normalization)
 -- 2. Removing diacritical marks
@@ -807,21 +851,6 @@ createSchema conn = do
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_library_track_metadata_album_artist ON library_track_metadata(album_artist)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_library_track_metadata_mb_release_id ON library_track_metadata(mb_release_id)"
 
-  -- Create scan_history table
-  executeQuery_ conn
-    "CREATE TABLE IF NOT EXISTS scan_history ( \
-    \  id INTEGER PRIMARY KEY AUTOINCREMENT, \
-    \  started_at TIMESTAMP NOT NULL, \
-    \  completed_at TIMESTAMP, \
-    \  files_added INTEGER NOT NULL DEFAULT 0, \
-    \  files_modified INTEGER NOT NULL DEFAULT 0, \
-    \  files_deleted INTEGER NOT NULL DEFAULT 0, \
-    \  library_available INTEGER NOT NULL DEFAULT 1, \
-    \  error TEXT \
-    \)"
-
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_scan_history_started_at ON scan_history(started_at DESC)"
-
   -- Create metadata_diffs table
   executeQuery_ conn
     "CREATE TABLE IF NOT EXISTS metadata_diffs ( \
@@ -882,9 +911,7 @@ createSchema conn = do
     \  name TEXT NOT NULL, \
     \  description TEXT, \
     \  rule_type TEXT NOT NULL, \
-    \  artist_mbid TEXT, \
     \  enabled INTEGER NOT NULL DEFAULT 1, \
-    \  priority INTEGER NOT NULL DEFAULT 0, \
     \  filters TEXT, \
     \  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, \
     \  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP \
@@ -892,7 +919,6 @@ createSchema conn = do
 
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_acquisition_rules_enabled ON acquisition_rules(enabled)"
   executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_acquisition_rules_rule_type ON acquisition_rules(rule_type)"
-  executeQuery_ conn "CREATE INDEX IF NOT EXISTS idx_acquisition_rules_artist_mbid ON acquisition_rules(artist_mbid)"
 
   -- Create catalog_artists table with all fields
   executeQuery_ conn
@@ -1043,13 +1069,12 @@ createDefaultAcquisitionSource conn = do
     Just (Only count) | count == 0 -> do
       let defaultFilters = "{\"release_status\":\"upcoming\"}" :: Text
       executeQuery conn
-        "INSERT INTO acquisition_rules (name, description, rule_type, enabled, priority, filters) \
-        \VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO acquisition_rules (name, description, rule_type, enabled, filters) \
+        \VALUES (?, ?, ?, ?, ?)"
         ( "Library Artists" :: Text
         , Just ("Track all upcoming albums from artists in your library" :: Text)
         , sourceTypeToText LibraryArtists
         , True
-        , 100 :: Int
         , Just defaultFilters
         )
     _ -> pure ()
@@ -1066,13 +1091,12 @@ createBestNewMusicSources conn = do
     Just (Only count) | count == 0 -> do
       let pitchforkFilters = "{\"genres\":[\"pop\",\"rock\",\"experimental\",\"electronic\",\"rap\",\"jazz\",\"metal\",\"folkcountry\"],\"min_score\":9.0}" :: Text
       executeQuery conn
-        "INSERT INTO acquisition_rules (name, description, rule_type, enabled, priority, filters) \
-        \VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO acquisition_rules (name, description, rule_type, enabled, filters) \
+        \VALUES (?, ?, ?, ?, ?)"
         ( "Best New Music (Pitchfork)" :: Text
         , Just ("Track highly acclaimed albums from Pitchfork (9.0+ score, all genres)" :: Text)
         , sourceTypeToText Pitchfork
         , False
-        , 50 :: Int
         , Just pitchforkFilters
         )
     _ -> pure ()
@@ -1086,13 +1110,12 @@ createBestNewMusicSources conn = do
     Just (Only count) | count == 0 -> do
       let metacriticFilters = "{\"genres\":[\"pop\",\"rock\",\"alternative\",\"rap\",\"country\",\"electronic\",\"r&b\",\"jazz\",\"folk\",\"metal\"],\"min_critic_score\":90}" :: Text
       executeQuery conn
-        "INSERT INTO acquisition_rules (name, description, rule_type, enabled, priority, filters) \
-        \VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO acquisition_rules (name, description, rule_type, enabled, filters) \
+        \VALUES (?, ?, ?, ?, ?)"
         ( "Best New Music (Metacritic)" :: Text
         , Just ("Track highly acclaimed albums from Metacritic (90+ score, all genres)" :: Text)
         , sourceTypeToText Metacritic
         , False
-        , 50 :: Int
         , Just metacriticFilters
         )
     _ -> pure ()

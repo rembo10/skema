@@ -3,7 +3,7 @@
 -- | Round-trip tests for the Tracks repository.
 --
 -- Covers track rows, their metadata, the MusicBrainz id columns (stored on
--- library_tracks), and scan history. 'upsertTrackWithMetadata' is excluded
+-- library_tracks). 'upsertTrackWithMetadata' is excluded
 -- here because it reads file size/mtime from the real filesystem; it is
 -- exercised by the scan/import integration tests instead.
 module Integration.TracksRepoSpec (tests) where
@@ -25,13 +25,10 @@ import Skema.Database.Repository
   , insertTrackMetadata
   , updateTrackMetadata
   , getMetadataForTrack
-  , insertScanHistory
-  , getRecentScans
   )
 import Skema.Database.Types
   ( LibraryTrackRecord(..)
   , LibraryTrackMetadataRecord(..)
-  , ScanHistoryRecord(..)
   )
 import Skema.FileSystem.Utils (stringToOsPath)
 import Database.SQLite.Simple (Connection)
@@ -44,7 +41,6 @@ tests = testGroup "Integration.TracksRepo"
   , testCase "getAllTracks is ordered by path" testTrackOrdering
   , testCase "metadata insert and update round-trip" testMetadata
   , testCase "deleteTrack removes the row" testDelete
-  , testCase "scan history insert and fetch round-trips" testScanHistory
   ]
 
 -- Builders ------------------------------------------------------------------
@@ -130,13 +126,3 @@ testDelete = withTestEnv $ \env -> withConnection (tePool env) $ \conn -> do
   gone <- getTrackByPath conn path
   fmap trackId gone @?= Nothing
 
-testScanHistory :: IO ()
-testScanHistory = withTestEnv $ \env -> withConnection (tePool env) $ \conn -> do
-  _ <- insertScanHistory conn modTime True
-  scans <- getRecentScans conn 10
-  case scans of
-    [] -> assertFailure "no scan history rows returned"
-    (s : _) -> do
-      scanStartedAt s @?= modTime
-      scanLibraryAvailable s @?= True
-      scanCompletedAt s @?= Nothing

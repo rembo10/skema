@@ -15,10 +15,6 @@ module Skema.Database.Repository.Tracks
   , updateTrackMetadata
   , getMetadataForTrack
   , upsertTrackWithMetadata
-    -- * Scan history
-  , insertScanHistory
-  , updateScanHistory
-  , getRecentScans
   ) where
 
 import Skema.Database.Connection
@@ -303,29 +299,3 @@ upsertTrackWithMetadata conn path meta = do
       metadataInsert
 
     pure tid
-
--- * Scan history
-
--- | Insert a new scan history record.
-insertScanHistory :: SQLite.Connection -> UTCTime -> Bool -> IO (Maybe Int64)
-insertScanHistory conn startTime libAvailable = do
-  executeQuery conn
-    "INSERT INTO scan_history (started_at, library_available) VALUES (?, ?)"
-    (startTime, libAvailable)
-  -- TODO: Return the inserted ID
-  pure Nothing
-
--- | Update scan history with results.
-updateScanHistory :: SQLite.Connection -> Int64 -> UTCTime -> Int -> Int -> Int -> Maybe Text -> IO ()
-updateScanHistory conn sid completedAt added modified deleted maybeError =
-  executeQuery conn
-    "UPDATE scan_history SET completed_at = ?, files_added = ?, files_modified = ?, files_deleted = ?, error = ? WHERE id = ?"
-    (completedAt, added, modified, deleted, maybeError, sid)
-
--- | Get recent scan history.
-getRecentScans :: SQLite.Connection -> Int -> IO [ScanHistoryRecord]
-getRecentScans conn limit =
-  queryRows conn
-    "SELECT id, started_at, completed_at, files_added, files_modified, files_deleted, library_available, error \
-    \FROM scan_history ORDER BY started_at DESC LIMIT ?"
-    (Only limit)

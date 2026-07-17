@@ -95,9 +95,6 @@ data FieldMeta = FieldMeta
   { fmName :: Text           -- ^ Field name (snake_case for TOML)
   , fmHelp :: Text           -- ^ Help text
   , fmType :: FieldType      -- ^ Field type for UI rendering
-  , fmEnvVar :: Maybe Text   -- ^ Environment variable name
-  , fmCliFlag :: Maybe Text  -- ^ CLI long flag
-  , fmCliShort :: Maybe Char -- ^ CLI short flag
   , fmExample :: Maybe Text  -- ^ Default value (shown in YAML)
   , fmSensitive :: Bool      -- ^ Hide in logs/output
   , fmRequired :: Bool       -- ^ Is this field required?
@@ -112,7 +109,6 @@ instance ToJSON FieldMeta where
     [ Just $ "name" .= fmName fm
     , Just $ "description" .= fmHelp fm
     , Just $ "type" .= fmType fm
-    , ("env_var" .=) <$> fmEnvVar fm
     , ("example" .=) <$> fmExample fm
     , if fmSensitive fm then Just $ "sensitive" .= True else Nothing
     , if fmRequired fm then Just $ "required" .= True else Nothing
@@ -130,9 +126,6 @@ name .:: helpText = FieldMeta
   { fmName = name
   , fmHelp = helpText
   , fmType = FTString
-  , fmEnvVar = Nothing
-  , fmCliFlag = Nothing
-  , fmCliShort = Nothing
   , fmExample = Nothing
   , fmSensitive = False
   , fmRequired = False
@@ -242,14 +235,9 @@ generateExampleYaml s = T.unlines $
     fieldToYaml :: FieldMeta -> [Text]
     fieldToYaml fm =
       [ "  # " <> fmHelp fm
-      ] ++ envComment fm ++
+      ] ++
       [ "  " <> fmName fm <> ": " <> valueExample fm
       ]
-
-    envComment :: FieldMeta -> [Text]
-    envComment fm = case fmEnvVar fm of
-      Nothing -> []
-      Just var -> ["  # Env: " <> var]
 
     valueExample :: FieldMeta -> Text
     valueExample fm = fromMaybe "null" (fmExample fm)

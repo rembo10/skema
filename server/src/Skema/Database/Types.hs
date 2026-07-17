@@ -9,20 +9,14 @@ module Skema.Database.Types
     -- * Database Models
   , LibraryTrackRecord (..)
   , LibraryTrackMetadataRecord (..)
-  , ScanHistoryRecord (..)
   , MetadataDiffRecord (..)
   , MetadataChangeRecord (..)
   , ClusterRecord (..)
     -- * Acquisition Models
   , AcquisitionSourceRecord (..)
-  , TrackedArtistRecord (..)
-  , WantedAlbumRecord (..)
   , SourceType (..)
-  , AlbumStatus (..)
   , sourceTypeToText
   , textToSourceType
-  , albumStatusToText
-  , textToAlbumStatus
   , matchSourceToText
   , textToMatchSource
   , MatchSource(..)
@@ -127,18 +121,6 @@ data LibraryTrackMetadataRecord = LibraryTrackMetadataRecord
   , metaUpdatedAt :: Maybe UTCTime
   } deriving (Show, Eq, Generic)
 
--- | Scan history record.
-data ScanHistoryRecord = ScanHistoryRecord
-  { scanId :: Maybe Int64
-  , scanStartedAt :: UTCTime
-  , scanCompletedAt :: Maybe UTCTime
-  , scanFilesAdded :: Int
-  , scanFilesModified :: Int
-  , scanFilesDeleted :: Int
-  , scanLibraryAvailable :: Bool
-  , scanError :: Maybe Text
-  } deriving (Show, Eq, Generic)
-
 -- | Metadata diff record.
 data MetadataDiffRecord = MetadataDiffRecord
   { diffId :: Maybe Int64
@@ -194,15 +176,6 @@ data SourceType
   | Pitchfork
   deriving (Show, Eq, Generic, Data)
 
--- | Album status for wanted albums.
-data AlbumStatus
-  = Wanted
-  | Upgrading
-  | Acquired
-  | Ignored
-  | Monitoring
-  deriving (Show, Eq, Generic, Data)
-
 -- | Acquisition source record (stored in acquisition_rules table for backward compatibility).
 data AcquisitionSourceRecord = AcquisitionSourceRecord
   { sourceId :: Maybe Int64
@@ -215,35 +188,6 @@ data AcquisitionSourceRecord = AcquisitionSourceRecord
   , sourceLastSeenUrl :: Maybe Text
   , sourceCreatedAt :: Maybe UTCTime
   , sourceUpdatedAt :: Maybe UTCTime
-  } deriving (Show, Eq, Generic)
-
--- | Tracked artist record.
-data TrackedArtistRecord = TrackedArtistRecord
-  { trackedArtistId :: Maybe Int64
-  , trackedArtistMBID :: Text
-  , trackedArtistName :: Text
-  , trackedArtistImageUrl :: Maybe Text
-  , trackedArtistThumbnailUrl :: Maybe Text
-  , trackedArtistAddedBySourceId :: Int64
-  , trackedArtistSourceClusterId :: Maybe Int64
-  , trackedArtistLastCheckedAt :: Maybe UTCTime
-  , trackedArtistCreatedAt :: Maybe UTCTime
-  , trackedArtistUpdatedAt :: Maybe UTCTime
-  } deriving (Show, Eq, Generic)
-
--- | Wanted album record.
-data WantedAlbumRecord = WantedAlbumRecord
-  { wantedAlbumId :: Maybe Int64
-  , wantedAlbumReleaseGroupMBID :: Text
-  , wantedAlbumTitle :: Text
-  , wantedAlbumArtistMBID :: Text
-  , wantedAlbumArtistName :: Text
-  , wantedAlbumStatus :: AlbumStatus
-  , wantedAlbumAddedBySourceId :: Int64
-  , wantedAlbumFirstReleaseDate :: Maybe Text
-  , wantedAlbumMatchedClusterId :: Maybe Int64
-  , wantedAlbumCreatedAt :: Maybe UTCTime
-  , wantedAlbumUpdatedAt :: Maybe UTCTime
   } deriving (Show, Eq, Generic)
 
 -- | Catalog artist record.
@@ -386,20 +330,6 @@ textToSourceType "specific_artist" = Just LibraryArtists
 textToSourceType "custom" = Just LibraryArtists
 textToSourceType _ = Nothing
 
--- | Convert AlbumStatus to Text for database storage.
--- Uses Generic derivation with simple lowercase conversion.
-albumStatusToText :: AlbumStatus -> Text
-albumStatusToText = toText . map toLower . showConstr . toConstr
-
--- | Parse AlbumStatus from Text (database representation).
-textToAlbumStatus :: Text -> Maybe AlbumStatus
-textToAlbumStatus "wanted" = Just Wanted
-textToAlbumStatus "upgrading" = Just Upgrading
-textToAlbumStatus "acquired" = Just Acquired
-textToAlbumStatus "ignored" = Just Ignored
-textToAlbumStatus "monitoring" = Just Monitoring
-textToAlbumStatus _ = Nothing
-
 -- | Convert DownloadStatus to Text for database storage.
 -- Uses Generic derivation, removes "Download" prefix and converts to snake_case.
 downloadStatusToText :: DownloadStatus -> Text
@@ -485,21 +415,6 @@ instance SQLite.FromRow LibraryTrackMetadataRecord where
     <*> SQLite.field  -- metaCreatedAt
     <*> SQLite.field  -- metaUpdatedAt
 
-instance SQLite.FromRow ScanHistoryRecord where
-  fromRow = ScanHistoryRecord
-    <$> SQLite.field
-    <*> SQLite.field
-    <*> SQLite.field
-    <*> SQLite.field
-    <*> SQLite.field
-    <*> SQLite.field
-    <*> (toBool <$> SQLite.field)
-    <*> SQLite.field
-    where
-      toBool :: Int -> Bool
-      toBool 0 = False
-      toBool _ = True
-
 instance SQLite.FromRow MetadataDiffRecord where
   fromRow = MetadataDiffRecord
     <$> SQLite.field <*> SQLite.field <*> SQLite.field
@@ -541,9 +456,7 @@ instance SQLite.FromRow AcquisitionSourceRecord where
     name <- SQLite.field
     desc <- SQLite.field
     sTypeText <- SQLite.field :: SQLite.RowParser Text
-    _ <- SQLite.field :: SQLite.RowParser (Maybe Text)  -- Discard deprecated artist_mbid field
     enabled <- toBool <$> SQLite.field
-    _ <- SQLite.field :: SQLite.RowParser Int  -- Discard deprecated priority field
     filters <- SQLite.field
     createdAt <- SQLite.field
     updatedAt <- SQLite.field
@@ -555,28 +468,6 @@ instance SQLite.FromRow AcquisitionSourceRecord where
       toBool :: Int -> Bool
       toBool 0 = False
       toBool _ = True
-
-instance SQLite.FromRow TrackedArtistRecord where
-  fromRow = TrackedArtistRecord
-    <$> SQLite.field <*> SQLite.field <*> SQLite.field <*> SQLite.field
-    <*> SQLite.field <*> SQLite.field <*> SQLite.field <*> SQLite.field
-    <*> SQLite.field <*> SQLite.field
-
-instance SQLite.FromRow WantedAlbumRecord where
-  fromRow = do
-    wId <- SQLite.field
-    rgMBID <- SQLite.field
-    title <- SQLite.field
-    artistMBID <- SQLite.field
-    artistName <- SQLite.field
-    statusText <- SQLite.field :: SQLite.RowParser Text
-    addedBySourceId <- SQLite.field
-    releaseDate <- SQLite.field
-    matchedClusterId <- SQLite.field
-    createdAt <- SQLite.field
-    updatedAt <- SQLite.field
-    let status = fromMaybe Wanted (textToAlbumStatus statusText)
-    pure $ WantedAlbumRecord wId rgMBID title artistMBID artistName status addedBySourceId releaseDate matchedClusterId createdAt updatedAt
 
 instance SQLite.FromRow CatalogArtistRecord where
   fromRow = CatalogArtistRecord

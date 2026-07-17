@@ -49,9 +49,6 @@ module Skema.Database.Repository
     -- * Stats operations
   , getLibraryStats
     -- * Scan history
-  , insertScanHistory
-  , updateScanHistory
-  , getRecentScans
     -- * Download operations
   , insertDownload
   , hasActiveDownloadForAlbum
@@ -121,9 +118,6 @@ import Skema.Database.Repository.Tracks
   , updateTrackMetadata
   , getMetadataForTrack
   , upsertTrackWithMetadata
-  , insertScanHistory
-  , updateScanHistory
-  , getRecentScans
   )
 
 -- Re-export cluster operations

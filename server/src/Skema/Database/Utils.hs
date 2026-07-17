@@ -7,8 +7,6 @@
 module Skema.Database.Utils
   ( sourceTypeToText
   , textToSourceType
-  , albumStatusToText
-  , textToAlbumStatus
   , downloadStatusToText
   , textToDownloadStatus
   , insertReturningId
@@ -20,8 +18,6 @@ module Skema.Database.Utils
 import Skema.Database.Types
   ( sourceTypeToText
   , textToSourceType
-  , albumStatusToText
-  , textToAlbumStatus
   , downloadStatusToText
   , textToDownloadStatus
   )

@@ -37,7 +37,7 @@ createAcquisitionRule conn name description sType enabled filters qpId =
 getAcquisitionRuleById :: SQLite.Connection -> Int64 -> IO (Maybe AcquisitionSourceRecord)
 getAcquisitionRuleById conn sid = do
   results <- queryRows conn
-    "SELECT id, name, description, rule_type, artist_mbid, enabled, priority, filters, created_at, updated_at, quality_profile_id, last_seen_url \
+    "SELECT id, name, description, rule_type, enabled, filters, created_at, updated_at, quality_profile_id, last_seen_url \
     \FROM acquisition_rules WHERE id = ?"
     (Only sid)
   pure $ viaNonEmpty head results
@@ -46,14 +46,14 @@ getAcquisitionRuleById conn sid = do
 getAllAcquisitionRules :: SQLite.Connection -> IO [AcquisitionSourceRecord]
 getAllAcquisitionRules conn =
   queryRows_ conn
-    "SELECT id, name, description, rule_type, artist_mbid, enabled, priority, filters, created_at, updated_at, quality_profile_id, last_seen_url \
+    "SELECT id, name, description, rule_type, enabled, filters, created_at, updated_at, quality_profile_id, last_seen_url \
     \FROM acquisition_rules ORDER BY created_at ASC"
 
 -- | Get only enabled acquisition sources.
 getEnabledAcquisitionRules :: SQLite.Connection -> IO [AcquisitionSourceRecord]
 getEnabledAcquisitionRules conn =
   queryRows conn
-    "SELECT id, name, description, rule_type, artist_mbid, enabled, priority, filters, created_at, updated_at, quality_profile_id, last_seen_url \
+    "SELECT id, name, description, rule_type, enabled, filters, created_at, updated_at, quality_profile_id, last_seen_url \
     \FROM acquisition_rules WHERE enabled = ? ORDER BY created_at ASC"
     (Only True)
 
@@ -74,7 +74,7 @@ deleteAcquisitionRule conn sid =
 getDefaultLibraryArtistsRule :: SQLite.Connection -> IO (Maybe AcquisitionSourceRecord)
 getDefaultLibraryArtistsRule conn = do
   results <- queryRows conn
-    "SELECT id, name, description, rule_type, artist_mbid, enabled, priority, filters, created_at, updated_at, quality_profile_id, last_seen_url \
+    "SELECT id, name, description, rule_type, enabled, filters, created_at, updated_at, quality_profile_id, last_seen_url \
     \FROM acquisition_rules WHERE rule_type = ? ORDER BY created_at ASC LIMIT 1"
     (Only (Utils.sourceTypeToText LibraryArtists))
   pure $ viaNonEmpty head results
