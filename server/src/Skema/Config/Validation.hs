@@ -5,7 +5,7 @@
 -- Note: Environment variable overrides are applied in Loader.hs.
 -- These helpers just read from the already-merged config.
 --
--- Validation logic lives in "Skema.Domain.ConfigJSON".
+-- Validation logic lives in "Skema.Config.JSON".
 module Skema.Config.Validation
   ( getAuthCredentials
   , getServerPort

@@ -25,8 +25,7 @@ import Monatone.Common (parseMetadata)
 import qualified Monatone.Metadata as M
 import Skema.FileSystem.Scanner (scanDirectory)
 import Skema.Domain.Library (LibrarySnapshot(..))
-import Skema.Domain.Matching (groupFilesByRelease)
-import Skema.MusicBrainz.Types (FileGroup(..))
+import Skema.Domain.Matching (FileGroup(..), groupFilesByRelease)
 import System.OsPath (OsPath)
 import qualified Data.Map.Strict as Map
 

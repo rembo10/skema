@@ -11,7 +11,8 @@ import Test.Tasty.HUnit
 
 import Skema.Domain.Identification
 import Skema.Database.Types (ClusterRecord(..), LibraryTrackMetadataRecord(..))
-import Skema.MusicBrainz.Types (FileGroup(..), MBID(..))
+import Skema.Domain.Matching (FileGroup(..))
+import Skema.MusicBrainz.Types (MBID(..))
 import System.OsPath (OsPath, encodeUtf, takeDirectory)
 import Helpers.Builders (mkTestMetadataRecord)
 

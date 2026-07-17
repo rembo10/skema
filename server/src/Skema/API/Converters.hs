@@ -1,12 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Pure conversion functions between domain types and API types.
+-- | Pure conversions from database records to API response types.
 --
 -- This module contains all pure data transformations with no side effects.
 -- All functions are fully testable without mocking.
---
--- Note: Config conversions are now handled by ConfigJSON module using JSON merge.
-module Skema.Domain.Converters
+module Skema.API.Converters
   ( -- * Cluster conversions
     clusterToResponse
     -- * MusicBrainz search conversions
@@ -14,8 +12,6 @@ module Skema.Domain.Converters
   , mbReleaseGroupSearchToCatalogResponse
     -- * Download conversions
   , downloadRecordToResponse
-    -- * Timestamp rendering
-  , timestampToText
   ) where
 
 import Skema.API.Types.Clusters (ClusterResponse(..))
@@ -27,14 +23,7 @@ import Skema.MusicBrainz.Types
 import Data.Aeson (eitherDecode)
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BSL
-import Data.Time (UTCTime, defaultTimeLocale, formatTime)
-
--- * Timestamp rendering
-
--- | Render a timestamp as ISO-8601 UTC for API responses.
--- JavaScript's Date parses this reliably, unlike Haskell's Show format.
-timestampToText :: UTCTime -> Text
-timestampToText = toText . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"
+import Skema.API.Types.Common (timestampToText)
 
 -- * Cluster Conversions
 

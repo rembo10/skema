@@ -5,7 +5,8 @@
 
 -- | Common API types shared across endpoints.
 module Skema.API.Types.Common
-  ( ErrorResponse(..)
+  ( timestampToText
+  , ErrorResponse(..)
   , mkErrorResponse
   , SourceIO
   , RawHtml
@@ -17,6 +18,7 @@ import Data.OpenApi (ToSchema(..), NamedSchema(..), genericDeclareNamedSchema, S
 import GHC.Generics ()
 import Network.HTTP.Media ((//))
 import Servant (Accept(..), MimeRender(..))
+import Data.Time (UTCTime, defaultTimeLocale, formatTime)
 import Servant.Types.SourceT (SourceT)
 
 -- | HTML content type for serving raw HTML.
@@ -65,3 +67,8 @@ mkErrorResponse msg = ErrorResponse
   , errorCode = Nothing
   , errorDetails = Nothing
   }
+
+-- | Render a timestamp as ISO-8601 UTC for API responses.
+-- JavaScript's Date parses this reliably, unlike Haskell's Show format.
+timestampToText :: UTCTime -> Text
+timestampToText = toText . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ"

@@ -20,7 +20,7 @@ import Control.Concurrent.Async (async)
 import Control.Exception (try)
 import Servant
 import Skema.API.App (Env(..), AppM)
-import Skema.Domain.Converters (timestampToText)
+import Skema.API.Types.Common (timestampToText)
 
 -- | Acquisition API handlers.
 acquisitionServer :: Env -> ServerT AcquisitionAPI AppM

@@ -62,6 +62,7 @@ library
     Skema.Config.Safe
     Skema.Config.Schema
     Skema.Config.EnvOverrides
+    Skema.Config.JSON
     Skema.Database.Types
     Skema.Database.Utils
     Skema.Database.Connection
@@ -97,6 +98,7 @@ library
     Skema.API.Types.Tasks
     Skema.API.Types.Version
     Skema.API.OpenApi
+    Skema.API.Converters
     Skema.API.App
     Skema.API.Server
     Skema.API.Handlers.Auth
@@ -128,8 +130,6 @@ library
     Skema.MusicBrainz.ArtistImage
     Skema.Domain.Identification
     Skema.Domain.Import
-    Skema.Domain.Converters
-    Skema.Domain.ConfigJSON
     Skema.Domain.Metadata
     Skema.Domain.Quality
     Skema.Media.Types

@@ -16,7 +16,7 @@ import Skema.Auth.JWT (generateApiKey)
 import Skema.Config.Discovery (saveConfigToFile)
 import Skema.Config.Schema (schemaToJSON, allSchemas)
 import qualified Skema.Config.Types as Cfg
-import Skema.Domain.ConfigJSON (configToAPIJSON, applyConfigJSONUpdate)
+import Skema.Config.JSON (configToAPIJSON, applyConfigJSONUpdate)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
 import Servant

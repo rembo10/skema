@@ -22,7 +22,8 @@ import qualified Skema.Config.Types as Cfg
 import Skema.Services.Download.Cancel (cancelDownload)
 import Skema.MusicBrainz.Client (searchArtists, searchReleaseGroups, getRelease, getReleaseGroup, getReleaseGroupReleases, pickRepresentativeRelease, prettyClientError)
 import Skema.MusicBrainz.Types (MBRelease(..), MBReleaseGroup(..), MBMedium(..), MBTrack(..), mbasArtists, mbasArtistId, mbrgsReleaseGroups, mbrgsReleaseGroupId, MBID(..), unMBID)
-import Skema.Domain.Converters (mbArtistSearchToCatalogResponse, mbReleaseGroupSearchToCatalogResponse, timestampToText)
+import Skema.API.Converters (mbArtistSearchToCatalogResponse, mbReleaseGroupSearchToCatalogResponse)
+import Skema.API.Types.Common (timestampToText)
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
 import Skema.Indexer.Client (searchIndexer)

@@ -19,6 +19,7 @@ module Skema.MusicBrainz.Identify
   ) where
 
 import Skema.MusicBrainz.Types
+import Skema.Domain.Matching (FileGroup(..), ReleaseMatch(..), IdentificationResult(..))
 import Skema.MusicBrainz.Client
 import Skema.MusicBrainz.Utils
 import Skema.Domain.Identification

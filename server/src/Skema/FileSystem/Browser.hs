@@ -12,7 +12,7 @@ module Skema.FileSystem.Browser
   ) where
 
 import Skema.API.Types.Filesystem (FilesystemBrowseResponse(..), FilesystemEntry(..))
-import Skema.Domain.Converters (timestampToText)
+import Skema.API.Types.Common (timestampToText)
 import System.FilePath ((</>), takeDirectory)
 import System.Directory
   ( listDirectory

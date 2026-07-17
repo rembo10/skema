@@ -11,7 +11,7 @@
 -- - ConfigUpdate (35 manually Maybe-wrapped fields)
 -- - configToResponse (35 manual field mappings)
 -- - HKD.hs (275 lines duplicating config types)
-module Skema.Domain.ConfigJSON
+module Skema.Config.JSON
   ( -- * API JSON conversion
     configToAPIJSON
     -- * JSON merge updates

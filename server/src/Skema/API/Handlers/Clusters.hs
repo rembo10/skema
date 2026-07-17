@@ -15,12 +15,13 @@ import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
 import qualified Skema.Config.Types as Cfg
-import Skema.Domain.Converters (clusterToResponse)
+import Skema.API.Converters (clusterToResponse)
 import Skema.FileSystem.Utils (osPathToString)
 import Skema.MusicBrainz.Client (getRelease, searchReleases, searchRecordings)
 import Skema.MusicBrainz.Identify (identifyFileGroup)
 import Skema.Services.Identifier (clusterToFileGroup)
 import Skema.MusicBrainz.Types
+import Skema.Domain.Matching (ReleaseMatch(..), TrackMatch(..), IdentificationResult(..))
 import Skema.Domain.Identification (mkIdentifyConfig)
 import Skema.Events.Bus (publishAndLog)
 import Skema.Events.Types (Event(..))

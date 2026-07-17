@@ -22,7 +22,7 @@ import System.Environment (setEnv, unsetEnv)
 import Skema.Config.Types
 import Skema.Config.EnvOverrides (applyEnvOverrides, fieldToEnvVar, fieldToEnvVars)
 import Skema.Config.Schema (schemaToJSON, allSchemas)
-import Skema.Domain.ConfigJSON (configToAPIJSON, applyConfigJSONUpdate, validateConfig)
+import Skema.Config.JSON (configToAPIJSON, applyConfigJSONUpdate, validateConfig)
 
 tests :: TestTree
 tests = testGroup "Unit.Config"

@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Pure matching logic using the Hungarian algorithm.
@@ -5,8 +6,13 @@
 -- This module implements optimal matching between local files and MusicBrainz
 -- releases/tracks using cost matrices and the Munkres (Hungarian) algorithm.
 module Skema.Domain.Matching
-  ( -- * Release Matching
-    matchReleases
+  ( -- * Matching vocabulary
+    FileGroup (..)
+  , TrackMatch (..)
+  , ReleaseMatch (..)
+  , IdentificationResult (..)
+    -- * Release Matching
+  , matchReleases
   , releaseCost
     -- * Track Matching
   , matchTracksToRelease
@@ -311,3 +317,42 @@ normalizeText =
   . T.replace "\x2019" "'"  -- RIGHT SINGLE QUOTATION MARK
   . T.replace "\x201C" "\""  -- LEFT DOUBLE QUOTATION MARK
   . T.replace "\x201D" "\""  -- RIGHT DOUBLE QUOTATION MARK
+
+-- | A group of files that likely belong to the same release.
+data FileGroup = FileGroup
+  { fgDirectory :: OsPath
+  , fgAlbum :: Maybe Text
+  , fgArtist :: Maybe Text
+  , fgReleaseId :: Maybe ReleaseMBID  -- From existing tags
+  , fgReleaseGroupId :: Maybe ReleaseGroupMBID  -- From existing tags
+  , fgLabel :: Maybe Text
+  , fgCatalogNumber :: Maybe Text
+  , fgBarcode :: Maybe Text
+  , fgCountry :: Maybe Text
+  , fgDate :: Maybe Text
+  , fgFiles :: [(OsPath, Metadata)]  -- File path and parsed metadata
+  } deriving (Show, Eq, Generic)
+
+-- | Result of matching a track to a MusicBrainz track.
+data TrackMatch = TrackMatch
+  { tmFilePath :: OsPath
+  , tmTrack :: MBTrack
+  , tmCost :: Double  -- Lower is better
+  , tmConfidence :: Double  -- 0.0 to 1.0
+  } deriving (Show, Eq, Generic)
+
+-- | Result of matching a file group to a MusicBrainz release.
+data ReleaseMatch = ReleaseMatch
+  { rmFileGroup :: FileGroup
+  , rmRelease :: MBRelease
+  , rmTrackMatches :: [TrackMatch]
+  , rmTotalCost :: Double  -- Lower is better
+  , rmConfidence :: Double  -- 0.0 to 1.0, based on how many tracks matched well
+  , rmCandidates :: [MBRelease]  -- All candidate releases found (for user selection)
+  } deriving (Show, Eq, Generic)
+
+-- | Result of identification: either a match above threshold, or just candidates
+data IdentificationResult = IdentificationResult
+  { irMatch :: Maybe ReleaseMatch  -- Best match if above confidence threshold
+  , irCandidates :: [(MBRelease, Double)]  -- All candidates with their confidence scores
+  } deriving (Show, Eq, Generic)

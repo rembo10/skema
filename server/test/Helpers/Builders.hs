@@ -19,6 +19,7 @@ module Helpers.Builders
 
 import Skema.Database.Types
 import Skema.MusicBrainz.Types
+import Skema.Domain.Matching (FileGroup(..), ReleaseMatch(..), TrackMatch(..))
 import Skema.Database.Repository (upsertCatalogArtist, upsertCatalogAlbum)
 import qualified Database.SQLite.Simple as SQLite
 

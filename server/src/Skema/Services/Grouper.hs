@@ -20,8 +20,7 @@ import Skema.Database.Repository (getAllClusters, getAllTracks, getMetadataForTr
 import Skema.Database.Types (ClusterRecord(..), LibraryTrackRecord(..))
 import Skema.Domain.Identification (mkIdentifyConfig, partitionClusters)
 import Skema.Config.Types (Config(..))
-import Skema.Domain.Matching (groupFilesByRelease)
-import Skema.MusicBrainz.Types (FileGroup(..))
+import Skema.Domain.Matching (FileGroup(..), groupFilesByRelease)
 import Control.Concurrent.Async (Async)
 import Skema.Clock (getNow)
 import Katip

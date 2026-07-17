@@ -21,7 +21,8 @@ import Skema.Database.Connection
 import Skema.Database.Types
 import Skema.Database.Utils (insertReturningIdMaybe)
 import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
-import Skema.MusicBrainz.Types (ReleaseMatch(..), TrackMatch(..), MBRelease(..), MBTrack(..), MBID(..), unMBID, FileGroup(..))
+import Skema.Domain.Matching (ReleaseMatch(..), TrackMatch(..), FileGroup(..))
+import Skema.MusicBrainz.Types (MBRelease(..), MBTrack(..), MBID(..), unMBID)
 import Monatone.Metadata (Metadata(..))
 import qualified Monatone.Metadata as M
 import qualified Monatone.Writer as MW

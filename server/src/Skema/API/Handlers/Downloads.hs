@@ -11,7 +11,7 @@ import Skema.API.Types.Tasks (TaskRequest(..), TaskResponse(..), TaskResource(..
 import qualified Skema.Services.TaskManager as TM
 import Skema.API.Handlers.Utils (throw400, throw404, readConfig, parsePagination)
 import Skema.Database.Connection
-import Skema.Domain.Converters (downloadRecordToResponse)
+import Skema.API.Converters (downloadRecordToResponse)
 import qualified Skema.Database.Types as DBTypes
 import qualified Skema.Database.Repository.Downloads as DownloadsRepo
 import qualified Skema.Config.Types as Cfg

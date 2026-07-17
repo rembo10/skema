@@ -16,6 +16,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Skema.Domain.Matching
 import Skema.MusicBrainz.Types
+import Skema.Domain.Matching
 import qualified Monatone.Metadata as M
 import System.OsPath (OsPath, encodeUtf)
 import qualified Data.HashMap.Strict as HM

@@ -16,7 +16,7 @@ import qualified Skema.Events.Types as Events
 import qualified Data.Map.Strict as Map
 import Servant
 import Skema.API.App (Env(..), AppM)
-import Skema.Domain.Converters (timestampToText)
+import Skema.API.Types.Common (timestampToText)
 
 -- | Diffs API handlers (includes both diffs and metadata-changes endpoints).
 diffsServer :: Env -> ServerT DiffsAPI AppM
