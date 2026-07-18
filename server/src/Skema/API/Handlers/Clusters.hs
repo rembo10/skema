@@ -26,7 +26,6 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BSL
 import Data.Aeson (eitherDecode)
 import Skema.Clock (getNow)
-import Database.SQLite.Simple (Only(..))
 import Servant
 import Skema.API.App (Env(..), AppM, toServiceContext)
 import Katip
@@ -299,15 +298,8 @@ clustersServer env@Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, e
       let recordingId = updateRecordingId req
       let recordingTitle = updateRecordingTitle req
       trackCount <- liftIO $ withConnection connPool $ \conn -> do
-        -- Update the track's recording mapping
-        executeQuery conn
-          "UPDATE library_tracks SET mb_recording_id = ?, mb_recording_title = ? WHERE id = ?"
-          (Just recordingId, recordingTitle, trackId)
-        -- Get track count for the cluster
-        results <- queryRows conn "SELECT COUNT(*) FROM library_tracks WHERE cluster_id = ?" (Only clusterId)
-        pure $ case results of
-          ((Only count :: Only Int) : _) -> count
-          [] -> 0
+        DB.setTrackRecording conn trackId recordingId recordingTitle
+        DB.countClusterTracks conn clusterId
 
       -- Emit TracksRematched event
       liftIO $ publishAndLog bus le "api.clusters" $ TracksRematched
@@ -401,25 +393,17 @@ clustersServer env@Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, e
 
               -- Move all tracks and update counts
               liftIO $ withConnection connPool $ \conn -> do
-                DB.updateTrackCluster conn targetClusterId trackIds
-                now <- getNow (clock)
-                executeQuery conn
-                  "UPDATE clusters SET track_count = track_count + ?, updated_at = ? WHERE id = ?"
-                  (length trackIds, now, targetClusterId)
+                now <- getNow clock
+                DB.moveTracksToCluster conn targetClusterId trackIds now
 
             -- Unassign tracks from cluster
             Nothing ->
               liftIO $ withConnection connPool $ \conn ->
-                forM_ trackIds $ \tid ->
-                  executeQuery conn
-                    "UPDATE library_tracks SET cluster_id = NULL WHERE id = ?"
-                    (Only tid)
+                DB.unassignTracksFromCluster conn trackIds
 
           -- Delete the cluster
           liftIO $ withConnection connPool $ \conn ->
-            executeQuery conn
-              "DELETE FROM clusters WHERE id = ?"
-              (Only clusterId)
+            DB.deleteCluster conn clusterId
 
           pure NoContent
 

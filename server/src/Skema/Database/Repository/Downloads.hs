@@ -11,9 +11,11 @@ module Skema.Database.Repository.Downloads
   , downloadSelectColumns
   , getDownloadById
   , getAllDownloads
+    , resetDownloadToQueued
+  , clearDownloadError
   ) where
 
-import Skema.Database.Connection (queryRows, queryRows_)
+import Skema.Database.Connection (queryRows, queryRows_, executeQuery)
 import Skema.Database.Types (DownloadRecord)
 import Skema.Database.Utils (insertReturningId)
 import Data.Time (UTCTime)
@@ -155,3 +157,17 @@ getAllDownloads :: SQLite.Connection -> IO [DownloadRecord]
 getAllDownloads conn =
   queryRows_ conn
     ("SELECT " <> downloadSelectColumns <> " FROM downloads ORDER BY queued_at DESC")
+
+-- | Reset a failed download to queued so the monitor picks it up again.
+resetDownloadToQueued :: SQLite.Connection -> Int64 -> IO ()
+resetDownloadToQueued conn downloadId =
+  executeQuery conn
+    "UPDATE downloads SET status = ?, error_message = NULL, progress = 0 WHERE id = ?"
+    ("queued" :: Text, downloadId)
+
+-- | Clear a download's error message (before retrying its import).
+clearDownloadError :: SQLite.Connection -> Int64 -> IO ()
+clearDownloadError conn downloadId =
+  executeQuery conn
+    "UPDATE downloads SET error_message = NULL WHERE id = ?"
+    (Only downloadId)

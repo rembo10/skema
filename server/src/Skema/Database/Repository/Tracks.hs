@@ -15,6 +15,13 @@ module Skema.Database.Repository.Tracks
   , updateTrackMetadata
   , getMetadataForTrack
   , upsertTrackWithMetadata
+  , setTrackClusterAssignment
+  , setTrackRecording
+  , setTrackRecordingByPath
+    -- * Track listing (library page)
+  , TracksQuery(..)
+  , searchLibraryTracksPage
+  , getLibraryTrackStats
   ) where
 
 import Skema.Database.Connection
@@ -29,6 +36,8 @@ import System.OsPath (OsPath)
 import System.Directory.OsPath (getFileSize, getModificationTime)
 import Data.Time (UTCTime, getCurrentTime)
 import Database.SQLite.Simple (Only(..))
+import Database.SQLite.Simple.ToField (toField)
+import qualified Data.Text as T
 import qualified Database.SQLite.Simple.ToRow as SQLite
 import qualified Database.SQLite.Simple.ToField as SQLite
 import qualified Database.SQLite.Simple as SQLite
@@ -299,3 +308,124 @@ upsertTrackWithMetadata conn path meta = do
       metadataInsert
 
     pure tid
+
+-- | Assign a track to a cluster, or unassign it (Nothing).
+setTrackClusterAssignment :: SQLite.Connection -> Int64 -> Maybe Int64 -> IO ()
+setTrackClusterAssignment conn tid maybeClusterId =
+  executeQuery conn
+    "UPDATE library_tracks SET cluster_id = ? WHERE id = ?"
+    (maybeClusterId, tid)
+
+-- | Set a track's matched MusicBrainz recording by track id.
+setTrackRecording :: SQLite.Connection -> Int64 -> Text -> Maybe Text -> IO ()
+setTrackRecording conn tid recordingId recordingTitle =
+  executeQuery conn
+    "UPDATE library_tracks SET mb_recording_id = ?, mb_recording_title = ? WHERE id = ?"
+    (Just recordingId, recordingTitle, tid)
+
+-- | Set a track's matched MusicBrainz recording by file path.
+setTrackRecordingByPath :: SQLite.Connection -> Text -> Text -> Maybe Text -> IO ()
+setTrackRecordingByPath conn path recordingId recordingTitle =
+  executeQuery conn
+    "UPDATE library_tracks SET mb_recording_id = ?, mb_recording_title = ? WHERE path = ?"
+    (Just recordingId, recordingTitle, path)
+
+-- * Track listing (library page)
+
+-- | Parameters for the library track listing.
+data TracksQuery = TracksQuery
+  { tqOffset :: Int
+  , tqLimit :: Int
+  , tqFilter :: Text     -- ^ "all", "matched", "unmatched", or "locked"
+  , tqSort :: Text       -- ^ "album", "artist", "track_title", "confidence", "status"
+  , tqOrder :: Text      -- ^ "asc" or "desc"
+  , tqSearch :: Maybe Text
+  }
+
+-- | The track listing's WHERE clause and bound parameters.
+tracksPageFilters :: TracksQuery -> (Text, [SQLite.SQLData])
+tracksPageFilters query =
+  let filterClause = case tqFilter query of
+        "matched" -> "c.mb_release_id IS NOT NULL" :: Text
+        "unmatched" -> "c.mb_release_id IS NULL"
+        "locked" -> "c.match_locked = 1"
+        _ -> ""
+      (searchClause, searchParams) = case tqSearch query of
+        Nothing -> ("" :: Text, [])
+        Just q ->
+          let pattern = "%" <> q <> "%" :: Text
+          in ( "(m.title LIKE ? OR " <>
+               "m.artist LIKE ? OR " <>
+               "c.album LIKE ? OR " <>
+               "c.album_artist LIKE ? OR " <>
+               "t.mb_recording_title LIKE ? OR " <>
+               "t.path LIKE ?)"
+             , replicate 6 (toField pattern)
+             )
+      clauses = filter (/= "") [filterClause, searchClause]
+      whereClause = if null clauses then "" else "WHERE " <> T.intercalate " AND " clauses
+  in (whereClause, searchParams)
+
+-- | The shared FROM/JOIN clause for the track listing.
+tracksPageFrom :: Text
+tracksPageFrom =
+  "FROM library_tracks t \
+  \LEFT JOIN library_track_metadata m ON t.id = m.track_id \
+  \LEFT JOIN clusters c ON t.cluster_id = c.id "
+
+-- | Fetch a page of library tracks with metadata and cluster info, plus the
+-- total matching count. The column list is fixed; the caller's FromRow
+-- instance must consume: t.id, t.path, m.title, m.artist, m.track_number,
+-- m.disc_number, m.duration_seconds, t.mb_recording_id,
+-- t.mb_recording_title, t.cluster_id, c.album, c.album_artist, m.year,
+-- c.mb_release_id, release title and artist from the cached release JSON,
+-- c.mb_confidence, c.match_source, c.match_locked.
+searchLibraryTracksPage :: SQLite.FromRow r => SQLite.Connection -> TracksQuery -> IO (Int, [r])
+searchLibraryTracksPage conn query = do
+  let (whereClause, params) = tracksPageFilters query
+      orderByColumn = case tqSort query of
+        "album" -> "c.album" :: Text
+        "artist" -> "m.artist"
+        "track_title" -> "m.title"
+        "confidence" -> "c.mb_confidence"
+        "status" -> "CASE WHEN c.mb_release_id IS NOT NULL THEN 1 ELSE 0 END"
+        _ -> "c.album"
+      direction = if tqOrder query == "desc" then "DESC" else "ASC" :: Text
+      orderBy = orderByColumn <> " " <> direction <> ", m.disc_number, m.track_number"
+
+  countRows <- queryRows conn
+    ("SELECT COUNT(*) " <> tracksPageFrom <> whereClause)
+    params
+  let total = maybe 0 (\(Only n) -> n) (viaNonEmpty head countRows)
+
+  rows <- queryRows conn
+    ("SELECT \
+    \  t.id, t.path, m.title, m.artist, m.track_number, m.disc_number, m.duration_seconds, \
+    \  t.mb_recording_id, t.mb_recording_title, \
+    \  t.cluster_id, c.album, c.album_artist, m.year, \
+    \  c.mb_release_id, \
+    \  json_extract(c.mb_release_data, '$.title'), \
+    \  json_extract(c.mb_release_data, '$.artist-credit[0].name'), \
+    \  c.mb_confidence, c.match_source, COALESCE(c.match_locked, 0) " <>
+    tracksPageFrom <> whereClause <>
+    " ORDER BY " <> orderBy <>
+    " LIMIT ? OFFSET ?")
+    (params <> [toField (tqLimit query), toField (tqOffset query)])
+  pure (total, rows)
+
+-- | Total, matched, and locked track counts for the library page.
+getLibraryTrackStats :: SQLite.Connection -> IO (Int, Int, Int)
+getLibraryTrackStats conn = do
+  let count sql = do
+        rows <- queryRows_ conn sql
+        pure $ maybe 0 (\(Only n) -> n) (viaNonEmpty head rows)
+  total <- count "SELECT COUNT(*) FROM library_tracks"
+  matched <- count
+    "SELECT COUNT(*) FROM library_tracks t \
+    \LEFT JOIN clusters c ON t.cluster_id = c.id \
+    \WHERE c.mb_release_id IS NOT NULL"
+  locked <- count
+    "SELECT COUNT(*) FROM library_tracks t \
+    \LEFT JOIN clusters c ON t.cluster_id = c.id \
+    \WHERE c.match_locked = 1"
+  pure (total, matched, locked)

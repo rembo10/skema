@@ -16,7 +16,7 @@ import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getAllClusters, getClusterById, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster, clearClusterRelease)
+import Skema.Database.Repository (getAllClusters, getClusterById, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster, clearClusterRelease, setTrackRecordingByPath)
 import Skema.Database.Types (ClusterRecord(..))
 import Skema.MusicBrainz.Identify (identifyFileGroup)
 import Skema.Domain.Identification (mkIdentifyConfig, clusterNeedsIdentification, buildFileGroup)
@@ -306,9 +306,8 @@ identifyClusterNow ServiceContext{..} cid report = do
                 forM_ (rmTrackMatches match) $ \tm -> do
                   let recording = tmTrack tm
                   pathStr <- osPathToString (tmFilePath tm)
-                  executeQuery conn
-                    "UPDATE library_tracks SET mb_recording_id = ?, mb_recording_title = ? WHERE path = ?"
-                    (Just (unMBID (mbTrackRecordingId recording)), Just (mbTrackTitle recording), toText pathStr)
+                  setTrackRecordingByPath conn (toText pathStr)
+                    (unMBID (mbTrackRecordingId recording)) (Just (mbTrackTitle recording))
 
               -- Emit TracksRematched event (for diff regeneration)
               let trackCount = length (rmTrackMatches match)

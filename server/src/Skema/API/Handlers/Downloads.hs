@@ -25,7 +25,6 @@ import Data.Aeson (toJSON, object, (.=))
 import Skema.Clock (getNow)
 import Servant
 import Skema.API.App (Env(..), AppM)
-import Database.SQLite.Simple (Only(..))
 import qualified Data.Map.Strict as Map
 import qualified Control.Concurrent.STM as STM
 import qualified Data.Text as T
@@ -78,9 +77,7 @@ downloadsServer Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envD
                   DBTypes.DownloadFailed | not hasPath -> do
                     -- Reset download to queued state
                     withConnection connPool $ \conn ->
-                      executeQuery conn
-                        "UPDATE downloads SET status = ?, error_message = NULL, progress = 0 WHERE id = ?"
-                        ("queued" :: Text, downloadId)
+                      DownloadsRepo.resetDownloadToQueued conn downloadId
                     TM.completeTask tm taskId (Just $ toJSON $ object
                       [ "message" .= ("Download reset to queued - will be picked up by download monitor" :: Text)
                       , "download_id" .= downloadId
@@ -90,9 +87,7 @@ downloadsServer Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envD
                   DBTypes.DownloadFailed | hasPath -> do
                     -- Clear error and re-emit DownloadCompleted event
                     withConnection connPool $ \conn ->
-                      executeQuery conn
-                        "UPDATE downloads SET error_message = NULL WHERE id = ?"
-                        (Only downloadId)
+                      DownloadsRepo.clearDownloadError conn downloadId
                     EventBus.publishAndLog bus le "api.downloads.task" $ Events.DownloadCompleted
                       { Events.downloadId = downloadId
                       , Events.downloadTitle = DBTypes.downloadTitle download
@@ -106,9 +101,7 @@ downloadsServer Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envD
                   -- For identification failures, use reidentify instead
                   DBTypes.DownloadIdentificationFailure -> do
                     withConnection connPool $ \conn ->
-                      executeQuery conn
-                        "UPDATE downloads SET error_message = NULL WHERE id = ?"
-                        (Only downloadId)
+                      DownloadsRepo.clearDownloadError conn downloadId
                     EventBus.publishAndLog bus le "api.downloads.task" $ Events.DownloadCompleted
                       { Events.downloadId = downloadId
                       , Events.downloadTitle = DBTypes.downloadTitle download

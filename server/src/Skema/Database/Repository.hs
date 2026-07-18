@@ -6,6 +6,12 @@
 module Skema.Database.Repository
   ( -- * Library track operations
     insertTrack
+  , TracksQuery(..)
+  , searchLibraryTracksPage
+  , getLibraryTrackStats
+  , setTrackClusterAssignment
+  , setTrackRecording
+  , setTrackRecordingByPath
   , deleteTrack
   , getTrackByPath
   , getAllTracks
@@ -43,6 +49,12 @@ module Skema.Database.Repository
   , getClusterById
   , getAllClusters
   , getClusterWithTracks
+  , countClusterTracks
+  , moveTracksToCluster
+  , unassignTracksFromCluster
+  , deleteCluster
+  , findClusterIdByReleaseGroup
+  , getMatchedReleaseIdForAlbum
   , computeClusterQuality
   , updateClusterQuality
   , albumHasLinkedCluster
@@ -55,6 +67,8 @@ module Skema.Database.Repository
   , getFailedDownloadUrlsForAlbum
   , getFailedDownloadCountForAlbum
   , getDownloadById
+  , resetDownloadToQueued
+  , clearDownloadError
     -- * Cached release operations
   , upsertCachedRelease
   , getCachedReleasesForAlbum
@@ -110,6 +124,12 @@ module Skema.Database.Repository
 -- Re-export track operations
 import Skema.Database.Repository.Tracks
   ( insertTrack
+  , TracksQuery(..)
+  , searchLibraryTracksPage
+  , getLibraryTrackStats
+  , setTrackClusterAssignment
+  , setTrackRecording
+  , setTrackRecordingByPath
   , deleteTrack
   , getTrackByPath
   , getAllTracks
@@ -136,6 +156,12 @@ import Skema.Database.Repository.Clusters
   , getClusterById
   , getAllClusters
   , getClusterWithTracks
+  , countClusterTracks
+  , moveTracksToCluster
+  , unassignTracksFromCluster
+  , deleteCluster
+  , findClusterIdByReleaseGroup
+  , getMatchedReleaseIdForAlbum
   , computeClusterQuality
   , updateClusterQuality
   , albumHasLinkedCluster
@@ -175,6 +201,8 @@ import Skema.Database.Repository.Downloads
   , getFailedDownloadUrlsForAlbum
   , getFailedDownloadCountForAlbum
   , getDownloadById
+  , resetDownloadToQueued
+  , clearDownloadError
   )
 
 -- Re-export cached release operations

@@ -21,6 +21,12 @@ module Skema.Database.Repository.Clusters
   , computeClusterQuality
   , updateClusterQuality
   , albumHasLinkedCluster
+  , countClusterTracks
+  , moveTracksToCluster
+  , unassignTracksFromCluster
+  , deleteCluster
+  , findClusterIdByReleaseGroup
+  , getMatchedReleaseIdForAlbum
   ) where
 
 import Skema.Database.Connection
@@ -30,7 +36,7 @@ import Skema.FileSystem.Utils (stringToOsPath)
 import Skema.MusicBrainz.Types (MBRelease(..), MBID(..), unMBID)
 import Skema.Domain.Quality (Quality(..), textToQuality, qualityToText)
 import System.OsPath (OsPath)
-import Data.Time (getCurrentTime)
+import Data.Time (UTCTime, getCurrentTime)
 import Data.List (minimum)
 import Database.SQLite.Simple (Only(..), fromOnly)
 import qualified Database.SQLite.Simple as SQLite
@@ -324,3 +330,51 @@ updateClusterQuality conn cId = do
       executeQuery conn
         "UPDATE clusters SET quality = ?, updated_at = ? WHERE id = ?"
         (qualityToText quality, now, cId)
+
+-- | Number of library tracks assigned to a cluster.
+countClusterTracks :: SQLite.Connection -> Int64 -> IO Int
+countClusterTracks conn cid = do
+  results <- queryRows conn
+    "SELECT COUNT(*) FROM library_tracks WHERE cluster_id = ?" (Only cid)
+  pure $ maybe 0 (\(Only n) -> n) (viaNonEmpty head results)
+
+-- | Move tracks into a cluster and bump its track count, atomically.
+moveTracksToCluster :: SQLite.Connection -> Int64 -> [Int64] -> UTCTime -> IO ()
+moveTracksToCluster conn cid trackIds now =
+  SQLite.withImmediateTransaction conn $ do
+    forM_ trackIds $ \tid ->
+      executeQuery conn
+        "UPDATE library_tracks SET cluster_id = ? WHERE id = ?"
+        (cid, tid)
+    executeQuery conn
+      "UPDATE clusters SET track_count = track_count + ?, updated_at = ? WHERE id = ?"
+      (length trackIds, now, cid)
+
+-- | Remove tracks from whatever cluster they are in.
+unassignTracksFromCluster :: SQLite.Connection -> [Int64] -> IO ()
+unassignTracksFromCluster conn trackIds =
+  forM_ trackIds $ \tid ->
+    executeQuery conn
+      "UPDATE library_tracks SET cluster_id = NULL WHERE id = ?"
+      (Only tid)
+
+-- | Delete a cluster (cascades to its match candidates).
+deleteCluster :: SQLite.Connection -> Int64 -> IO ()
+deleteCluster conn cid =
+  executeQuery conn "DELETE FROM clusters WHERE id = ?" (Only cid)
+
+-- | Find a cluster for a release group, if one exists.
+findClusterIdByReleaseGroup :: SQLite.Connection -> Text -> IO (Maybe Int64)
+findClusterIdByReleaseGroup conn rgMbid = do
+  rows <- queryRows conn
+    "SELECT id FROM clusters WHERE mb_release_group_id = ? LIMIT 1"
+    (Only rgMbid) :: IO [Only Int64]
+  pure $ fmap (\(Only cid) -> cid) (viaNonEmpty head rows)
+
+-- | The release actually matched in the library for a catalog album, if any.
+getMatchedReleaseIdForAlbum :: SQLite.Connection -> Int64 -> IO (Maybe Text)
+getMatchedReleaseIdForAlbum conn albumId = do
+  rows <- queryRows conn
+    "SELECT mb_release_id FROM clusters WHERE catalog_album_id = ? AND mb_release_id IS NOT NULL LIMIT 1"
+    (Only albumId) :: IO [Only Text]
+  pure $ fmap (\(Only rid) -> rid) (viaNonEmpty head rows)

@@ -18,7 +18,6 @@ import Skema.API.Handlers.Utils (throw400, throw404, throw500, readConfig, parse
 import Skema.Database.Connection
 import qualified Skema.Database.Repository as DB
 import qualified Skema.Database.Types as DBTypes
-import Database.SQLite.Simple (Only(..))
 import qualified Skema.Config.Types as Cfg
 import Skema.Services.Download.Search (StreamEvent(..), streamReleaseSearch)
 import Skema.Services.Catalog (updateAlbumQualityProfile)
@@ -133,13 +132,8 @@ catalogServer env@Env{envLogEnv = le, envEventBus = bus, envJwtSecret = jwtSecre
             cats <- mapM (\result -> DB.getCatalogAlbumByReleaseGroupMBID conn (unMBID $ mbrgsReleaseGroupId result))
                          releaseGroups
             -- Look up cluster IDs for in-library status
-            clusters <- forM releaseGroups $ \result -> do
-              rows <- queryRows conn
-                "SELECT id FROM clusters WHERE mb_release_group_id = ? LIMIT 1"
-                (Only (unMBID $ mbrgsReleaseGroupId result)) :: IO [Only Int64]
-              pure $ case viaNonEmpty head rows of
-                Just (Only cid) -> Just cid
-                Nothing -> Nothing
+            clusters <- forM releaseGroups $ \result ->
+              DB.findClusterIdByReleaseGroup conn (unMBID $ mbrgsReleaseGroupId result)
             pure (cats, clusters)
 
           let responses = zipWith mbReleaseGroupSearchToCatalogResponse releaseGroups catalogAlbums
@@ -648,13 +642,8 @@ catalogServer env@Env{envLogEnv = le, envEventBus = bus, envJwtSecret = jwtSecre
               firstReleaseDate = DBTypes.catalogAlbumFirstReleaseDate album
 
           -- Prefer the release actually matched in the library
-          matchedReleaseId <- liftIO $ withConnection connPool $ \conn -> do
-            rows <- queryRows conn
-              "SELECT mb_release_id FROM clusters WHERE catalog_album_id = ? AND mb_release_id IS NOT NULL LIMIT 1"
-              (Only albumId) :: IO [Only Text]
-            pure $ case viaNonEmpty head rows of
-              Just (Only rid) -> Just rid
-              Nothing -> Nothing
+          matchedReleaseId <- liftIO $ withConnection connPool $ \conn ->
+            DB.getMatchedReleaseIdForAlbum conn albumId
 
           -- Resolve which release (edition) to show the tracklist for
           chosen <- case matchedReleaseId of
