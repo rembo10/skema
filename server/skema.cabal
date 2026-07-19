@@ -302,6 +302,7 @@ test-suite skema-test
     Integration.QualityRepoSpec
     Integration.ClustersRepoSpec
     Integration.TracksRepoSpec
+    Unit.ArchitectureSpec
     Unit.ConfigSpec
     Unit.IndexerSpec
     Unit.MatchingSpec

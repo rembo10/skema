@@ -27,6 +27,9 @@ module Skema.Database.Repository.Clusters
   , deleteCluster
   , findClusterIdByReleaseGroup
   , getMatchedReleaseIdForAlbum
+    -- * Cluster classification
+  , clusterNeedsIdentification
+  , partitionClusters
   ) where
 
 import Skema.Database.Connection
@@ -35,9 +38,10 @@ import Skema.Database.Utils (insertReturningId)
 import Skema.FileSystem.Utils (stringToOsPath)
 import Skema.MusicBrainz.Types (MBRelease(..), MBID(..), unMBID)
 import Skema.Domain.Quality (Quality(..), textToQuality, qualityToText)
+import Skema.Domain.Identification (IdentifyConfig, shouldRetryIdentification)
 import System.OsPath (OsPath)
 import Data.Time (UTCTime, getCurrentTime)
-import Data.List (minimum)
+import Data.List (minimum, partition)
 import Database.SQLite.Simple (Only(..), fromOnly)
 import qualified Database.SQLite.Simple as SQLite
 import qualified Data.Text as T
@@ -378,3 +382,16 @@ getMatchedReleaseIdForAlbum conn albumId = do
     "SELECT mb_release_id FROM clusters WHERE catalog_album_id = ? AND mb_release_id IS NOT NULL LIMIT 1"
     (Only albumId) :: IO [Only Text]
   pure $ fmap (\(Only rid) -> rid) (viaNonEmpty head rows)
+
+-- * Cluster classification
+
+-- | Check if a cluster needs identification.
+clusterNeedsIdentification :: IdentifyConfig -> UTCTime -> ClusterRecord -> Bool
+clusterNeedsIdentification config now cluster =
+  shouldRetryIdentification config now (clusterMBReleaseId cluster) (clusterLastIdentifiedAt cluster)
+
+-- | Partition clusters into those already matched and those needing identification.
+partitionClusters :: UTCTime -> IdentifyConfig -> [ClusterRecord] -> ([ClusterRecord], [ClusterRecord])
+partitionClusters now config clusters =
+  let (needs, matched) = partition (clusterNeedsIdentification config now) clusters
+  in (matched, needs)

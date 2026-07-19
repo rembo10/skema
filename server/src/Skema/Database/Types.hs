@@ -40,6 +40,7 @@ import GHC.Generics ()
 import Data.Data (Data, toConstr, showConstr)
 import Data.Char (isUpper, isLower, toLower)
 import Data.Time (UTCTime)
+import Skema.Domain.Acquisition (SourceType(..), sourceTypeToText, textToSourceType)
 import Skema.FileSystem.Utils (stringToOsPath)
 import System.OsPath (OsPath)
 import qualified Database.SQLite.Simple as SQLite
@@ -168,13 +169,6 @@ data ClusterRecord = ClusterRecord
   , clusterMatchLocked :: Bool
   , clusterQuality :: Maybe Text
   } deriving (Show, Eq, Generic)
-
--- | Source type for acquisition sources (providers).
-data SourceType
-  = LibraryArtists
-  | Metacritic
-  | Pitchfork
-  deriving (Show, Eq, Generic, Data)
 
 -- | Acquisition source record (stored in acquisition_rules table for backward compatibility).
 data AcquisitionSourceRecord = AcquisitionSourceRecord
@@ -314,21 +308,6 @@ toSnakeCase (c:cs) = toLower c : map toLower (go c cs)
           _ -> curr : go curr rest
       -- No underscore needed
       | otherwise = curr : go curr rest
-
--- | Convert SourceType to Text for database storage.
--- Uses Generic derivation with PascalCase → snake_case conversion.
-sourceTypeToText :: SourceType -> Text
-sourceTypeToText = toText . toSnakeCase . showConstr . toConstr
-
--- | Parse SourceType from Text (database representation).
-textToSourceType :: Text -> Maybe SourceType
-textToSourceType "library_artists" = Just LibraryArtists
-textToSourceType "metacritic" = Just Metacritic
-textToSourceType "pitchfork" = Just Pitchfork
--- Backward compatibility
-textToSourceType "specific_artist" = Just LibraryArtists
-textToSourceType "custom" = Just LibraryArtists
-textToSourceType _ = Nothing
 
 -- | Convert DownloadStatus to Text for database storage.
 -- Uses Generic derivation, removes "Download" prefix and converts to snake_case.

@@ -9,7 +9,6 @@ import Skema.Database.Migrations
 import Skema.Database.Repository
 import Skema.Database.Types
 import Skema.Services.Grouper (handleMetadataReadComplete)
-import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.Types
 import Skema.Clock (systemClock)
 import Skema.Events.Bus
@@ -43,9 +42,6 @@ testGrouperWithManyAlbums :: IO ()
 testGrouperWithManyAlbums = do
   withTestDb $ \ctx -> do
     let pool = scDbPool ctx
-    let bus = scEventBus ctx
-    let le = scLogEnv ctx
-    let dummyConfig = scConfigVar ctx
 
     -- Insert 30 tracks across 3 albums (10 tracks each)
     -- This should be enough to trigger the deadlock if the bug exists
@@ -109,9 +105,6 @@ testGrouperPrunesOrphanedClusters :: IO ()
 testGrouperPrunesOrphanedClusters = do
   withTestDb $ \ctx -> do
     let pool = scDbPool ctx
-    let bus = scEventBus ctx
-    let le = scLogEnv ctx
-    let dummyConfig = scConfigVar ctx
 
     now <- getCurrentTime
     paths <- withConnection pool $ \conn ->

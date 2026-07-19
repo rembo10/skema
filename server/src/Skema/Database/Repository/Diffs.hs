@@ -8,7 +8,6 @@ module Skema.Database.Repository.Diffs
   , deleteMetadataDiffsForTrack
   , getAllMetadataDiffs
   , applyMetadataChange
-  , computeMetadataDiffs
   , updateMatchInDatabase
     -- * Metadata change operations (for undo)
   , applyMetadataChanges
@@ -22,9 +21,8 @@ import Skema.Database.Types
 import Skema.Database.Utils (insertReturningIdMaybe)
 import Skema.FileSystem.Utils (osPathToString, stringToOsPath)
 import Skema.Domain.Matching (ReleaseMatch(..), TrackMatch(..), FileGroup(..))
+import Skema.Domain.Metadata (computeMetadataDiffs)
 import Skema.MusicBrainz.Types (MBRelease(..), MBTrack(..), MBID(..), unMBID)
-import Monatone.Metadata (Metadata(..))
-import qualified Monatone.Metadata as M
 import qualified Monatone.Writer as MW
 import Control.Monad.Except ()
 import qualified Control.Monad.Except as Except
@@ -88,69 +86,6 @@ applyMetadataChange conn tid fieldName newValue = do
   executeQuery conn
     "DELETE FROM metadata_diffs WHERE track_id = ? AND field_name = ?"
     (tid, fieldName)
-
--- | Compute metadata differences between file and MusicBrainz data.
-computeMetadataDiffs :: Metadata -> MBTrack -> MBRelease -> [(Text, Maybe Text, Maybe Text)]
-computeMetadataDiffs fileMeta mbTrack mbRelease =
-  let
-    -- Helper to normalize empty strings to Nothing
-    -- This ensures that "" and Nothing are treated as equivalent (both empty)
-    normalizeEmpty :: Maybe Text -> Maybe Text
-    normalizeEmpty Nothing = Nothing
-    normalizeEmpty (Just "") = Nothing
-    normalizeEmpty (Just t) = Just (T.strip t)  -- Also strip whitespace
-
-    -- Helper to compare values and create diff if different
-    -- Skip if both values are Nothing (empty-to-empty should not create a diff)
-    mkDiff :: Eq a => Text -> Maybe a -> Maybe a -> (a -> Text) -> Maybe (Text, Maybe Text, Maybe Text)
-    mkDiff fieldName fileVal mbVal showFn =
-      case (fileVal, mbVal) of
-        (Nothing, Nothing) -> Nothing  -- Both empty, no diff
-        _ | fileVal == mbVal -> Nothing  -- Same value, no diff
-        _ -> Just (fieldName, fmap showFn fileVal, fmap showFn mbVal)  -- Different, create diff
-
-    -- Version of mkDiff for Text fields that normalizes empty strings
-    mkTextDiff :: Text -> Maybe Text -> Maybe Text -> Maybe (Text, Maybe Text, Maybe Text)
-    mkTextDiff fieldName fileVal mbVal =
-      let fileVal' = normalizeEmpty fileVal
-          mbVal' = normalizeEmpty mbVal
-      in case (fileVal', mbVal') of
-        (Nothing, Nothing) -> Nothing  -- Both empty, no diff
-        _ | fileVal' == mbVal' -> Nothing  -- Same value, no diff
-        _ -> Just (fieldName, fileVal', mbVal')  -- Different, create diff
-
-    -- Track-level comparisons
-    titleDiff = mkTextDiff "title" (M.title fileMeta) (Just $ mbTrackTitle mbTrack)
-    trackNumDiff = mkDiff "track_number" (M.trackNumber fileMeta) (Just $ mbTrackPosition mbTrack) show
-    trackArtistDiff = mkTextDiff "artist" (M.artist fileMeta) (mbTrackArtist mbTrack)
-
-    -- Release-level comparisons
-    albumDiff = mkTextDiff "album" (M.album fileMeta) (Just $ mbReleaseTitle mbRelease)
-    albumArtistDiff = mkTextDiff "album_artist" (M.albumArtist fileMeta) (Just $ mbReleaseArtist mbRelease)
-    dateDiff = mkTextDiff "date" (M.date fileMeta) (mbReleaseDate mbRelease)
-    yearDiff = mkDiff "year" (M.year fileMeta) (mbReleaseYear mbRelease) show
-    countryDiff = mkTextDiff "country" (M.releaseCountry fileMeta) (mbReleaseCountry mbRelease)
-    labelDiff = mkTextDiff "label" (M.recordLabel fileMeta) (mbReleaseLabel mbRelease)
-    catalogDiff = mkTextDiff "catalog_number" (M.catalogNumber fileMeta) (mbReleaseCatalogNumber mbRelease)
-    barcodeDiff = mkTextDiff "barcode" (M.barcode fileMeta) (mbReleaseBarcode mbRelease)
-    -- Genre comparison (MusicBrainz provides a list, join with semicolons for comparison)
-    genreDiff = mkTextDiff "genre" (M.genre fileMeta)
-      (if null (mbReleaseGenres mbRelease) then Nothing else Just (T.intercalate "; " (mbReleaseGenres mbRelease)))
-
-  in catMaybes
-    [ titleDiff
-    , trackNumDiff
-    , trackArtistDiff
-    , albumDiff
-    , albumArtistDiff
-    , dateDiff
-    , yearDiff
-    , countryDiff
-    , labelDiff
-    , catalogDiff
-    , barcodeDiff
-    , genreDiff
-    ]
 
 -- | Update database with matched MusicBrainz IDs from a ReleaseMatch.
 -- Also computes and stores metadata differences.

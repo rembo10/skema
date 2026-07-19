@@ -16,10 +16,10 @@ import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getAllClusters, getClusterById, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster, clearClusterRelease, setTrackRecordingByPath)
+import Skema.Database.Repository (getAllClusters, getClusterById, getClusterWithTracks, updateClusterWithMBData, updateClusterWithCandidates, updateTrackCluster, clearClusterRelease, setTrackRecordingByPath, clusterNeedsIdentification, metadataRecordToMonatone)
 import Skema.Database.Types (ClusterRecord(..))
 import Skema.MusicBrainz.Identify (identifyFileGroup)
-import Skema.Domain.Identification (mkIdentifyConfig, clusterNeedsIdentification, buildFileGroup)
+import Skema.Domain.Identification (mkIdentifyConfig, buildFileGroup)
 import Skema.Domain.Matching (FileGroup(..), ReleaseMatch(..), TrackMatch(..), IdentificationResult(..))
 import Skema.MusicBrainz.Types (MBID(..), unMBID, MBRelease(..), MBTrack(..))
 import Skema.Config.Types (Config(..))
@@ -245,7 +245,9 @@ clusterToFileGroup conn cluster = case clusterId cluster of
     result <- getClusterWithTracks conn cid
     pure $ case result of
       Nothing -> Nothing
-      Just (_, tracks) -> buildFileGroup cluster tracks
+      Just (_, tracks) ->
+        buildFileGroup (clusterAlbum cluster) (clusterAlbumArtist cluster)
+          (map (\(_, p, meta, _, _) -> (p, metadataRecordToMonatone meta)) tracks)
 
 -- | Identify a single cluster on demand (the API's "identify" task).
 --

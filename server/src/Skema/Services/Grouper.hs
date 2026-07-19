@@ -12,13 +12,12 @@ module Skema.Services.Grouper
 
 import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
-import Skema.Domain.Metadata (metadataRecordToMonatone)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getAllClusters, getAllTracks, getMetadataForTrack, getTrackByPath, computeClusterHash, findClusterByHash, createCluster, updateTrackCluster, updateClusterQuality, deleteEmptyClusters)
+import Skema.Database.Repository (getAllClusters, getAllTracks, getMetadataForTrack, getTrackByPath, computeClusterHash, findClusterByHash, createCluster, updateTrackCluster, updateClusterQuality, deleteEmptyClusters, metadataRecordToMonatone, partitionClusters)
 import Skema.Database.Types (ClusterRecord(..), LibraryTrackRecord(..))
-import Skema.Domain.Identification (mkIdentifyConfig, partitionClusters)
+import Skema.Domain.Identification (mkIdentifyConfig)
 import Skema.Config.Types (Config(..))
 import Skema.Domain.Matching (FileGroup(..), groupFilesByRelease)
 import Control.Concurrent.Async (Async)

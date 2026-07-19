@@ -21,6 +21,8 @@ module Skema.Database.Repository
   , updateTrackMetadata
   , getMetadataForTrack
     , upsertTrackWithMetadata
+    , metadataRecordToMonatone
+    , parseAudioFormat
     , applyMetadataChange
     -- * MusicBrainz operations
   , updateMatchInDatabase
@@ -29,7 +31,6 @@ module Skema.Database.Repository
   , getMetadataDiffsForTrack
   , deleteMetadataDiffsForTrack
   , getAllMetadataDiffs
-  , computeMetadataDiffs
     -- * Metadata change operations (for undo)
   , applyMetadataChanges
   , getMetadataChanges
@@ -58,6 +59,8 @@ module Skema.Database.Repository
   , computeClusterQuality
   , updateClusterQuality
   , albumHasLinkedCluster
+  , clusterNeedsIdentification
+  , partitionClusters
     -- * Stats operations
   , getLibraryStats
     -- * Scan history
@@ -138,6 +141,8 @@ import Skema.Database.Repository.Tracks
   , updateTrackMetadata
   , getMetadataForTrack
   , upsertTrackWithMetadata
+  , metadataRecordToMonatone
+  , parseAudioFormat
   )
 
 -- Re-export cluster operations
@@ -165,6 +170,8 @@ import Skema.Database.Repository.Clusters
   , computeClusterQuality
   , updateClusterQuality
   , albumHasLinkedCluster
+  , clusterNeedsIdentification
+  , partitionClusters
   )
 
 -- Re-export diff operations
@@ -173,7 +180,6 @@ import Skema.Database.Repository.Diffs
   , getMetadataDiffsForTrack
   , deleteMetadataDiffsForTrack
   , getAllMetadataDiffs
-  , computeMetadataDiffs
   , applyMetadataChange
   , applyMetadataChanges
   , getMetadataChanges

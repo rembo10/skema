@@ -102,7 +102,7 @@ handleLibraryArtistFound ServiceContext{..} artistMBID artistName clusterId _mbR
 
               -- Now check if this artist ID matches any LibraryArtists source filters
               forM_ libraryArtistsSources $ \source -> do
-                when (shouldProcessArtistById source artistId) $ do
+                when (shouldProcessArtistById (DB.sourceType source) (DB.sourceFilters source) artistId) $ do
                   $(logTM) InfoS $ logStr $ ("Artist ID " <> T.pack (show artistId) <> " matches source: " <> sourceName source :: Text)
 
                   -- Update artist to followed=true and associate with this source
@@ -230,7 +230,7 @@ handleCatalogAlbumAdded ServiceContext{..} releaseGroupMBID albumTitle artistMBI
                           Nothing -> do
                             $(logTM) WarningS $ logStr ("Artist has no ID, cannot evaluate filters" :: Text)
                           Just artistId -> do
-                            let matchingSources = filter (\source -> shouldProcessArtistById source artistId) libraryArtistsSources
+                            let matchingSources = filter (\source -> shouldProcessArtistById (DB.sourceType source) (DB.sourceFilters source) artistId) libraryArtistsSources
 
                             forM_ matchingSources $ \source -> do
                               -- Evaluate source filters to determine if album should be wanted
@@ -239,7 +239,7 @@ handleCatalogAlbumAdded ServiceContext{..} releaseGroupMBID albumTitle artistMBI
                               -- Evaluate provider-specific filters
                               let shouldWant = case parseSourceFilters LibraryArtists (sourceFilters source) of
                                     Just (LibraryArtistsSourceFilters filters) ->
-                                      evaluateLibraryArtistsAlbumFilters filters now album
+                                      evaluateLibraryArtistsAlbumFilters filters now (DB.catalogAlbumType album) (DB.catalogAlbumFirstReleaseDate album)
                                     _ -> False  -- No valid filters configured
 
                               when shouldWant $ do

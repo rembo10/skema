@@ -15,6 +15,8 @@ module Skema.Database.Repository.Tracks
   , updateTrackMetadata
   , getMetadataForTrack
   , upsertTrackWithMetadata
+  , metadataRecordToMonatone
+  , parseAudioFormat
   , setTrackClusterAssignment
   , setTrackRecording
   , setTrackRecordingByPath
@@ -110,6 +112,68 @@ audioFormatToText OGG = "ogg"
 audioFormatToText Opus = "opus"
 audioFormatToText MP3 = "mp3"
 audioFormatToText M4A = "m4a"
+
+-- | Parse a stored audio format string back into the Monatone format enum.
+-- Matches case-insensitively (the database stores lowercase values);
+-- unknown strings fall back to 'M.MP3'.
+parseAudioFormat :: Text -> AudioFormat
+parseAudioFormat t = case T.toLower (T.strip t) of
+  "flac" -> FLAC
+  "ogg"  -> OGG
+  "opus" -> Opus
+  "m4a"  -> M4A
+  _      -> MP3
+
+-- | Convert a persisted 'LibraryTrackMetadataRecord' to the Monatone
+-- 'Metadata' shape used for MusicBrainz identification and diff generation.
+--
+-- Fields not represented in the persisted record (album art, raw tags,
+-- bitrate/sample rate/channels) are emitted as 'Nothing' / 'mempty'.
+-- Duration is converted from seconds (stored) to milliseconds (Monatone).
+metadataRecordToMonatone :: LibraryTrackMetadataRecord -> M.Metadata
+metadataRecordToMonatone meta = M.Metadata
+  { M.format = maybe M.MP3 parseAudioFormat (metaFormat meta)
+  , M.title = metaTitle meta
+  , M.artist = metaArtist meta
+  , M.album = metaAlbum meta
+  , M.albumArtist = metaAlbumArtist meta
+  , M.trackNumber = metaTrackNumber meta
+  , M.totalTracks = metaTotalTracks meta
+  , M.discNumber = metaDiscNumber meta
+  , M.totalDiscs = metaTotalDiscs meta
+  , M.date = metaDate meta
+  , M.year = metaYear meta
+  , M.genre = metaGenre meta
+  , M.publisher = metaPublisher meta
+  , M.comment = metaComment meta
+  , M.releaseCountry = metaCountry meta
+  , M.recordLabel = metaLabel meta
+  , M.catalogNumber = metaCatalogNumber meta
+  , M.barcode = metaBarcode meta
+  , M.releaseStatus = metaReleaseStatus meta
+  , M.releaseType = metaReleaseType meta
+  , M.albumArtInfo = Nothing
+  , M.audioProperties = M.AudioProperties
+      { M.duration = fmap (\secs -> round (secs * 1000.0)) (metaDurationSeconds meta)
+      , M.bitrate = Nothing
+      , M.sampleRate = Nothing
+      , M.channels = Nothing
+      , M.bitsPerSample = metaBitsPerSample meta
+      }
+  , M.musicBrainzIds = M.MusicBrainzIds
+      { M.mbRecordingId = metaMBRecordingId meta
+      , M.mbTrackId = metaMBTrackId meta
+      , M.mbReleaseId = metaMBReleaseId meta
+      , M.mbArtistId = metaMBArtistId meta
+      , M.mbAlbumArtistId = metaMBAlbumArtistId meta
+      , M.mbReleaseGroupId = metaMBReleaseGroupId meta
+      , M.mbWorkId = metaMBWorkId meta
+      , M.mbDiscId = metaMBDiscId meta
+      }
+  , M.acoustidFingerprint = metaAcoustidFingerprint meta
+  , M.acoustidId = metaAcoustidId meta
+  , M.rawTags = mempty
+  }
 
 -- * Track operations
 

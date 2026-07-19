@@ -17,6 +17,7 @@ import qualified Integration.ImageServiceSpec
 import qualified Integration.QualityRepoSpec
 import qualified Integration.ClustersRepoSpec
 import qualified Integration.TracksRepoSpec
+import qualified Unit.ArchitectureSpec
 import qualified Unit.ConfigSpec
 import qualified Unit.IndexerSpec
 import qualified Unit.MatchingSpec
@@ -42,7 +43,8 @@ main = defaultMain tests
 
 tests :: TestTree
 tests = testGroup "Skema Tests"
-  [ Unit.ConfigSpec.tests
+  [ Unit.ArchitectureSpec.tests
+  , Unit.ConfigSpec.tests
   , Unit.IndexerSpec.tests
   , Unit.MatchingSpec.tests
   , Unit.MusicBrainzSpec.tests

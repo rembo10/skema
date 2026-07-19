@@ -11,7 +11,6 @@ import Test.Tasty.HUnit
 import Data.Time (UTCTime(..), fromGregorian, secondsToDiffTime)
 
 import Skema.Domain.Acquisition
-import Skema.Database.Types (CatalogAlbumRecord(..))
 
 tests :: TestTree
 tests = testGroup "Unit.Domain.Acquisition"
@@ -135,24 +134,6 @@ mkFilters albumTypes releaseStatus = LibraryArtistsFilters
   , lafReleaseStatus = releaseStatus
   }
 
-mkAlbum :: Maybe Text -> Maybe Text -> CatalogAlbumRecord
-mkAlbum albumType firstReleaseDate = CatalogAlbumRecord
-  { catalogAlbumId = Just 1
-  , catalogAlbumReleaseGroupMBID = "rg"
-  , catalogAlbumTitle = "Album"
-  , catalogAlbumArtistId = Just 1
-  , catalogAlbumArtistMBID = "artist"
-  , catalogAlbumArtistName = "Artist"
-  , catalogAlbumType = albumType
-  , catalogAlbumFirstReleaseDate = firstReleaseDate
-  , catalogAlbumCoverUrl = Nothing
-  , catalogAlbumCoverThumbnailUrl = Nothing
-  , catalogAlbumQualityProfileId = Nothing
-  , catalogAlbumCurrentQuality = Nothing
-  , catalogAlbumCreatedAt = Nothing
-  , catalogAlbumUpdatedAt = Nothing
-  }
-
 libraryArtistsFiltersTests :: TestTree
 libraryArtistsFiltersTests = testGroup "evaluateLibraryArtistsAlbumFilters"
   [ testCase "default status (no filter) wants only upcoming albums" $ do
@@ -184,12 +165,13 @@ libraryArtistsFiltersTests = testGroup "evaluateLibraryArtistsAlbumFilters"
       eval (mkFilters (Just ["Album"]) (Just UpcomingAndReleased)) (album past) @?= True
   ]
   where
-    eval f a = evaluateLibraryArtistsAlbumFilters f referenceNow a
+    eval f (albumType, releaseDate) =
+      evaluateLibraryArtistsAlbumFilters f referenceNow albumType releaseDate
     future = Just "2025-12-01"
     past = Just "2025-01-01"
     noDate = Nothing
-    album date = mkAlbum Nothing date
-    typed t date = mkAlbum (Just t) date
+    album date = (Nothing, date)
+    typed t date = (Just t, date)
 
 -- =============================================================================
 -- SourceEvaluator pure helpers

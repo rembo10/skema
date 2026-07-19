@@ -18,17 +18,15 @@ module Skema.Services.Slskd
 import Control.Concurrent (threadDelay)
 import Skema.Services.Types (ServiceContext(..))
 import qualified Control.Concurrent.STM as STM
-import Skema.Clock (Clock)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Katip
 
 import Skema.Config.Types (Config (..), DownloadConfig (..), SlskdConfig (..))
-import Skema.Database.Connection (ConnectionPool, withConnection, queryRows, executeQuery)
+import Skema.Database.Connection (withConnection, queryRows, executeQuery)
 import Database.SQLite.Simple (Only(..))
-import Skema.Events.Bus (EventBus, publishAndLog)
+import Skema.Events.Bus (publishAndLog)
 import Skema.Events.Types (Event (..))
-import Skema.HTTP.Client (HttpClient)
 import Skema.Slskd.Client
 import Skema.Slskd.Types (SlskdTransfer (..), SlskdTransferState (..))
 import qualified System.Directory as Dir

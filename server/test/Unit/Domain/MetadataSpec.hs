@@ -13,6 +13,7 @@ module Unit.Domain.MetadataSpec
 import Test.Tasty
 import Test.Tasty.HUnit
 import Skema.Domain.Metadata
+import Skema.Database.Repository (metadataRecordToMonatone, parseAudioFormat)
 import Skema.Database.Types (LibraryTrackMetadataRecord(..))
 import qualified Monatone.Metadata as M
 import Helpers.Builders (mkTestMBRelease, mkTestMBTrack, mkTestMetadataRecord)
@@ -136,8 +137,10 @@ parseAudioFormatTests = testGroup "parseAudioFormat"
   , testCase "MP3 -> MP3"   $ parseAudioFormat "MP3"  @?= M.MP3
   , testCase "unknown text defaults to MP3" $
       parseAudioFormat "gibberish" @?= M.MP3
-  , testCase "case-sensitive: flac (lowercase) defaults to MP3" $
-      parseAudioFormat "flac" @?= M.MP3
+  , testCase "case-insensitive: flac (lowercase) parses to FLAC" $
+      parseAudioFormat "flac" @?= M.FLAC
+  , testCase "m4a parses to M4A" $
+      parseAudioFormat "m4a" @?= M.M4A
   ]
 
 -- =============================================================================

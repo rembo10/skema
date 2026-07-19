@@ -9,8 +9,12 @@
 -- - PitchforkFilters: Filter albums from Pitchfork by genre and score
 -- - MetacriticFilters: Filter albums from Metacritic by genre and scores
 module Skema.Domain.Acquisition
-  ( -- * Provider-specific filter types
-    LibraryArtistsFilters(..)
+  ( -- * Source types
+    SourceType(..)
+  , sourceTypeToText
+  , textToSourceType
+    -- * Provider-specific filter types
+  , LibraryArtistsFilters(..)
   , ReleaseStatusFilter(..)
   , PitchforkFilters(..)
   , PitchforkGenre(..)
@@ -39,8 +43,30 @@ import qualified Data.Text as T
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text.Encoding as TE
 import Data.Int ()
-import Skema.Database.Types (AcquisitionSourceRecord(..), SourceType(..), CatalogAlbumRecord(..))
 import Data.Time (UTCTime)
+
+-- | The provider behind an acquisition source.
+data SourceType
+  = LibraryArtists
+  | Metacritic
+  | Pitchfork
+  deriving (Show, Eq, Generic)
+
+-- | Wire/database form of a source type.
+sourceTypeToText :: SourceType -> Text
+sourceTypeToText LibraryArtists = "library_artists"
+sourceTypeToText Metacritic = "metacritic"
+sourceTypeToText Pitchfork = "pitchfork"
+
+-- | Parse a source type from its wire/database form.
+textToSourceType :: Text -> Maybe SourceType
+textToSourceType "library_artists" = Just LibraryArtists
+textToSourceType "metacritic" = Just Metacritic
+textToSourceType "pitchfork" = Just Pitchfork
+-- Backward compatibility
+textToSourceType "specific_artist" = Just LibraryArtists
+textToSourceType "custom" = Just LibraryArtists
+textToSourceType _ = Nothing
 
 -- ============================================================================
 -- Provider-Specific Filter Types
@@ -267,11 +293,15 @@ parseSourceFilters st (Just jsonText) =
 
 -- | Check if we should process this artist by ID (for LibraryArtists source type).
 -- Uses the new LibraryArtistsFilters which filters by catalog_artist.id instead of MBID.
-shouldProcessArtistById :: AcquisitionSourceRecord -> Int64 -> Bool
-shouldProcessArtistById source artistId = case sourceType source of
+shouldProcessArtistById
+  :: SourceType     -- ^ The source's provider
+  -> Maybe Text     -- ^ The source's filters JSON
+  -> Int64          -- ^ Catalog artist id
+  -> Bool
+shouldProcessArtistById srcType filtersJson artistId = case srcType of
   LibraryArtists ->
     -- For library artists, check if artist passes ID-based filters
-    case parseSourceFilters LibraryArtists (sourceFilters source) of
+    case parseSourceFilters LibraryArtists filtersJson of
       Nothing -> True  -- No filters, process all library artists
       Just (LibraryArtistsSourceFilters filters) -> checkLibraryArtistFilters filters artistId
       _ -> False  -- Wrong filter type
@@ -334,19 +364,24 @@ releaseDateIsUpcoming now dateStr =
 -- | Evaluate LibraryArtists filters against a catalog album to decide
 -- whether it should be wanted. Combines an album-type check with a
 -- release-status check (upcoming vs released), both derived purely from
--- the album record and the current time.
-evaluateLibraryArtistsAlbumFilters :: LibraryArtistsFilters -> UTCTime -> CatalogAlbumRecord -> Bool
-evaluateLibraryArtistsAlbumFilters filters now album =
+-- the album's type, its first release date, and the current time.
+evaluateLibraryArtistsAlbumFilters
+  :: LibraryArtistsFilters
+  -> UTCTime
+  -> Maybe Text  -- ^ Album type (e.g. "Album", "EP")
+  -> Maybe Text  -- ^ First release date (possibly partial)
+  -> Bool
+evaluateLibraryArtistsAlbumFilters filters now maybeAlbumType maybeFirstReleaseDate =
   -- Check if album type matches filter
   let albumTypeMatch = case lafAlbumTypes filters of
         Nothing -> True  -- No album type filter specified, accept all types
         Just [] -> True  -- Empty list means include all types
-        Just types -> case catalogAlbumType album of
+        Just types -> case maybeAlbumType of
           Just albumType -> albumType `elem` types
           Nothing -> True  -- If no type, include by default
 
       -- Check if release status matches filter
-      isUpcoming = case catalogAlbumFirstReleaseDate album of
+      isUpcoming = case maybeFirstReleaseDate of
         Nothing -> False  -- No release date, not upcoming
         Just dateStr -> releaseDateIsUpcoming now dateStr
 

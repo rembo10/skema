@@ -19,20 +19,14 @@ module Skema.Domain.Identification
     -- * Match computation
   , computeReleaseMatch
   , shouldRetryIdentification
-    -- * Cluster classification
-  , clusterNeedsIdentification
-  , partitionClusters
     -- * FileGroup construction
   , buildFileGroup
   ) where
 
 import Skema.MusicBrainz.Types
 import Skema.Domain.Matching
-import Skema.Domain.Metadata (metadataRecordToMonatone)
 import Skema.Config.Types (LibraryConfig(..), MusicBrainzConfig(..))
-import Skema.Database.Types (ClusterRecord(..), LibraryTrackMetadataRecord(..))
 import qualified Monatone.Metadata as M
-import Data.List (partition)
 import qualified Data.Text as T
 import Data.Time (UTCTime, NominalDiffTime, addUTCTime)
 import System.OsPath (OsPath, takeDirectory)
@@ -208,58 +202,33 @@ mkIdentifyConfig libConfig mbConfig = IdentifyConfig
   , cfgRetryIntervalHours = 24
   }
 
--- | Check if a cluster needs identification (pure domain logic).
-clusterNeedsIdentification :: IdentifyConfig -> UTCTime -> ClusterRecord -> Bool
-clusterNeedsIdentification config now cluster =
-  shouldRetryIdentification config now (clusterMBReleaseId cluster) (clusterLastIdentifiedAt cluster)
-
--- | Partition clusters into those already matched and those needing identification.
-partitionClusters :: UTCTime -> IdentifyConfig -> [ClusterRecord] -> ([ClusterRecord], [ClusterRecord])
-partitionClusters now config clusters =
-  let (needs, matched) = partition (clusterNeedsIdentification config now) clusters
-  in (matched, needs)
-
--- | Build a 'FileGroup' from a cluster and its tracks.
+-- | Build a 'FileGroup' from cluster-level album info and per-file metadata.
 --
 -- Aggregation rules:
--- - Directory is taken from the first track's path.
--- - Album and album artist come from the cluster record.
+-- - Directory is taken from the first file's path.
+-- - Album and album artist are supplied by the caller (cluster-level data).
 -- - Each optional release-level field (label, catalog number, barcode, country,
---   date) uses the first non-Nothing value across tracks.
--- - MusicBrainz release and release-group IDs come from the first track's tags.
+--   date) uses the first non-Nothing value across files.
+-- - MusicBrainz release and release-group IDs come from the first file's tags.
 --
--- Returns 'Nothing' if the track list is empty.
-buildFileGroup
-  :: ClusterRecord
-  -> [(Int64, OsPath, LibraryTrackMetadataRecord, Maybe Text, Maybe Text)]
-  -> Maybe FileGroup
-buildFileGroup _ [] = Nothing
-buildFileGroup cluster tracks@((_, firstPath, _, _, _) : _) =
-  let filesWithMetadata = map trackToFileMetadata tracks
-      dir = takeDirectory firstPath
-      allMeta = map (\(_, _, meta, _, _) -> meta) tracks
+-- Returns 'Nothing' if the file list is empty.
+buildFileGroup :: Maybe Text -> Maybe Text -> [(OsPath, M.Metadata)] -> Maybe FileGroup
+buildFileGroup _ _ [] = Nothing
+buildFileGroup album albumArtist files@((firstPath, firstMeta) : _) =
+  let dir = takeDirectory firstPath
+      allMeta = map snd files
       findFirst f = viaNonEmpty head $ mapMaybe f allMeta
-      findFirstMBId selector = do
-        meta <- viaNonEmpty head allMeta
-        let mbIds = M.musicBrainzIds (metadataRecordToMonatone meta)
-        mbid <- selector mbIds
-        pure (MBID mbid)
+      mbIdOf selector = MBID <$> selector (M.musicBrainzIds firstMeta)
   in Just FileGroup
     { fgDirectory = dir
-    , fgAlbum = clusterAlbum cluster
-    , fgArtist = clusterAlbumArtist cluster
-    , fgReleaseId = findFirstMBId M.mbReleaseId
-    , fgReleaseGroupId = findFirstMBId M.mbReleaseGroupId
-    , fgLabel = findFirst metaLabel
-    , fgCatalogNumber = findFirst metaCatalogNumber
-    , fgBarcode = findFirst metaBarcode
-    , fgCountry = findFirst metaCountry
-    , fgDate = findFirst metaDate
-    , fgFiles = filesWithMetadata
+    , fgAlbum = album
+    , fgArtist = albumArtist
+    , fgReleaseId = mbIdOf M.mbReleaseId
+    , fgReleaseGroupId = mbIdOf M.mbReleaseGroupId
+    , fgLabel = findFirst M.recordLabel
+    , fgCatalogNumber = findFirst M.catalogNumber
+    , fgBarcode = findFirst M.barcode
+    , fgCountry = findFirst M.releaseCountry
+    , fgDate = findFirst M.date
+    , fgFiles = files
     }
-
--- | Convert a track row to the (path, metadata) shape used by 'FileGroup'.
-trackToFileMetadata
-  :: (Int64, OsPath, LibraryTrackMetadataRecord, Maybe Text, Maybe Text)
-  -> (OsPath, M.Metadata)
-trackToFileMetadata (_, path, meta, _, _) = (path, metadataRecordToMonatone meta)

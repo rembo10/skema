@@ -14,11 +14,11 @@ module Skema.Services.DiffGenerator
 
 import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
-import Skema.Domain.Metadata (metadataRecordToMonatone)
+import Skema.Domain.Metadata (computeMetadataDiffs)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
-import Skema.Database.Repository (getClusterWithTracks, getClusterById, insertMetadataDiff, deleteMetadataDiffsForTrack, computeMetadataDiffs)
+import Skema.Database.Repository (getClusterWithTracks, getClusterById, insertMetadataDiff, deleteMetadataDiffsForTrack, metadataRecordToMonatone)
 import Skema.Database.Types (LibraryTrackMetadataRecord(..), ClusterRecord(..))
 import Skema.MusicBrainz.Client (getRelease)
 import Skema.MusicBrainz.Types (MBTrack(..), MBID(..), mbReleaseTracks)
