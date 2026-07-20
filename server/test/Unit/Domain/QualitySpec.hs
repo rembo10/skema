@@ -9,6 +9,7 @@
 -- - needsUpgrade: quality below cutoff detection
 -- - shouldUpgrade: upgrade decision with auto-upgrade flag
 -- - selectBestQuality: best quality selection from candidates
+-- - detectQualityFromAudio: quality from parsed audio properties
 module Unit.Domain.QualitySpec
   ( tests
   ) where
@@ -16,6 +17,7 @@ module Unit.Domain.QualitySpec
 import Test.Tasty
 import Test.Tasty.HUnit
 import Skema.Domain.Quality
+import qualified Monatone.Metadata as M
 
 -- =============================================================================
 -- Test Profile Helper
@@ -55,6 +57,7 @@ tests = testGroup "Unit.Domain.Quality"
   , needsUpgradeTests
   , shouldUpgradeTests
   , selectBestQualityTests
+  , detectQualityFromAudioTests
   ]
 
 -- =============================================================================
@@ -176,4 +179,55 @@ selectBestQualityTests = testGroup "selectBestQuality"
   , testCase "returns Nothing when no candidates meet profile" $ do
       let candidates = [VBR0, MP3_192]
       selectBestQuality candidates testProfile @?= Nothing
+  ]
+
+-- =============================================================================
+-- detectQualityFromAudio Tests
+-- =============================================================================
+
+-- | Build metadata for a container format with the given audio properties.
+mkAudio :: M.AudioFormat -> Maybe M.Codec -> Maybe Int -> Maybe Int -> Maybe Int -> M.Metadata
+mkAudio fmt audioCodec br bits rate =
+  (M.emptyMetadata fmt)
+    { M.audioProperties = M.emptyAudioProperties
+        { M.bitrate = br
+        , M.bitsPerSample = bits
+        , M.sampleRate = rate
+        , M.codec = audioCodec
+        }
+    }
+
+detectQualityFromAudioTests :: TestTree
+detectQualityFromAudioTests = testGroup "detectQualityFromAudio"
+  [ testCase "ALAC in M4A is lossless" $
+      detectQualityFromAudio (mkAudio M.M4A (Just M.CodecALAC) Nothing (Just 16) (Just 44100)) @?= Lossless
+
+  , testCase "24-bit ALAC is hi-res lossless" $
+      detectQualityFromAudio (mkAudio M.M4A (Just M.CodecALAC) Nothing (Just 24) (Just 44100)) @?= HiResLossless
+
+  , testCase "AAC in M4A is graded by bitrate" $ do
+      detectQualityFromAudio (mkAudio M.M4A (Just M.CodecAAC) (Just 320) Nothing Nothing) @?= MP3_320
+      detectQualityFromAudio (mkAudio M.M4A (Just M.CodecAAC) (Just 192) Nothing Nothing) @?= VBR2
+
+  , testCase "AAC with no bitrate is unknown" $
+      detectQualityFromAudio (mkAudio M.M4A (Just M.CodecAAC) Nothing Nothing Nothing) @?= Unknown
+
+  , testCase "FLAC codec is lossless" $
+      detectQualityFromAudio (mkAudio M.FLAC (Just M.CodecFLAC) Nothing (Just 16) (Just 44100)) @?= Lossless
+
+  , testCase "high sample rate FLAC is hi-res lossless" $
+      detectQualityFromAudio (mkAudio M.FLAC (Just M.CodecFLAC) Nothing (Just 16) (Just 96000)) @?= HiResLossless
+
+  , testCase "MP3 codec graded by bitrate" $ do
+      detectQualityFromAudio (mkAudio M.MP3 (Just M.CodecMP3) (Just 320) Nothing Nothing) @?= MP3_320
+      detectQualityFromAudio (mkAudio M.MP3 (Just M.CodecMP3) (Just 245) Nothing Nothing) @?= VBR0
+
+  , testCase "no codec: FLAC container assumed lossless" $
+      detectQualityFromAudio (mkAudio M.FLAC Nothing Nothing (Just 16) (Just 44100)) @?= Lossless
+
+  , testCase "no codec: standard-res M4A container is unknown" $
+      detectQualityFromAudio (mkAudio M.M4A Nothing Nothing (Just 16) (Just 44100)) @?= Unknown
+
+  , testCase "no codec: hi-res M4A container assumed ALAC" $
+      detectQualityFromAudio (mkAudio M.M4A Nothing Nothing (Just 24) (Just 96000)) @?= HiResLossless
   ]

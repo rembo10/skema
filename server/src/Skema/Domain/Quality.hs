@@ -260,26 +260,38 @@ detectQualityFromAudio metadata =
         (_, Just rate) | rate >= 88200 -> True  -- 88.2kHz, 96kHz, 192kHz, etc.
         _ -> False
 
-  in case fmt of
-       -- Lossless formats
-       Monatone.FLAC | isHiRes -> HiResLossless
-                     | otherwise -> Lossless
-       -- M4A containers hold either ALAC (lossless) or AAC (lossy) and the
-       -- metadata reader does not expose which codec is present. Hi-res audio
-       -- can only be ALAC; otherwise the quality is honestly unknown rather
-       -- than assumed lossless.
-       Monatone.M4A | isHiRes -> HiResLossless
-                    | otherwise -> Unknown
+      lossless = if isHiRes then HiResLossless else Lossless
 
-       -- Lossy formats (MP3, OGG, Opus)
-       _ -> case bitrate of
-         Just br
-           | br >= 310 -> MP3_320  -- 310+ kbps -> MP3 320
-           | br >= 245 -> VBR0     -- 245-309 kbps -> VBR V0 (~245 kbps average)
-           | br >= 225 -> MP3_256  -- 225-244 kbps -> MP3 256
-           | br >= 180 -> VBR2     -- 180-224 kbps -> VBR V2 (~190 kbps average)
-           | br >= 160 -> MP3_192  -- 160-179 kbps -> MP3 192
-         _ -> Unknown
+      -- Lossy codecs are graded by bitrate tier
+      lossy = case bitrate of
+        Just br
+          | br >= 310 -> MP3_320  -- 310+ kbps -> MP3 320
+          | br >= 245 -> VBR0     -- 245-309 kbps -> VBR V0 (~245 kbps average)
+          | br >= 225 -> MP3_256  -- 225-244 kbps -> MP3 256
+          | br >= 180 -> VBR2     -- 180-224 kbps -> VBR V2 (~190 kbps average)
+          | br >= 160 -> MP3_192  -- 160-179 kbps -> MP3 192
+        _ -> Unknown
+
+  in case Monatone.codec audioProps of
+       -- The codec reported by the parser is authoritative; in particular it
+       -- distinguishes ALAC (lossless) from AAC (lossy) inside an M4A container.
+       Just Monatone.CodecFLAC -> lossless
+       Just Monatone.CodecALAC -> lossless
+       Just Monatone.CodecMP3 -> lossy
+       Just Monatone.CodecAAC -> lossy
+       Just Monatone.CodecVorbis -> lossy
+       Just Monatone.CodecOpus -> lossy
+
+       -- No codec reported: judge by container format
+       Nothing -> case fmt of
+         Monatone.FLAC -> lossless
+         -- An M4A without a reported codec could be ALAC or AAC. Hi-res audio
+         -- can only be ALAC; otherwise the quality is honestly unknown rather
+         -- than assumed lossless.
+         Monatone.M4A | isHiRes -> HiResLossless
+                      | otherwise -> Unknown
+         -- Lossy containers (MP3, OGG, Opus)
+         _ -> lossy
 
 -- | Check if a quality meets the profile requirements.
 meetsProfile :: Quality -> QualityProfile -> Bool

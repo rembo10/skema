@@ -44,8 +44,8 @@
             # Pull monatone from Hackage since it may not be in nixpkgs yet
             monatone = hself.callHackageDirect {
               pkg = "monatone";
-              ver = "0.2.1.1";
-              sha256 = "sha256-SRTYJy1t1IvAmkKzjoCmWnIwbfH/+aJBzt4RztBwoqo=";
+              ver = "0.3.0.0";
+              sha256 = "sha256-okzG2w7cxnz4xHmvIJrLT+0B02fjDHdPANQji8Zup4g=";
             } { };
 
             # Override skema to include all its dependencies

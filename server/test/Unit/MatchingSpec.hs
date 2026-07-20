@@ -16,7 +16,6 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Skema.Domain.Matching
 import Skema.MusicBrainz.Types
-import Skema.Domain.Matching
 import qualified Monatone.Metadata as M
 import System.OsPath (OsPath, encodeUtf)
 import qualified Data.HashMap.Strict as HM
@@ -189,6 +188,7 @@ makeTestFile title trackNum discNum duration =
         , M.sampleRate = Just 44100
         , M.channels = Just 2
         , M.bitsPerSample = Nothing
+        , M.codec = Just M.CodecMP3
         }
       metadata = M.Metadata
         { M.format = M.MP3

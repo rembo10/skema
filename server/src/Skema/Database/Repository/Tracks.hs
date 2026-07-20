@@ -128,7 +128,7 @@ parseAudioFormat t = case T.toLower (T.strip t) of
 -- 'Metadata' shape used for MusicBrainz identification and diff generation.
 --
 -- Fields not represented in the persisted record (album art, raw tags,
--- bitrate/sample rate/channels) are emitted as 'Nothing' / 'mempty'.
+-- bitrate/sample rate/channels/codec) are emitted as 'Nothing' / 'mempty'.
 -- Duration is converted from seconds (stored) to milliseconds (Monatone).
 metadataRecordToMonatone :: LibraryTrackMetadataRecord -> M.Metadata
 metadataRecordToMonatone meta = M.Metadata
@@ -159,6 +159,7 @@ metadataRecordToMonatone meta = M.Metadata
       , M.sampleRate = Nothing
       , M.channels = Nothing
       , M.bitsPerSample = metaBitsPerSample meta
+      , M.codec = Nothing
       }
   , M.musicBrainzIds = M.MusicBrainzIds
       { M.mbRecordingId = metaMBRecordingId meta
