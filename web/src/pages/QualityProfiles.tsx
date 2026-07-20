@@ -515,7 +515,6 @@ export default function QualityProfiles() {
             .map((profile) => {
             const sortedPrefs = [...profile.quality_preferences].sort((a, b) => b.rank - a.rank);
             const enabledPrefs = sortedPrefs.filter((p) => p.enabled);
-            const cutoffPref = profile.quality_preferences.find((p) => p.quality === profile.cutoff_quality);
 
             return (
               <div

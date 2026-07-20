@@ -64,17 +64,10 @@ export function PathInput({
 }: PathInputProps) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showBrowser, setShowBrowser] = useState(false);
-  const [recentPaths, setRecentPaths] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<FilesystemEntry[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const inputWrapperRef = useRef<HTMLDivElement>(null);
-
-  // Load recent paths on mount
-  useEffect(() => {
-    setRecentPaths(getRecentPaths());
-  }, []);
 
   // Load filesystem suggestions when value changes
   useEffect(() => {
@@ -94,7 +87,6 @@ export function PathInput({
       }
 
       try {
-        setLoadingSuggestions(true);
         const response = await api.browseFilesystem(pathToBrowse);
 
         if (!response.error && response.entries) {
@@ -121,8 +113,6 @@ export function PathInput({
         }
       } catch {
         setSuggestions([]);
-      } finally {
-        setLoadingSuggestions(false);
       }
     };
 
@@ -153,7 +143,6 @@ export function PathInput({
   const handleSuggestionClick = (entry: FilesystemEntry) => {
     onChange(entry.path);
     addRecentPath(entry.path);
-    setRecentPaths(getRecentPaths());
     setShowSuggestions(false);
     inputRef.current?.focus();
   };
@@ -224,7 +213,6 @@ export function PathInput({
   const handleBrowserSelect = (path: string) => {
     onChange(path);
     addRecentPath(path);
-    setRecentPaths(getRecentPaths());
     setShowBrowser(false);
     setShowSuggestions(false); // Don't show suggestions after browsing
     inputRef.current?.focus();

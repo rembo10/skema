@@ -1,7 +1,6 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { TrackWithCluster, Cluster, TracksStats } from '../types/api';
 import { api } from '../lib/api';
-import toast from 'react-hot-toast';
 import { handleApiError } from '../lib/errors';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { RematchModal } from '../components/identification/RematchModal';
@@ -43,7 +42,6 @@ export default function Tracks() {
     clusterId: number;
   } | null>(null);
   const [viewingTrack, setViewingTrack] = useState<TrackWithCluster | null>(null);
-  const [recordingSearchQuery, setRecordingSearchQuery] = useState('');
   const debouncedSearchQuery = useDebouncedValue(searchQuery);
 
   // Reset offset when search changes
@@ -113,25 +111,6 @@ export default function Tracks() {
 
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
-  };
-
-  // Stats for current page only
-  const pageStats = useMemo(() => {
-    const pageTotal = tracks.length;
-    const matched = tracks.filter(t => t.mb_release_id).length;
-    const unmatched = pageTotal - matched;
-    const locked = tracks.filter(t => t.match_locked).length;
-    return { matched, unmatched, locked };
-  }, [tracks]);
-
-  const handleToggleLock = async (clusterId: number, currentLocked: boolean) => {
-    try {
-      await api.lockCluster(clusterId, !currentLocked);
-      toast.success(currentLocked ? 'Match unlocked' : 'Match locked');
-      loadData();
-    } catch (error) {
-      handleApiError(error, 'Failed to toggle lock');
-    }
   };
 
   const handleOpenCluster = async (track: TrackWithCluster) => {

@@ -1,4 +1,4 @@
-import type { LibraryStats, MetadataDiff, GroupedDiff, MetadataChange, Cluster, CandidateRelease, AcquisitionSource, AcquisitionSummary, WantedAlbum, Config, CatalogQueryResponse, CatalogArtist, ArtistsResponse, CatalogAlbum, Download, DownloadsResponse, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, TrackWithCluster, Task, AlbumOverviewRequest, AlbumOverviewResponse, CatalogAlbumOverview, AlbumTracksResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse, VersionInfo } from '../types/api';
+import type { LibraryStats, MetadataDiff, GroupedDiffsResponse, MetadataChange, MetadataChangesResponse, Cluster, ClustersResponse, ClusterWithTracks, MBTrackInfo, TracksResponse, TracksStats, CandidateRelease, AcquisitionSource, AcquisitionSummary, WantedAlbum, Config, CatalogQueryResponse, CatalogArtist, ArtistsResponse, CatalogAlbum, Download, DownloadsResponse, FilesystemBrowseResponse, QualityProfile, CreateQualityProfileRequest, UpdateQualityProfileRequest, Task, AlbumOverviewRequest, AlbumOverviewResponse, CatalogAlbumOverview, AlbumTracksResponse, AlbumRelease, AlbumReleasesResponse, BulkAlbumActionRequest, QueueDownloadRequest, QueueDownloadResponse, VersionInfo } from '../types/api';
 import { buildQueryString } from './queryBuilder';
 
 // Base path configuration
@@ -263,18 +263,7 @@ export const api = {
     return fetchApi<ClustersResponse>(`/clusters?${query}`);
   },
 
-  async getCluster(clusterId: number): Promise<{
-    cluster: Cluster;
-    tracks: Array<{
-      id: number;
-      path: string;
-      title: string | null;
-      artist: string | null;
-      track_number: number | null;
-      disc_number: number | null;
-      duration: number | null;
-    }>;
-  }> {
+  async getCluster(clusterId: number): Promise<ClusterWithTracks> {
     return fetchApi(`/clusters/${clusterId}`);
   },
 
@@ -350,23 +339,6 @@ export const api = {
     });
   },
 
-  async getClusterWithTracks(clusterId: number): Promise<{
-    cluster: Cluster;
-    tracks: Array<{
-      id: number;
-      path: string;
-      title: string | null;
-      artist: string | null;
-      track_number: number | null;
-      disc_number: number | null;
-      duration: number | null;
-      format: string | null;
-      mb_recording_id: string | null;
-    }>;
-  }> {
-    return fetchApi(`/clusters/${clusterId}`);
-  },
-
   async getAllTracks(offset: number = 0, limit: number = 50, filter?: string, sort?: string, order?: string, search?: string): Promise<TracksResponse> {
     const query = buildQueryString({
       offset,
@@ -399,9 +371,7 @@ export const api = {
     name: string;
     description?: string;
     source_type: string;
-    artist_mbid?: string;
     enabled: boolean;
-    priority: number;
     filters?: string;
     quality_profile_id?: number | null;
   }): Promise<AcquisitionSource> {
@@ -411,9 +381,7 @@ export const api = {
         name: source.name,
         description: source.description,
         type: source.source_type,  // Backend expects 'type'
-        artist_mbid: source.artist_mbid,
         enabled: source.enabled,
-        priority: source.priority,
         filters: source.filters,
         quality_profile_id: source.quality_profile_id,
       }),
@@ -424,9 +392,7 @@ export const api = {
     name: string;
     description?: string;
     source_type: string;
-    artist_mbid?: string;
     enabled: boolean;
-    priority: number;
     filters?: string;
     quality_profile_id?: number | null;
   }): Promise<AcquisitionSource> {
@@ -436,9 +402,7 @@ export const api = {
         name: source.name,
         description: source.description,
         type: source.source_type,  // Backend expects 'type'
-        artist_mbid: source.artist_mbid,
         enabled: source.enabled,
-        priority: source.priority,
         filters: source.filters,
         quality_profile_id: source.quality_profile_id,
       }),

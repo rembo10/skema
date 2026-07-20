@@ -6,7 +6,7 @@ import type { GroupedDiff, MetadataDiff, MetadataChange } from '../types/api';
 import { LibraryNav } from '../components/LibraryNav';
 import { PaginationControls } from '../components/PaginationControls';
 import { LoadingState } from '../components/LoadingState';
-import { DiffsSkeleton, Skeleton } from '../components/LoadingSkeleton';
+import { DiffsSkeleton } from '../components/LoadingSkeleton';
 import { usePagination } from '../hooks/usePagination';
 
 type Tab = 'diffs' | 'history';

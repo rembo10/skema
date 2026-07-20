@@ -1,8 +1,30 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import type { AcquisitionSource, QualityProfile } from '../types/api';
-import { FilterBuilder, type Filters } from './FilterBuilder';
 import { api } from '../lib/api';
+
+interface ReviewScores {
+  metacritic?: { min_score?: number; max_score?: number };
+  pitchfork?: { min_score?: number; max_score?: number };
+  operator?: 'AND' | 'OR';
+}
+
+interface ArtistFilters {
+  include?: string[];
+  exclude?: string[];
+}
+
+export interface Filters {
+  artists?: ArtistFilters;
+  reviews?: ReviewScores;
+  genres?: string[];
+  album_types?: string[];
+  release_status?: string | string[];  // New format: string ("upcoming" | "released" | "both"), or legacy: string[]
+  operator?: 'AND' | 'OR';
+  min_score?: number;  // For Pitchfork
+  min_critic_score?: number;  // For Metacritic
+  min_user_score?: number;  // For Metacritic
+}
 
 interface SourceModalProps {
   isOpen: boolean;
@@ -15,7 +37,6 @@ export interface SourceFormData {
   name: string;
   description: string;
   source_type: 'library_artists' | 'metacritic' | 'pitchfork';
-  artist_mbid?: string;
   enabled: boolean;
   filters?: Filters;
   quality_profile_id?: number | null;
@@ -57,7 +78,6 @@ export function SourceModal({ isOpen, onClose, onSave, source }: SourceModalProp
           name: source.name,
           description: source.description || '',
           source_type: source.source_type as 'library_artists' | 'metacritic' | 'pitchfork',
-          artist_mbid: source.artist_mbid || undefined,
           enabled: source.enabled,
           filters: parsedFilters,
           quality_profile_id: source.quality_profile_id,

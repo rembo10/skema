@@ -81,11 +81,10 @@ export default function AcquisitionSources() {
       if (!source) return;
       await api.updateAcquisitionSource(sourceId, {
         name: source.name,
-        description: source.description,
+        description: source.description ?? undefined,
         source_type: source.source_type,
         enabled: !currentlyEnabled,
-        priority: 0,
-        filters: source.filters,
+        filters: source.filters ?? undefined,
         quality_profile_id: source.quality_profile_id,
       });
       toast.success(currentlyEnabled ? 'Source disabled' : 'Source enabled');
@@ -118,9 +117,7 @@ export default function AcquisitionSources() {
         name: formData.name,
         description: formData.description || undefined,
         source_type: formData.source_type,
-        artist_mbid: formData.artist_mbid,
         enabled: formData.enabled,
-        priority: formData.priority,
         filters: formData.filters ? JSON.stringify(formData.filters) : undefined,
         quality_profile_id: formData.quality_profile_id,
       };
@@ -183,19 +180,6 @@ export default function AcquisitionSources() {
         return 'Pitchfork';
       default:
         return type;
-    }
-  };
-
-  const getSourceTypeColor = (type: string) => {
-    switch (type) {
-      case 'library_artists':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'metacritic':
-        return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'pitchfork':
-        return 'bg-orange-100 text-orange-800 border-orange-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 

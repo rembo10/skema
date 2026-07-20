@@ -106,6 +106,7 @@ export interface ClusterTrack {
   track_number: number | null;
   disc_number: number | null;
   duration: number | null;
+  format: string | null;
   // MusicBrainz recording mapping (from track matching)
   mb_recording_id: string | null;
   mb_recording_title: string | null;

@@ -10,9 +10,6 @@ import {
   Loader2,
   RefreshCw,
   CheckCircle2,
-  Edit2,
-  Save,
-  XCircle,
   AlertTriangle,
   GripVertical,
   Lock,
@@ -168,8 +165,6 @@ export function RematchModal({ cluster, onClose, onUpdate }: RematchModalProps) 
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<CandidateRelease[]>([]);
-  const [editingTrackId, setEditingTrackId] = useState<number | null>(null);
-  const [newRecordingId, setNewRecordingId] = useState('');
   const [mbTracks, setMBTracks] = useState<MBTrackInfo[] | null>(null);
   const [orderedTracks, setOrderedTracks] = useState<(ClusterTrack | null)[]>([]);
   const [matchLocked, setMatchLocked] = useState(cluster.match_locked);
@@ -285,7 +280,7 @@ export function RematchModal({ cluster, onClose, onUpdate }: RematchModalProps) 
     try {
       setLoading(true);
       const [clusterData, candidateData] = await Promise.all([
-        api.getClusterWithTracks(cluster.id),
+        api.getCluster(cluster.id),
         api.getCandidates(cluster.id),
       ]);
       // Update store cache
@@ -358,22 +353,6 @@ export function RematchModal({ cluster, onClose, onUpdate }: RematchModalProps) 
       toast.error(nextLocked ? 'Failed to lock match' : 'Failed to unlock match');
     } finally {
       setLocking(false);
-    }
-  };
-
-  const handleUpdateTrackRecording = async (trackId: number) => {
-    if (!newRecordingId.trim()) return;
-
-    try {
-      await api.updateTrackRecording(cluster.id, trackId, newRecordingId.trim());
-      toast.success('Track recording updated');
-      setEditingTrackId(null);
-      setNewRecordingId('');
-      await loadData();
-      onUpdate();
-    } catch (error) {
-      console.error('Failed to update track recording:', error);
-      toast.error('Failed to update track recording');
     }
   };
 
@@ -591,18 +570,6 @@ export function RematchModal({ cluster, onClose, onUpdate }: RematchModalProps) 
                         <span className="text-dark-text font-mono text-xs">{cluster.mb_release_barcode}</span>
                       </div>
                     )}
-                    {cluster.mb_release_format && (
-                      <div>
-                        <span className="text-dark-text-tertiary">Format:</span>{' '}
-                        <span className="text-dark-text">{cluster.mb_release_format}</span>
-                      </div>
-                    )}
-                    {cluster.mb_release_track_count !== undefined && cluster.mb_release_track_count !== null && (
-                      <div>
-                        <span className="text-dark-text-tertiary">Tracks:</span>{' '}
-                        <span className="text-dark-text">{cluster.mb_release_track_count}</span>
-                      </div>
-                    )}
                     {cluster.mb_confidence && (
                       <div>
                         <span className="text-dark-text-tertiary">Confidence:</span>{' '}
@@ -616,8 +583,8 @@ export function RematchModal({ cluster, onClose, onUpdate }: RematchModalProps) 
                         <span className="text-dark-text-tertiary">Source:</span>{' '}
                         <span className="text-dark-text text-xs">
                           {cluster.match_source === 'auto_fingerprint' ? 'Auto (Fingerprint)' :
-                           cluster.match_source === 'auto' ? 'Auto (Metadata)' :
-                           cluster.match_source === 'manual' ? 'Manual' : cluster.match_source}
+                           cluster.match_source === 'auto_metadata' ? 'Auto (Metadata)' :
+                           'Manual'}
                         </span>
                       </div>
                     )}

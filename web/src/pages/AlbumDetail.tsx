@@ -189,7 +189,7 @@ export default function AlbumDetail() {
 
   const loadLibraryTracks = async (clusterId: number) => {
     try {
-      const resp = await api.getClusterWithTracks(clusterId);
+      const resp = await api.getCluster(clusterId);
       setLibraryTracks(resp.tracks);
     } catch {
       setLibraryTracks([]);

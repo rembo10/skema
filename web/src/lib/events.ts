@@ -1,5 +1,4 @@
 import { getJWT, getApiBase } from './api';
-import type { LibraryStats, Task } from '../types/api';
 
 export type ServerEventType =
   | 'stats'

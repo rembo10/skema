@@ -35,7 +35,7 @@ export function TrackEditModal({
       const recordings = await api.searchRecordings(searchQuery, 25);
       setResults(recordings);
       if (recordings.length === 0) {
-        toast.info('No recordings found');
+        toast('No recordings found');
       }
     } catch (error) {
       console.error('Failed to search recordings:', error);
