@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Cluster, ClusterTrack, CandidateRelease } from '../../types/api';
 import { api } from '../../lib/api';
+import { pluralize } from '../../lib/formatters';
 import toast from 'react-hot-toast';
 import {
   X,
@@ -165,7 +166,7 @@ export function ClusterModal({ clusterId, onClose, onUpdate }: ClusterModalProps
                 {cluster.album_artist || cluster.mb_release_artist || 'Unknown Artist'}
               </p>
               <div className="flex items-center gap-4 mt-2 text-sm text-dark-text-tertiary">
-                <span>{tracks.length} tracks</span>
+                <span>{pluralize(tracks.length, 'track')}</span>
                 {cluster.year && <span>{cluster.year}</span>}
                 {cluster.mb_confidence && (
                   <span className="font-mono">
@@ -358,7 +359,7 @@ export function ClusterModal({ clusterId, onClose, onUpdate }: ClusterModalProps
                         <div className="flex items-center gap-3 mt-1 text-xs text-dark-text-tertiary">
                           {candidate.date && <span>{candidate.date}</span>}
                           {candidate.country && <span>{candidate.country}</span>}
-                          <span>{candidate.track_count} tracks</span>
+                          <span>{pluralize(candidate.track_count, 'track')}</span>
                           <span className="font-mono text-dark-accent">
                             {Math.round(candidate.confidence * 100)}%
                           </span>

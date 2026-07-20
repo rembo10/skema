@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Cluster, ClusterTrack, CandidateRelease, MBTrackInfo } from '../../types/api';
 import { api } from '../../lib/api';
-import { formatTrackDuration, formatTrackDurationMs } from '../../lib/formatters';
+import { formatTrackDuration, formatTrackDurationMs, pluralize } from '../../lib/formatters';
 import { useAppStore } from '../../store';
 import toast from 'react-hot-toast';
 import {
@@ -757,7 +757,7 @@ export function RematchModal({ cluster, onClose, onUpdate }: RematchModalProps) 
                           <div className="flex items-center gap-3 mt-2 text-xs text-dark-text-tertiary flex-wrap">
                             {candidate.date && <span>{candidate.date}</span>}
                             {candidate.country && <span>{candidate.country}</span>}
-                            <span>{candidate.track_count} tracks</span>
+                            <span>{pluralize(candidate.track_count, 'track')}</span>
                             {candidate.barcode && <span className="font-mono">🏷️ {candidate.barcode}</span>}
                             {candidate.label && <span>📀 {candidate.label}</span>}
                             {candidate.catalog_number && <span className="font-mono">#{candidate.catalog_number}</span>}

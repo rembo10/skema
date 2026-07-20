@@ -137,7 +137,13 @@ export const formatRelativeDate = (dateString: string | null): string | null => 
 };
 
 /**
- * Format days until a future date: "Today", "Tomorrow", "5 days", "2 weeks", "1 months"
+ * Pluralize a unit word based on count: "1 month", "2 months"
+ */
+export const pluralize = (count: number, unit: string): string =>
+  `${count} ${unit}${count === 1 ? '' : 's'}`;
+
+/**
+ * Format days until a future date: "Today", "Tomorrow", "5 days", "2 weeks", "1 month"
  */
 export const getDaysUntil = (dateString: string): string => {
   const releaseDate = new Date(dateString);
@@ -148,8 +154,8 @@ export const getDaysUntil = (dateString: string): string => {
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Tomorrow';
   if (diffDays < 7) return `${diffDays} days`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks`;
-  return `${Math.floor(diffDays / 30)} months`;
+  if (diffDays < 30) return pluralize(Math.floor(diffDays / 7), 'week');
+  return pluralize(Math.floor(diffDays / 30), 'month');
 };
 
 /**

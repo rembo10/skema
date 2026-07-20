@@ -4,6 +4,7 @@ import type { AcquisitionSource, AcquisitionSummary } from '../types/api';
 import { Settings, CheckCircle, XCircle, Users, Music, Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { handleApiError } from '../lib/errors';
+import { pluralize } from '../lib/formatters';
 import { useSSEEvent } from '../hooks/useSSEEvent';
 import { SourceModal, type SourceFormData } from '../components/SourceModal';
 import { SourceCardSkeleton } from '../components/LoadingSkeleton';
@@ -360,9 +361,9 @@ export default function AcquisitionSources() {
             <div>
               <h3 className="text-sm font-medium text-dark-text">Acquisition Summary</h3>
               <p className="mt-1 text-sm text-dark-text-secondary">
-                {sources.filter(s => s.enabled).length} of {sources.length} sources enabled • {' '}
-                {summary?.total_artists_followed ?? 0} artists followed • {' '}
-                {summary?.total_albums_wanted ?? 0} albums wanted
+                {sources.filter(s => s.enabled).length} of {pluralize(sources.length, 'source')} enabled • {' '}
+                {pluralize(summary?.total_artists_followed ?? 0, 'artist')} followed • {' '}
+                {pluralize(summary?.total_albums_wanted ?? 0, 'album')} wanted
               </p>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { Cluster } from '../../../types/api';
+import { pluralize } from '../../../lib/formatters';
 import { Disc, Lock, Zap, Search, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface ClusterNodeData {
@@ -72,7 +73,7 @@ export const ClusterNode = memo(({ data }: NodeProps<ClusterNodeData>) => {
 
         {/* Footer */}
         <div className="flex items-center justify-between text-xs text-dark-text-tertiary mt-2 pt-2 border-t border-dark-border">
-          <span>{cluster.track_count} tracks</span>
+          <span>{pluralize(cluster.track_count, 'track')}</span>
           {cluster.year && <span>{cluster.year}</span>}
         </div>
       </div>

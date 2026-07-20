@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { getJWT, setAuthRequired, getApiBase } from '../lib/api';
+import { pluralize } from '../lib/formatters';
 import { useAppStore } from '../store';
 import { emitSSEEvent } from './useSSEEvent';
 
@@ -113,7 +114,7 @@ export function useSSE(enabled: boolean = true) {
         const data = JSON.parse(e.data);
         setCurrentStatus({
           type: 'in_progress',
-          message: `Reading metadata from ${data.files_to_read} files...`,
+          message: `Reading metadata from ${pluralize(data.files_to_read, 'file')}...`,
           progress: { current: 0, total: data.files_to_read },
         });
       });
@@ -131,7 +132,7 @@ export function useSSE(enabled: boolean = true) {
         const data = JSON.parse(e.data);
         setStatusWithTimeout({
           type: 'success',
-          message: `Read metadata from ${data.files_processed} files`,
+          message: `Read metadata from ${pluralize(data.files_processed, 'file')}`,
         }, 3000);
       });
 
@@ -139,7 +140,7 @@ export function useSSE(enabled: boolean = true) {
         const data = JSON.parse(e.data);
         setCurrentStatus({
           type: 'in_progress',
-          message: `Found ${data.total_groups} albums (${data.needs_identification} need identification)`,
+          message: `Found ${pluralize(data.total_groups, 'album')} (${data.needs_identification} need${data.needs_identification === 1 ? 's' : ''} identification)`,
         });
         emitSSEEvent('ClustersGenerated', data);
       });
@@ -149,7 +150,7 @@ export function useSSE(enabled: boolean = true) {
         const data = JSON.parse(e.data);
         setCurrentStatus({
           type: 'in_progress',
-          message: `Identifying ${data.group_count} albums with MusicBrainz...`,
+          message: `Identifying ${pluralize(data.group_count, 'album')} with MusicBrainz...`,
           progress: { current: 0, total: data.group_count },
         });
       });
@@ -167,7 +168,7 @@ export function useSSE(enabled: boolean = true) {
         const data = JSON.parse(e.data);
         setStatusWithTimeout({
           type: 'success',
-          message: `Identified ${data.matches_found}/${data.groups_processed} albums`,
+          message: `Identified ${data.matches_found}/${data.groups_processed} album${data.groups_processed === 1 ? '' : 's'}`,
         }, 5000);
       });
 
@@ -201,7 +202,7 @@ export function useSSE(enabled: boolean = true) {
         emitSSEEvent('GroupedDiffsApplied', data);
         setStatusWithTimeout({
           type: 'success',
-          message: `Applied ${data.diffs_applied} metadata changes to ${data.files_updated} files`,
+          message: `Applied ${pluralize(data.diffs_applied, 'metadata change')} to ${pluralize(data.files_updated, 'file')}`,
         }, 5000);
       });
 
@@ -359,7 +360,7 @@ export function useSSE(enabled: boolean = true) {
           // Show a brief status notification
           setStatusWithTimeout({
             type: 'success',
-            message: `Fetched ${data.release_group_count} albums for ${data.artist_name}`,
+            message: `Fetched ${pluralize(data.release_group_count, 'album')} for ${data.artist_name}`,
           }, 3000);
 
           emitSSEEvent('ArtistDiscographyFetched', data);

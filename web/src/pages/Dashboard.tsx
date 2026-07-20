@@ -291,7 +291,7 @@ export default function Dashboard() {
                         {pct.toFixed(1)}%
                       </span>
                       <span className="text-sm text-dark-text-secondary">
-                        {inLib.toLocaleString()} / {total.toLocaleString()} albums
+                        {inLib.toLocaleString()} / {total.toLocaleString()} album{total === 1 ? '' : 's'}
                       </span>
                     </div>
                     <div className="mt-6 w-full bg-dark-bg-subtle rounded-full h-2 overflow-hidden">

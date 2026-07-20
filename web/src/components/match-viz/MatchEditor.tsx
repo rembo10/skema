@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Cluster, ClusterWithTracks, CandidateRelease, ClusterTrack } from '../../types/api';
 import { api } from '../../lib/api';
+import { pluralize } from '../../lib/formatters';
 import toast from 'react-hot-toast';
 import {
   Music,
@@ -303,7 +304,7 @@ export function MatchEditor({ clusters, onClusterUpdate }: MatchEditorProps) {
                               <div className="flex items-center gap-3 mt-2 text-xs text-dark-text-tertiary">
                                 {candidate.country && <span>{candidate.country}</span>}
                                 {candidate.date && <span>{candidate.date.substring(0, 4)}</span>}
-                                <span>{candidate.track_count} tracks</span>
+                                <span>{pluralize(candidate.track_count, 'track')}</span>
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
