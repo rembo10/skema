@@ -278,7 +278,7 @@ export default function AlbumDetail() {
           <AlertCircle className="mx-auto h-12 w-12 text-dark-error" />
           <h3 className="mt-4 text-lg font-medium text-dark-text">{error || 'Album not found'}</h3>
           <p className="mt-2 text-sm text-dark-text-secondary">
-            The album you're looking for doesn't exist or couldn't be loaded.
+            The album you&apos;re looking for doesn&apos;t exist or couldn&apos;t be loaded.
           </p>
         </div>
       </div>

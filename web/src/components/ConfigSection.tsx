@@ -67,13 +67,13 @@ export function useConfigSchema(): ConfigSchema | null {
 // Field rendering
 // ===================================================================
 
-function isFieldVisible(field: SchemaField, sectionValues: any, showAdvanced: boolean): boolean {
+function isFieldVisible(field: SchemaField, sectionValues: Record<string, unknown> | undefined, showAdvanced: boolean): boolean {
   if (field.advanced && !showAdvanced) return false;
   if (field.depends_on && sectionValues && !sectionValues[field.depends_on]) return false;
   if (
     field.depends_on_value &&
     sectionValues &&
-    !field.depends_on_value.values.includes(sectionValues[field.depends_on_value.field])
+    !field.depends_on_value.values.includes(sectionValues[field.depends_on_value.field] as string)
   )
     return false;
   return true;
@@ -90,8 +90,8 @@ export function GroupHeader({ title }: { title: string }) {
 interface FieldProps {
   section: keyof Config;
   field: SchemaField;
-  value: any;
-  onChange: (section: keyof Config, field: string, value: any) => void;
+  value: unknown;
+  onChange: (section: keyof Config, field: string, value: unknown) => void;
 }
 
 function ConfigField({ section, field, value, onChange }: FieldProps) {
@@ -108,7 +108,7 @@ function ConfigField({ section, field, value, onChange }: FieldProps) {
           <input
             id={id}
             type="checkbox"
-            checked={value ?? false}
+            checked={value === true}
             onChange={(e) => onChange(section, field.name, e.target.checked)}
             className="mt-0.5 h-4 w-4 rounded border-dark-border bg-dark-bg-subtle text-dark-accent focus:ring-dark-accent focus:ring-offset-dark-bg-elevated"
           />
@@ -126,7 +126,7 @@ function ConfigField({ section, field, value, onChange }: FieldProps) {
           <input
             type="number"
             id={id}
-            value={value ?? ''}
+            value={typeof value === 'number' ? value : ''}
             onChange={(e) => onChange(section, field.name, e.target.value ? parseInt(e.target.value) : null)}
             className="input w-48"
           />
@@ -139,7 +139,7 @@ function ConfigField({ section, field, value, onChange }: FieldProps) {
         <PathInput
           id={id}
           label={label}
-          value={value || ''}
+          value={typeof value === 'string' ? value : ''}
           onChange={(v) => onChange(section, field.name, v)}
           type="directory"
           description={field.description}
@@ -151,7 +151,7 @@ function ConfigField({ section, field, value, onChange }: FieldProps) {
         <UrlInput
           id={id}
           label={label}
-          value={value || ''}
+          value={typeof value === 'string' ? value : ''}
           onChange={(v) => onChange(section, field.name, v)}
           description={field.description}
           placeholder="localhost:5000"
@@ -166,7 +166,7 @@ function ConfigField({ section, field, value, onChange }: FieldProps) {
           <label htmlFor={id} className="block text-sm font-medium text-dark-text mb-2">{label}</label>
           <select
             id={id}
-            value={value || ''}
+            value={typeof value === 'string' ? value : ''}
             onChange={(e) => onChange(section, field.name, e.target.value)}
             className="input w-64"
           >
@@ -190,7 +190,7 @@ function ConfigField({ section, field, value, onChange }: FieldProps) {
           <input
             type={field.sensitive ? 'password' : 'text'}
             id={id}
-            value={value || ''}
+            value={typeof value === 'string' ? value : ''}
             onChange={(e) => onChange(section, field.name, e.target.value || null)}
             className="input w-64"
           />
@@ -207,7 +207,7 @@ function ConfigField({ section, field, value, onChange }: FieldProps) {
 interface ConfigSectionProps {
   section: keyof Config;
   config: Config;
-  onChange: (section: keyof Config, field: string, value: any) => void;
+  onChange: (section: keyof Config, field: string, value: unknown) => void;
   showAdvanced?: boolean;
   /** Field names rendered elsewhere with custom logic (e.g. server password) */
   exclude?: string[];
@@ -220,7 +220,7 @@ export function ConfigSection({ section, config, onChange, showAdvanced = false,
   const sectionSchema = schema[String(section)];
   if (!sectionSchema) return null;
 
-  const sectionValues = config[section] as any;
+  const sectionValues = config[section] as unknown as Record<string, unknown> | undefined;
   const fields = sectionSchema.fields.filter(
     (f) => !exclude.includes(f.name) && f.type.type !== 'list' && f.type.type !== 'object'
   );

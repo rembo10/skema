@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { api } from '../lib/api';
 import { handleApiError } from '../lib/errors';
@@ -24,25 +24,26 @@ export default function MetadataDiffs() {
 
   // Pagination
   const pagination = usePagination(ITEMS_PER_PAGE);
+  const { offset, setTotalCount } = pagination;
   const [groupedDiffs, setGroupedDiffs] = useState<GroupedDiff[]>([]);
 
-  // Load diffs on mount and when offset changes
-  useEffect(() => {
-    loadDiffs();
-  }, [pagination.offset]);
-
-  async function loadDiffs() {
+  const loadDiffs = useCallback(async () => {
     setLoadingDiffs(true);
     try {
-      const response = await api.getGroupedDiffs(pagination.offset, ITEMS_PER_PAGE);
+      const response = await api.getGroupedDiffs(offset, ITEMS_PER_PAGE);
       setGroupedDiffs(response.diffs);
-      pagination.setTotalCount(response.pagination?.total ?? 0);
+      setTotalCount(response.pagination?.total ?? 0);
     } catch (error) {
       handleApiError(error, 'Failed to load metadata diffs');
     } finally {
       setLoadingDiffs(false);
     }
-  }
+  }, [offset, setTotalCount]);
+
+  // Load diffs on mount and when offset changes
+  useEffect(() => {
+    loadDiffs();
+  }, [loadDiffs]);
 
   // Load changes history when switching to history tab
   useEffect(() => {

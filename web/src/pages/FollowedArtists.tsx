@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatDate } from '../lib/formatters';
@@ -37,11 +37,6 @@ export default function FollowedArtists() {
     resetOffset();
   }, [debouncedSearchQuery, sortField, sortOrder, resetOffset]);
 
-  // Load data when offset, search, or sort changes
-  useEffect(() => {
-    loadData();
-  }, [offset, debouncedSearchQuery, sortField, sortOrder]);
-
   // SSE: album cover fetched — update local albums
   useSSEEvent<{ release_group_mbid: string; cover_url: string; thumbnail_url: string | null }>('AlbumCoverFetched', (data) => {
     setAlbums(prev => prev.map(a =>
@@ -76,7 +71,7 @@ export default function FollowedArtists() {
     ));
   });
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       // Load followed artists with embedded album data, using backend search and sorting
@@ -119,7 +114,12 @@ export default function FollowedArtists() {
       setLoading(false);
       setInitialLoading(false);
     }
-  };
+  }, [offset, debouncedSearchQuery, sortField, sortOrder, setTotalCount]);
+
+  // Load data when offset, search, or sort changes
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   // Backend now handles filtering and sorting, so we just display what we get
   const displayedArtists = artists;

@@ -23,7 +23,7 @@ function RecentlyFollowedArtistsComponent({ artists }: RecentlyFollowedArtistsPr
         <div>
           <h2 className="text-lg font-semibold text-dark-text">Recently Followed</h2>
           <p className="mt-1 text-sm text-dark-text-secondary">
-            Artists you're following for new releases
+            Artists you&apos;re following for new releases
           </p>
         </div>
         <Link to="/artists" className="link text-sm">View all →</Link>

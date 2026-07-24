@@ -57,11 +57,9 @@ export class EventSource {
       : this.url;
 
     try {
-      console.log('[SSE] Connecting to event stream...');
       this.eventSource = new globalThis.EventSource(url);
 
       this.eventSource.onopen = () => {
-        console.log('[SSE] Connected');
         this.reconnectDelay = 3000; // Reset reconnect delay on successful connection
       };
 
@@ -75,10 +73,6 @@ export class EventSource {
         this.eventSource!.addEventListener(eventType, (event: MessageEvent) => {
           try {
             const data = JSON.parse(event.data);
-            // Only log non-heartbeat events to reduce noise
-            if (eventType !== 'Heartbeat') {
-              console.log(`[SSE] Received ${eventType} event:`, data);
-            }
             this.emit({ type: eventType, data });
           } catch (err) {
             console.error(`[SSE] Failed to parse ${eventType} event:`, err);
@@ -114,7 +108,6 @@ export class EventSource {
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
-      console.log('[SSE] Disconnected');
     }
   }
 
@@ -125,7 +118,7 @@ export class EventSource {
     this.disconnect();
 
     // Schedule reconnect with exponential backoff
-    console.log(`[SSE] Reconnecting in ${this.reconnectDelay}ms...`);
+    console.warn(`[SSE] Reconnecting in ${this.reconnectDelay}ms...`);
     this.reconnectTimeout = window.setTimeout(() => {
       this.connect();
       // Increase delay for next time (up to max)

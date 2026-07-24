@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Cluster, ClustersStats } from '../types/api';
 import { api } from '../lib/api';
 import { handleApiError } from '../lib/errors';
@@ -44,24 +44,18 @@ export default function Clusters() {
   const [rematchingCluster, setRematchingCluster] = useState<Cluster | null>(null);
   const [lockingClusterId, setLockingClusterId] = useState<number | null>(null);
   const pagination = usePagination(ITEMS_PER_PAGE);
+  const { offset, resetOffset, setTotalCount } = pagination;
 
   // Reset offset when filters change
   useEffect(() => {
-    pagination.resetOffset();
-  }, [debouncedSearchQuery, filterStatus, sortField, sortDirection]);
+    resetOffset();
+  }, [debouncedSearchQuery, filterStatus, sortField, sortDirection, resetOffset]);
 
-  useEffect(() => {
-    loadData();
-  }, [pagination.offset, debouncedSearchQuery, filterStatus, sortField, sortDirection]);
-
-  // Keep the list and global stats live as clusters are generated/identified/rematched.
-  useSSERefresh(CLUSTER_REFRESH_EVENTS, () => loadData());
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const response = await api.getClusters(
-        pagination.offset,
+        offset,
         ITEMS_PER_PAGE,
         debouncedSearchQuery || undefined,
         filterStatus === 'all' ? undefined : filterStatus,
@@ -70,14 +64,21 @@ export default function Clusters() {
       );
       setClusters(response.clusters);
       setStats(response.stats);
-      pagination.setTotalCount(response.pagination.total);
+      setTotalCount(response.pagination.total);
     } catch (error) {
       handleApiError(error, 'Failed to load clusters');
     } finally {
       setLoading(false);
       setInitialLoading(false);
     }
-  };
+  }, [offset, debouncedSearchQuery, filterStatus, sortField, sortDirection, setTotalCount]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Keep the list and global stats live as clusters are generated/identified/rematched.
+  useSSERefresh(CLUSTER_REFRESH_EVENTS, () => loadData());
 
   const handleToggleLock = async (cluster: Cluster) => {
     const nextLocked = !cluster.match_locked;

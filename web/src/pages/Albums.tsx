@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatDate } from '../lib/formatters';
@@ -88,6 +88,7 @@ export default function Albums() {
   const { sortBy, sortOrder, qualityFilter, statusFilter, upcomingFilter, quickFilter, searchFilter } = filterState;
 
   const pagination = usePagination(ITEMS_PER_PAGE);
+  const { offset, resetOffset, setTotalCount } = pagination;
   const [showReleasesModal, setShowReleasesModal] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<CatalogAlbumOverview | null>(null);
   const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([]);
@@ -104,17 +105,59 @@ export default function Albums() {
     if (stateParam || releaseDateAfter) {
       pendingUrlParams.current = true;
       applyUrlParams(stateParam, releaseDateAfter);
-      pagination.resetOffset();
+      resetOffset();
       setSearchParams({}, { replace: true });
     }
     urlParamsInitialized.current = true;
-  }, [searchParams, applyUrlParams]); // React to URL param changes
+  }, [searchParams, applyUrlParams, resetOffset, setSearchParams]); // React to URL param changes
 
   // Sync debounced search to filter state
   useEffect(() => {
     setSearchFilter(debouncedSearchInput);
-    pagination.resetOffset();
-  }, [debouncedSearchInput, setSearchFilter]);
+    resetOffset();
+  }, [debouncedSearchInput, setSearchFilter, resetOffset]);
+
+  const loadAlbums = useCallback(async () => {
+    // Only show full loading spinner on very first load
+    if (!initialLoadComplete.current) {
+      setLoading(true);
+    } else {
+      // Show table loading overlay for subsequent loads
+      setTableLoading(true);
+    }
+    try {
+      const effectiveStateFilter: AlbumState[] | undefined = statusFilter.length > 0 ? statusFilter : undefined;
+      const effectiveUpcomingFilter: string | undefined = upcomingFilter ? 'today' : undefined;
+
+      const request: AlbumOverviewRequest = {
+        offset,
+        limit: ITEMS_PER_PAGE,
+        search: searchFilter || undefined,
+        sort: sortBy,
+        order: sortOrder,
+        state: effectiveStateFilter,
+        quality: qualityFilter.length > 0 ? qualityFilter : undefined,
+        release_date_after: effectiveUpcomingFilter,
+      };
+
+      const response = await api.getAlbumOverview(request);
+
+      if (!response || !response.pagination) {
+        console.error('Invalid response structure:', response);
+        toast.error('Invalid response from server');
+        return;
+      }
+
+      setAlbums(response.albums || []);
+      setTotalCount(response.pagination.total);
+      initialLoadComplete.current = true;
+    } catch (error) {
+      handleApiError(error, 'Failed to load albums');
+    } finally {
+      setLoading(false);
+      setTableLoading(false);
+    }
+  }, [offset, searchFilter, sortBy, sortOrder, qualityFilter, statusFilter, upcomingFilter, setTotalCount]);
 
   useEffect(() => {
     if (!urlParamsInitialized.current) return;
@@ -128,7 +171,7 @@ export default function Albums() {
     loadAlbums();
     // Clear selections when filters change
     setSelectedAlbumIds(new Set());
-  }, [pagination.offset, searchFilter, sortBy, sortOrder, qualityFilter, statusFilter, upcomingFilter]);
+  }, [loadAlbums]);
 
   useEffect(() => {
     loadQualityProfiles();
@@ -178,48 +221,6 @@ export default function Albums() {
       setDefaultProfile(defaultProf);
     } catch (error) {
       handleApiError(error, 'Failed to load quality profiles');
-    }
-  };
-
-  const loadAlbums = async () => {
-    // Only show full loading spinner on very first load
-    if (!initialLoadComplete.current) {
-      setLoading(true);
-    } else {
-      // Show table loading overlay for subsequent loads
-      setTableLoading(true);
-    }
-    try {
-      const effectiveStateFilter: AlbumState[] | undefined = statusFilter.length > 0 ? statusFilter : undefined;
-      const effectiveUpcomingFilter: string | undefined = upcomingFilter ? 'today' : undefined;
-
-      const request: AlbumOverviewRequest = {
-        offset: pagination.offset,
-        limit: ITEMS_PER_PAGE,
-        search: searchFilter || undefined,
-        sort: sortBy,
-        order: sortOrder,
-        state: effectiveStateFilter,
-        quality: qualityFilter.length > 0 ? qualityFilter : undefined,
-        release_date_after: effectiveUpcomingFilter,
-      };
-
-      const response = await api.getAlbumOverview(request);
-
-      if (!response || !response.pagination) {
-        console.error('Invalid response structure:', response);
-        toast.error('Invalid response from server');
-        return;
-      }
-
-      setAlbums(response.albums || []);
-      pagination.setTotalCount(response.pagination.total);
-      initialLoadComplete.current = true;
-    } catch (error) {
-      handleApiError(error, 'Failed to load albums');
-    } finally {
-      setLoading(false);
-      setTableLoading(false);
     }
   };
 

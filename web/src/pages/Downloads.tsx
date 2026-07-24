@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { api } from '../lib/api';
 import { formatBytes, formatDateTime } from '../lib/formatters';
 import type { Download } from '../types/api';
@@ -23,10 +23,23 @@ export default function Downloads() {
   const connectionStatus = useAppStore((state) => state.connectionStatus);
   const prevConnectionStatus = useRef(connectionStatus);
 
+  const loadDownloads = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await api.getAllDownloads(offset, ITEMS_PER_PAGE);
+      setDownloads(response.downloads);
+      setTotalCount(response.pagination.total);
+    } catch (error) {
+      handleApiError(error, 'Failed to load downloads');
+    } finally {
+      setLoading(false);
+    }
+  }, [offset, setTotalCount]);
+
   // Load downloads on mount and when offset changes
   useEffect(() => {
     loadDownloads();
-  }, [offset]);
+  }, [loadDownloads]);
 
   // Reload downloads when SSE reconnects after disconnection
   useEffect(() => {
@@ -34,7 +47,7 @@ export default function Downloads() {
       loadDownloads();
     }
     prevConnectionStatus.current = connectionStatus;
-  }, [connectionStatus]);
+  }, [connectionStatus, loadDownloads]);
 
   // SSE: download started
   useSSEEvent<{ download_id: number; download_title: string }>('DownloadStarted', (data) => {
@@ -101,19 +114,6 @@ export default function Downloads() {
         : d
     ));
   });
-
-  const loadDownloads = async () => {
-    try {
-      setLoading(true);
-      const response = await api.getAllDownloads(offset, ITEMS_PER_PAGE);
-      setDownloads(response.downloads);
-      setTotalCount(response.pagination.total);
-    } catch (error) {
-      handleApiError(error, 'Failed to load downloads');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleDelete = async (download: Download) => {
     if (!confirm(`Delete ${download.title} from history?`)) return;

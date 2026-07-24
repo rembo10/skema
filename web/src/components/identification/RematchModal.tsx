@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Cluster, ClusterTrack, CandidateRelease, MBTrackInfo } from '../../types/api';
 import { api } from '../../lib/api';
 import { formatTrackDuration, formatTrackDurationMs, pluralize } from '../../lib/formatters';
@@ -171,8 +171,28 @@ export function RematchModal({ cluster, onClose, onUpdate }: RematchModalProps) 
   const [locking, setLocking] = useState(false);
 
   // Use cached data or fetch if not available
-  const tracks = cachedTracks || [];
+  const tracks = useMemo(() => cachedTracks || [], [cachedTracks]);
   const candidates = cachedCandidates || [];
+
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [clusterData, candidateData] = await Promise.all([
+        api.getCluster(cluster.id),
+        api.getCandidates(cluster.id),
+      ]);
+      // Update store cache
+      setClusterTracks(cluster.id, clusterData.tracks);
+      setClusterCandidates(cluster.id, candidateData);
+      // Set MB tracks
+      setMBTracks(clusterData.mb_tracks);
+    } catch (error) {
+      console.error('Failed to load data:', error);
+      toast.error('Failed to load cluster data');
+    } finally {
+      setLoading(false);
+    }
+  }, [cluster.id, setClusterTracks, setClusterCandidates]);
 
   // Initialize ordered tracks aligned with MB tracks based on recording_id matches
   useEffect(() => {
@@ -211,7 +231,7 @@ export function RematchModal({ cluster, onClose, onUpdate }: RematchModalProps) 
     if (!cachedTracks || !cachedCandidates) {
       loadData();
     }
-  }, [cluster.id, cachedTracks, cachedCandidates]);
+  }, [cachedTracks, cachedCandidates, loadData]);
 
   // Auto-save track mappings when order changes
   useEffect(() => {
@@ -275,26 +295,6 @@ export function RematchModal({ cluster, onClose, onUpdate }: RematchModalProps) 
 
     saveUpdates();
   }, [orderedTracks, mbTracks, cluster.id, tracks, setClusterTracks]);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const [clusterData, candidateData] = await Promise.all([
-        api.getCluster(cluster.id),
-        api.getCandidates(cluster.id),
-      ]);
-      // Update store cache
-      setClusterTracks(cluster.id, clusterData.tracks);
-      setClusterCandidates(cluster.id, candidateData);
-      // Set MB tracks
-      setMBTracks(clusterData.mb_tracks);
-    } catch (error) {
-      console.error('Failed to load data:', error);
-      toast.error('Failed to load cluster data');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleRefreshCandidates = async () => {
     try {

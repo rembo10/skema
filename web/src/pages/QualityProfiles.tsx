@@ -383,7 +383,7 @@ function DeleteConfirmModal({ profile, onClose, onConfirm }: DeleteConfirmModalP
       <div className="bg-dark-bg-elevated rounded-xl border border-dark-border max-w-md w-full p-6">
         <h2 className="text-xl font-semibold text-dark-text mb-3">Delete Quality Profile</h2>
         <p className="text-dark-text-secondary mb-6">
-          Are you sure you want to delete the profile <span className="font-medium text-dark-text">"{profile.name}"</span>?
+          Are you sure you want to delete the profile <span className="font-medium text-dark-text">&quot;{profile.name}&quot;</span>?
           This action cannot be undone.
         </p>
         <div className="flex items-center justify-end gap-3">

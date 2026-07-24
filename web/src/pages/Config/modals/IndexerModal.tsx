@@ -136,7 +136,7 @@ export function IndexerModal({
         </div>
         <div className="ml-3">
           <label className="text-sm font-medium text-dark-text">Normalize Queries</label>
-          <p className="text-sm text-dark-text-secondary">Remove special characters from searches (e.g., "AC/DC" to "ACDC"). Enable for older indexers that don't handle special characters well. Modern indexers like Bullet should keep this disabled.</p>
+          <p className="text-sm text-dark-text-secondary">Remove special characters from searches (e.g., &quot;AC/DC&quot; to &quot;ACDC&quot;). Enable for older indexers that don&apos;t handle special characters well. Modern indexers like Bullet should keep this disabled.</p>
         </div>
       </div>
     </Modal>

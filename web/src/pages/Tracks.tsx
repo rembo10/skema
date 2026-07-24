@@ -35,6 +35,7 @@ export default function Tracks() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const pagination = usePagination(ITEMS_PER_PAGE);
+  const { offset, resetOffset, setTotalCount } = pagination;
   const [selectedCluster, setSelectedCluster] = useState<Cluster | null>(null);
   const [editingTrack, setEditingTrack] = useState<{
     id: number;
@@ -46,33 +47,23 @@ export default function Tracks() {
 
   // Reset offset when search changes
   useEffect(() => {
-    pagination.resetOffset();
-  }, [debouncedSearchQuery]);
+    resetOffset();
+  }, [debouncedSearchQuery, resetOffset]);
 
-  // Load stats once on mount
-  useEffect(() => {
-    loadStats();
-  }, []);
-
-  // Load tracks when parameters change
-  useEffect(() => {
-    loadTracks();
-  }, [pagination.offset, filterStatus, sortField, sortDirection, debouncedSearchQuery]);
-
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       const statsResponse = await api.getTracksStats();
       setStats(statsResponse);
     } catch (error) {
       handleApiError(error, 'Failed to load stats');
     }
-  };
+  }, []);
 
-  const loadTracks = async () => {
+  const loadTracks = useCallback(async () => {
     try {
       setLoading(true);
       const tracksResponse = await api.getAllTracks(
-        pagination.offset,
+        offset,
         ITEMS_PER_PAGE,
         filterStatus,
         sortField,
@@ -80,17 +71,27 @@ export default function Tracks() {
         debouncedSearchQuery || undefined
       );
       setTracks(tracksResponse.tracks);
-      pagination.setTotalCount(tracksResponse.pagination.total);
+      setTotalCount(tracksResponse.pagination.total);
     } catch (error) {
       handleApiError(error, 'Failed to load tracks');
     } finally {
       setLoading(false);
     }
-  };
+  }, [offset, filterStatus, sortField, sortDirection, debouncedSearchQuery, setTotalCount]);
+
+  // Load stats once on mount
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
+
+  // Load tracks when parameters change
+  useEffect(() => {
+    loadTracks();
+  }, [loadTracks]);
 
   const loadData = useCallback(async () => {
     await Promise.all([loadTracks(), loadStats()]);
-  }, [loadTracks]);
+  }, [loadTracks, loadStats]);
 
   // Search is now handled server-side along with filter and sort
   const filteredRows = tracks;

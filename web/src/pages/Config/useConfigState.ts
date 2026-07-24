@@ -127,9 +127,7 @@ export function useConfigState(): [ConfigState, ConfigActions] {
   useEffect(() => {
     async function loadConfig() {
       try {
-        console.log('[Config] Loading config...');
         const data = await api.getConfig();
-        console.log('[Config] Loaded config:', data);
         setConfig(data);
         setFormData(data);
         setServerPassword('');
@@ -151,7 +149,6 @@ export function useConfigState(): [ConfigState, ConfigActions] {
 
   // Listen for config updates via SSE event bus
   useSSEEvent<Config>('ConfigUpdated', (data) => {
-    console.log('[Config] Received config update:', data);
     setConfig(data);
     toast.success('Configuration saved');
   });

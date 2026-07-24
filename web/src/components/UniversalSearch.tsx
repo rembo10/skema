@@ -208,7 +208,7 @@ export default function UniversalSearch() {
 
             {!loading && !error && query && artists.length === 0 && albums.length === 0 && (
               <div className="py-8 text-center text-sm text-dark-text-secondary">
-                No results found for "{query}"
+                No results found for &quot;{query}&quot;
               </div>
             )}
 

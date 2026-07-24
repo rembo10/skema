@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { formatDate, formatTimeAgo } from '../lib/formatters';
@@ -21,10 +21,6 @@ export default function ArtistDetail() {
   const [albums, setAlbums] = useState<CatalogAlbum[]>([]);
 
   const artist = localArtist;
-
-  useEffect(() => {
-    loadArtistData();
-  }, [id]);
 
   useEffect(() => {
     loadQualityProfiles();
@@ -115,7 +111,7 @@ export default function ArtistDetail() {
     }
   };
 
-  const loadArtistData = async () => {
+  const loadArtistData = useCallback(async () => {
     if (!id) {
       setError('No artist ID provided');
       setLoading(false);
@@ -154,7 +150,11 @@ export default function ArtistDetail() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    loadArtistData();
+  }, [loadArtistData]);
 
   const handleUnfollowArtist = async () => {
     if (!artist?.id) return;
@@ -336,7 +336,7 @@ export default function ArtistDetail() {
           <AlertCircle className="mx-auto h-12 w-12 text-dark-error" />
           <h3 className="mt-4 text-lg font-medium text-dark-text">{error || 'Artist not found'}</h3>
           <p className="mt-2 text-sm text-dark-text-secondary">
-            The artist you're looking for doesn't exist or couldn't be loaded.
+            The artist you&apos;re looking for doesn&apos;t exist or couldn&apos;t be loaded.
           </p>
         </div>
       </div>
@@ -528,7 +528,7 @@ export default function ArtistDetail() {
             <Disc className="mx-auto h-12 w-12 text-dark-text-tertiary" />
             <h3 className="mt-4 text-sm font-medium text-dark-text">No albums found</h3>
             <p className="mt-2 text-sm text-dark-text-secondary">
-              This artist doesn't have any albums in the catalog yet.
+              This artist doesn&apos;t have any albums in the catalog yet.
             </p>
           </div>
         ) : (
