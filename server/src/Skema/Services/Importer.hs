@@ -508,11 +508,17 @@ importDownload config clock le bus pool mbClientEnv downloadRec catalogAlbum = d
                   -- Compute and store cluster quality from track audio metadata
                   updateClusterQuality conn clusterId
 
-                -- 13. Link download to cluster and set library path
+                -- 13. Link download to cluster and set library path. Also sync
+                -- the download's quality to the cluster's file-derived quality:
+                -- the grab-time value was parsed from the release title, which
+                -- may carry no quality markers (-> "unknown"), while the files
+                -- themselves are ground truth after import.
                 liftIO $ withConnection pool $ \conn ->
                   executeQuery conn
-                    "UPDATE downloads SET matched_cluster_id = ?, library_path = ? WHERE id = ?"
-                    (clusterId, dirPath, DB.downloadId downloadRec)
+                    "UPDATE downloads SET matched_cluster_id = ?, library_path = ?, \
+                    \quality = COALESCE((SELECT quality FROM clusters WHERE id = ?), quality) \
+                    \WHERE id = ?"
+                    (clusterId, dirPath, clusterId, DB.downloadId downloadRec)
 
                 -- 14. Link the cluster to the catalog album. This is the single
                 -- source of truth for "album is in library"; the API derives
