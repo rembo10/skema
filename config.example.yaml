@@ -43,7 +43,7 @@ system:
 server:
   # HTTP server configuration
   # Server bind address
-  host: 0.0.0.0
+  host: 127.0.0.1
   # Server port
   port: 8182
   # Username for API authentication (required)
