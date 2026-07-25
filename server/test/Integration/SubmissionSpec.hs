@@ -23,19 +23,20 @@ import Helpers.Builders (seedCatalogAlbum)
 
 import Skema.Clock (fixedClock)
 import Skema.Database.Connection (withConnection)
-import Skema.Database.Repository (getDownloadById)
+import Skema.Database.Repository (getDownloadById, insertDownload)
 import Skema.Database.Types (DownloadRecord(..), DownloadStatus(..))
 import Skema.Events.Bus (subscribe)
 import Skema.Events.Types (Event(..))
 import qualified Skema.Domain.Quality as Quality
 import Skema.Config.Types (Config(..), DownloadConfig(..), SlskdConfig(..), defaultConfig)
 import Skema.Indexer.Types (ReleaseInfo(..), DownloadType(..), SlskdFile(..))
-import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
+import Skema.Services.Download.Submission (submitDownload, SubmissionMode(..), DownloadSubmissionContext(..))
 
 tests :: TestTree
 tests = testGroup "Integration.Submission"
   [ testCase "slskd submission persists a download stamped with the injected clock" testSlskdSubmitStampsClock
   , testCase "submitDownload skips when an active download already exists" testDuplicatePrevention
+  , testCase "submitDownload refuses a previously failed release unless forced" testFailedReleaseGuard
   ]
 
 -- | A frozen instant used as the injected "now".
@@ -116,7 +117,7 @@ testSlskdSubmitStampsClock = withTestEnvMock [slskdQueueMatcher] $ \env -> do
   albumId <- seedAlbum env
   eventChan <- STM.atomically $ subscribe (teEventBus env)
 
-  result <- submitDownload (mkContext env) testRelease albumId
+  result <- submitDownload (mkContext env) AutoSubmit testRelease albumId
 
   case result of
     Nothing -> assertFailure "expected submitDownload to return Just downloadId"
@@ -140,9 +141,29 @@ testDuplicatePrevention = withTestEnvMock [slskdQueueMatcher] $ \env -> do
   let ctx = mkContext env
 
   -- First submission succeeds and leaves an active ("downloading") download.
-  firstResult <- submitDownload ctx testRelease albumId
+  firstResult <- submitDownload ctx AutoSubmit testRelease albumId
   assertBool "first submission should succeed" (isJust firstResult)
 
   -- Second submission for the same album is skipped (no duplicate row).
-  secondResult <- submitDownload ctx testRelease albumId
+  secondResult <- submitDownload ctx AutoSubmit testRelease albumId
   secondResult @?= Nothing
+
+testFailedReleaseGuard :: IO ()
+testFailedReleaseGuard = withTestEnvMock [slskdQueueMatcher] $ \env -> do
+  albumId <- seedAlbum env
+  let ctx = mkContext env
+
+  -- Record a failed download carrying the same identity this release gets
+  -- at persist time (slskd rows store "username:title" as download_url).
+  _ <- withConnection (tePool env) $ \conn ->
+    insertDownload conn (Just albumId) "slskd" "testuser:Test Album" "slskd"
+      Nothing "failed" Nothing "Test Album" Nothing Nothing Nothing Nothing
+      0.0 (Just "verification failed") fixedTime
+
+  -- Automatic submission refuses the broken release.
+  autoResult <- submitDownload ctx AutoSubmit testRelease albumId
+  autoResult @?= Nothing
+
+  -- A forced (manual) submission goes through.
+  forcedResult <- submitDownload ctx ForceSubmit testRelease albumId
+  assertBool "forced submission should succeed" (isJust forcedResult)

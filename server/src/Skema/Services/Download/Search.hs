@@ -19,7 +19,8 @@ module Skema.Services.Download.Search
 import Skema.Services.Types (ServiceContext(..))
 import Skema.Services.EventLoop (JobMode(..), runEventService)
 import Skema.Domain.Scoring (scoreRelease, rankReleases)
-import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
+import Skema.Services.Download.Submission (submitDownload, SubmissionMode(..), DownloadSubmissionContext(..))
+import Skema.Domain.Download (releaseFailureKey)
 import Skema.Events.Bus
 import Skema.Events.Types
 import Skema.Database.Connection
@@ -66,7 +67,7 @@ startSearchOrchestrator :: ServiceContext -> IO (Async ())
 startSearchOrchestrator deps =
   runEventService (scLogEnv deps) (scEventBus deps) "download.search" Concurrent $ \case
     WantedAlbumAdded{..} ->
-      Just $ handleWantedAlbumAdded deps wantedCatalogAlbumId wantedReleaseGroupId wantedAlbumTitle wantedArtistName Set.empty
+      Just $ handleWantedAlbumAdded deps wantedCatalogAlbumId wantedReleaseGroupId wantedAlbumTitle wantedArtistName
     DownloadFailed{..} ->
       Just $ handleDownloadFailed deps downloadId
     _ -> Nothing
@@ -104,23 +105,17 @@ handleDownloadFailed deps@ServiceContext{..} failedDownloadId = do
           Nothing -> runKatipContextT le () "download.search" $
             $(logTM) WarningS $ logStr $ ("Cannot retry: catalog album " <> show albumId <> " not found" :: Text)
           Just album -> do
-            -- Get all previously failed URLs to exclude
-            excludedUrls <- withConnection pool $ \conn ->
-              getFailedDownloadUrlsForAlbum conn albumId
-            let excluded = Set.fromList excludedUrls
-
             runKatipContextT le () "download.search" $
-              $(logTM) InfoS $ logStr $ ("Auto-retrying search for " <> DB.catalogAlbumTitle album <> " (attempt " <> show failedCount <> "/" <> show maxAutoRetries <> ", excluding " <> show (Set.size excluded) <> " URLs)" :: Text)
+              $(logTM) InfoS $ logStr $ ("Auto-retrying search for " <> DB.catalogAlbumTitle album <> " (attempt " <> show failedCount <> "/" <> show maxAutoRetries <> ")" :: Text)
 
             handleWantedAlbumAdded deps albumId
               (DB.catalogAlbumReleaseGroupMBID album)
               (DB.catalogAlbumTitle album)
               (DB.catalogAlbumArtistName album)
-              excluded
 
 -- | Handle a wanted album added event by searching indexers.
-handleWantedAlbumAdded :: ServiceContext -> Int64 -> Text -> Text -> Text -> Set.Set Text -> IO ()
-handleWantedAlbumAdded ServiceContext{..} catalogAlbumId releaseGroupId albumTitle artistName excludedUrls = do
+handleWantedAlbumAdded :: ServiceContext -> Int64 -> Text -> Text -> Text -> IO ()
+handleWantedAlbumAdded ServiceContext{..} catalogAlbumId releaseGroupId albumTitle artistName = do
   let le = scLogEnv
   let pool = scDbPool
   let bus = scEventBus
@@ -220,10 +215,14 @@ handleWantedAlbumAdded ServiceContext{..} catalogAlbumId releaseGroupId albumTit
                       in meetsRequirement && isUpgrade
                       ) releasesWithSource
 
-              -- Exclude previously failed URLs (for auto-retry)
+              -- Exclude releases that previously failed for this album so a
+              -- broken release can't be re-grabbed by any automatic search.
+              excludedUrls <- liftIO $ withConnection pool $ \conn ->
+                Set.fromList <$> getFailedDownloadUrlsForAlbum conn catalogAlbumId
+
               let afterExclusion = if Set.null excludedUrls
                     then qualifyingReleasesWithSource
-                    else filter (\(_, release) -> not $ Set.member (riDownloadUrl release) excludedUrls) qualifyingReleasesWithSource
+                    else filter (\(_, release) -> maybe True (\key -> not (Set.member key excludedUrls)) (releaseFailureKey release)) qualifyingReleasesWithSource
                   qualifiedCount = length afterExclusion
 
               when (qualifiedCount < totalResults) $ do
@@ -281,7 +280,7 @@ handleWantedAlbumAdded ServiceContext{..} catalogAlbumId releaseGroupId albumTit
                         , dscClock = scClock
                         }
 
-                  _ <- liftIO $ submitDownload submissionCtx release catalogAlbumId
+                  _ <- liftIO $ submitDownload submissionCtx AutoSubmit release catalogAlbumId
                   pure ()
 
 -- | Search all indexers and emit events for each completion.

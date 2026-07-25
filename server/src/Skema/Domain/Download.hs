@@ -17,6 +17,8 @@ module Skema.Domain.Download
   , SubmissionOutcome(..)
   , slskdSubmission
   , traditionalSubmission
+    -- * Failure identity
+  , releaseFailureKey
   ) where
 
 import Skema.Indexer.Types (ReleaseInfo(..), DownloadType(..), SlskdFile(..))
@@ -92,6 +94,16 @@ data SubmissionOutcome
   | SubmissionSlskdStarted Text Int Integer -- ^ username, file count, total size
   deriving (Show, Eq)
 
+-- | The value this release will carry in @downloads.download_url@ once
+-- submitted: the release URL for NZB/Torrent, or the synthetic
+-- @username:title@ ref that 'slskdSubmission' persists. 'Nothing' when the
+-- release has no stable identity to match against previous failures.
+releaseFailureKey :: ReleaseInfo -> Maybe Text
+releaseFailureKey release = case riDownloadType release of
+  Slskd -> (\username -> username <> ":" <> riTitle release) <$> riSlskdUsername release
+  _ | riDownloadUrl release == "" -> Nothing
+    | otherwise -> Just (riDownloadUrl release)
+
 -- | Build the row and outcome for a slskd submission from the result of
 -- queueing the files.
 slskdSubmission
@@ -109,6 +121,7 @@ slskdSubmission albumId release username files = \case
     , SubmissionSlskdStarted username (length files) (sum (map sfSize files))
     )
   where
+    -- Must stay in sync with 'releaseFailureKey'.
     ref = username <> ":" <> riTitle release
     row status clientId mErr = DownloadInsert
       { diCatalogAlbumId = albumId

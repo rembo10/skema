@@ -17,7 +17,7 @@ import qualified Skema.Database.Repository.Downloads as DownloadsRepo
 import qualified Skema.Config.Types as Cfg
 import qualified Skema.Events.Bus as EventBus
 import qualified Skema.Events.Types as Events
-import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
+import Skema.Services.Download.Submission (submitDownload, SubmissionMode(..), DownloadSubmissionContext(..))
 import Skema.Services.Download.Cancel (cancelDownload)
 import Skema.Indexer.Types (ReleaseInfo(..), DownloadType(..), SlskdFile(..))
 import Skema.Domain.Quality (textToQuality)
@@ -251,8 +251,9 @@ downloadsServer Env{envLogEnv = le, envEventBus = bus, envTaskManager = tm, envD
             , dscClock = clock
             }
 
-      -- Submit download
-      maybeDownloadId <- liftIO $ submitDownload submissionCtx release catalogAlbumId
+      -- Submit download. Manual grabs force through the previously-failed
+      -- release guard: the user explicitly picked this release.
+      maybeDownloadId <- liftIO $ submitDownload submissionCtx ForceSubmit release catalogAlbumId
 
       case maybeDownloadId of
         Just downloadId -> pure $ QueueDownloadResponse

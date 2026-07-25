@@ -6,6 +6,7 @@ module Skema.Database.Repository.Downloads
   , insertDownload
   , deleteDownload
   , hasActiveDownloadForAlbum
+  , hasFailedDownloadForUrl
   , getFailedDownloadUrlsForAlbum
   , getFailedDownloadCountForAlbum
   , downloadSelectColumns
@@ -125,6 +126,17 @@ getFailedDownloadUrlsForAlbum conn catalogAlbumId = do
     "SELECT download_url FROM downloads WHERE catalog_album_id = ? AND status = 'failed'"
     (Only catalogAlbumId) :: IO [Only Text]
   pure $ map (\(Only url) -> url) results
+
+-- | Check whether a specific release identity already failed for this album.
+-- Used to refuse re-grabbing a broken release unless forced.
+hasFailedDownloadForUrl :: SQLite.Connection -> Int64 -> Text -> IO Bool
+hasFailedDownloadForUrl conn catalogAlbumId url = do
+  results <- SQLite.query conn
+    "SELECT COUNT(*) FROM downloads WHERE catalog_album_id = ? AND download_url = ? AND status = 'failed'"
+    (catalogAlbumId, url) :: IO [Only Int]
+  case results of
+    [Only count] -> pure (count > 0)
+    _ -> pure False
 
 -- | Count failed downloads for a catalog album (for retry limiting).
 getFailedDownloadCountForAlbum :: SQLite.Connection -> Int64 -> IO Int

@@ -24,6 +24,8 @@ import Control.Exception (try)
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime)
 import qualified Data.Text as T
 import qualified Data.List as List
+import qualified Data.Map.Strict as M
+import qualified Data.Set as Set
 import Database.SQLite.Simple (Only(..))
 import Katip
 
@@ -40,7 +42,9 @@ import Skema.Domain.Quality (Quality, QualityProfile, textToQuality, meetsProfil
 import qualified Skema.Domain.Quality as Qual
 import Skema.Database.Repository.Quality (getEffectiveQualityProfile)
 import Skema.Database.Repository.Releases (upsertCachedRelease)
-import Skema.Services.Download.Submission (submitDownload, DownloadSubmissionContext(..))
+import Skema.Database.Repository.Downloads (getFailedDownloadUrlsForAlbum)
+import Skema.Domain.Download (releaseFailureKey)
+import Skema.Services.Download.Submission (submitDownload, SubmissionMode(..), DownloadSubmissionContext(..))
 
 -- | RSS state for an indexer
 data IndexerRSSState = IndexerRSSState
@@ -199,6 +203,13 @@ getWantedAlbums pool = withConnection pool $ \conn -> do
     qualityProfile <- getEffectiveQualityProfile pool albumId
     pure $ WantedAlbumInfo albumId releaseGroupMbid title artistName currentQuality qualityProfile
 
+-- | Identity used for the RSS cursor: the feed GUID when present, otherwise
+-- the download URL (some feeds omit GUIDs).
+releaseCursor :: ReleaseInfo -> Maybe Text
+releaseCursor release =
+  riGuid release
+    <|> (if T.null (riDownloadUrl release) then Nothing else Just (riDownloadUrl release))
+
 -- | Resync RSS feed on startup (find last GUID or fetch recent)
 resyncRSSFeed :: HttpClient -> Indexer -> IndexerRSSState -> Int -> IO (Either Text [ReleaseInfo])
 resyncRSSFeed httpClient indexer rssState thresholdHours = do
@@ -228,7 +239,7 @@ resyncRSSFeed httpClient indexer rssState thresholdHours = do
                 Nothing -> pure $ Right releases
                 Just lastGuid -> do
                   -- Find index of last GUID
-                  let guidIndex = List.findIndex (\r -> riGuid r == Just lastGuid) releases
+                  let guidIndex = List.findIndex (\r -> releaseCursor r == Just lastGuid) releases
                   case guidIndex of
                     Just idx -> pure $ Right (take idx releases)  -- New releases since last GUID
                     Nothing -> pure $ Right releases  -- GUID not found, return all recent
@@ -270,9 +281,19 @@ matchesAndMeetsQuality release album =
 -- | Process RSS releases and match against wanted albums with quality filtering.
 -- When multiple releases match the same album, select the one that best fits the quality profile.
 processRSSReleases :: ConnectionPool -> [ReleaseInfo] -> [WantedAlbumInfo] -> IO [(ReleaseInfo, WantedAlbumInfo)]
-processRSSReleases _pool releases wantedAlbums = do
+processRSSReleases pool releases wantedAlbums = do
+  -- Releases that already failed for an album are excluded so a broken
+  -- release isn't re-grabbed every cycle (a manual grab can still force it).
+  failedByAlbum <- fmap M.fromList $ forM wantedAlbums $ \album ->
+    withConnection pool $ \conn -> do
+      urls <- getFailedDownloadUrlsForAlbum conn (waiAlbumId album)
+      pure (waiAlbumId album, Set.fromList urls)
+
   -- Match each release against each wanted album, filtering by quality
-  let allMatches = [(release, album) | release <- releases, album <- wantedAlbums, matchesAndMeetsQuality release album]
+  let previouslyFailed release album = case releaseFailureKey release of
+        Nothing -> False
+        Just key -> Set.member key (M.findWithDefault Set.empty (waiAlbumId album) failedByAlbum)
+      allMatches = [(release, album) | release <- releases, album <- wantedAlbums, matchesAndMeetsQuality release album, not (previouslyFailed release album)]
 
   -- Group matches by album ID
   let groupedByAlbum = List.groupBy (\(_, a1) (_, a2) -> waiAlbumId a1 == waiAlbumId a2)
@@ -424,15 +445,19 @@ runRSSMonitor le bus pool httpClient clock configVar = do
                               , dscClock = clock
                               }
 
-                        downloadIdMaybe <- liftIO $ submitDownload submissionCtx release (waiAlbumId album)
+                        downloadIdMaybe <- liftIO $ submitDownload submissionCtx AutoSubmit release (waiAlbumId album)
 
                         case downloadIdMaybe of
                           Just downloadId -> $(logTM) InfoS $ logStr $ ("Download submitted successfully with ID: " <> show downloadId :: Text)
                           Nothing -> $(logTM) WarningS $ logStr $ ("Failed to submit download for: " <> riTitle release :: Text)
 
-                      -- Update state with last GUID and reset failures
+                      -- Update state with last GUID and reset failures.
+                      -- A cycle with no new releases keeps the previous
+                      -- cursor; overwriting it with Nothing would make the
+                      -- next cycle reprocess the whole feed.
                       now <- liftIO (getNow clock)
-                      let newLastGuid = listToMaybe releases >>= riGuid
+                      let newLastGuid = (listToMaybe releases >>= releaseCursor)
+                            <|> irsLastSeenGuid updatedState
                       liftIO $ updateIndexerState pool $ updatedState
                         { irsLastSeenGuid = newLastGuid
                         , irsLastCheckAt = Just now

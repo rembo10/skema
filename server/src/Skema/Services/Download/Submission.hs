@@ -11,6 +11,7 @@
 -- both the Search orchestrator and the RSS monitor.
 module Skema.Services.Download.Submission
   ( submitDownload
+  , SubmissionMode(..)
   , DownloadSubmissionContext(..)
   ) where
 
@@ -28,6 +29,12 @@ import Katip
 import Skema.HTTP.Client (HttpClient)
 import Skema.Slskd.Client (createSlskdClient, queueDownloads)
 import qualified Skema.Slskd.Types as Slskd
+
+-- | Whether a submission may re-grab a release that previously failed for
+-- the album. Automatic paths (search, RSS) refuse such releases; manual
+-- user-initiated grabs force through.
+data SubmissionMode = AutoSubmit | ForceSubmit
+  deriving (Show, Eq)
 
 -- | Context needed for download submission
 data DownloadSubmissionContext = DownloadSubmissionContext
@@ -48,17 +55,27 @@ data DownloadSubmissionContext = DownloadSubmissionContext
 -- still recorded for visibility).
 submitDownload
   :: DownloadSubmissionContext
+  -> SubmissionMode
   -> ReleaseInfo
   -> Int64  -- ^ Catalog album ID
   -> IO (Maybe Int64)
-submitDownload DownloadSubmissionContext{..} release catalogAlbumId = do
+submitDownload DownloadSubmissionContext{..} mode release catalogAlbumId = do
   -- Check for an existing active download to prevent duplicates.
   alreadyExists <- withConnection dscDbPool $ \conn ->
     hasActiveDownloadForAlbum conn catalogAlbumId
+  -- Refuse releases that already failed for this album (unless forced).
+  previouslyFailed <- case (mode, releaseFailureKey release) of
+    (AutoSubmit, Just key) -> withConnection dscDbPool $ \conn ->
+      hasFailedDownloadForUrl conn catalogAlbumId key
+    _ -> pure False
   if alreadyExists
     then do
       logLine InfoS $ "Skipping download for album " <> show catalogAlbumId <> ": active download already exists"
       pure Nothing
+    else if previouslyFailed
+      then do
+        logLine InfoS $ "Skipping download for album " <> show catalogAlbumId <> ": release previously failed: " <> riTitle release
+        pure Nothing
     else case planSubmission dscDownloadConfig release of
       PlanReject reason -> do
         logLine ErrorS (rejectionMessage reason)

@@ -67,6 +67,7 @@ module Skema.Database.Repository
     -- * Download operations
   , insertDownload
   , hasActiveDownloadForAlbum
+  , hasFailedDownloadForUrl
   , getFailedDownloadUrlsForAlbum
   , getFailedDownloadCountForAlbum
   , getDownloadById
@@ -204,6 +205,7 @@ import Skema.Database.Repository.Acquisition
 import Skema.Database.Repository.Downloads
   ( insertDownload
   , hasActiveDownloadForAlbum
+  , hasFailedDownloadForUrl
   , getFailedDownloadUrlsForAlbum
   , getFailedDownloadCountForAlbum
   , getDownloadById
