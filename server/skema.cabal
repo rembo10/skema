@@ -304,6 +304,7 @@ test-suite skema-test
     Integration.TracksRepoSpec
     Unit.ArchitectureSpec
     Unit.ConfigSpec
+    Unit.EventsSpec
     Unit.IndexerSpec
     Unit.MatchingSpec
     Unit.MusicBrainzSpec
@@ -352,3 +353,4 @@ test-suite skema-test
     , sqlite-simple >= 0.4 && < 0.5
     , servant >= 0.20 && < 0.21
     , servant-server >= 0.20 && < 0.21
+    , uuid >= 1.3 && < 1.4

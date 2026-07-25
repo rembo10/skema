@@ -19,6 +19,7 @@ import qualified Integration.ClustersRepoSpec
 import qualified Integration.TracksRepoSpec
 import qualified Unit.ArchitectureSpec
 import qualified Unit.ConfigSpec
+import qualified Unit.EventsSpec
 import qualified Unit.IndexerSpec
 import qualified Unit.MatchingSpec
 import qualified Unit.MusicBrainzSpec
@@ -45,6 +46,7 @@ tests :: TestTree
 tests = testGroup "Skema Tests"
   [ Unit.ArchitectureSpec.tests
   , Unit.ConfigSpec.tests
+  , Unit.EventsSpec.tests
   , Unit.IndexerSpec.tests
   , Unit.MatchingSpec.tests
   , Unit.MusicBrainzSpec.tests
