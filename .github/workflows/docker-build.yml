@@ -26,6 +26,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Check release tag matches cabal version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          cabal_version=$(sed -n 's/^version:[[:space:]]*//p' server/skema.cabal)
+          if [ "${cabal_version%.*}" != "$tag_version" ]; then
+            echo "ERROR: git tag v${tag_version} does not match cabal version ${cabal_version}"
+            echo "Bump 'version:' in server/skema.cabal before tagging a release."
+            exit 1
+          fi
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
@@ -45,15 +56,18 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # `latest` is applied automatically on semver tag pushes (flavor
+          # latest=auto), so it always points at the newest release, never at
+          # a dev build of main.
           tags: |
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -67,8 +81,11 @@ jobs:
 
       - name: Test image
         if: github.event_name != 'pull_request'
+        env:
+          # Test the tag this run just built, not whatever `latest` points at
+          TEST_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
         run: |
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker pull "$TEST_IMAGE"
 
           # Create test directories and config with proper permissions
           mkdir -p test-config test-data test-cache
@@ -83,10 +100,10 @@ jobs:
           docker run -d --name skema-test \
             -e SKEMA_HOST=0.0.0.0 \
             -e SKEMA_PORT=8182 \
-            -v $(pwd)/test-config:/config \
-            -v $(pwd)/test-data:/data \
-            -v $(pwd)/test-cache:/cache \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            -v "$(pwd)/test-config:/config" \
+            -v "$(pwd)/test-data:/data" \
+            -v "$(pwd)/test-cache:/cache" \
+            "$TEST_IMAGE"
 
           # Wait for container to start
           sleep 10
@@ -112,4 +129,4 @@ jobs:
 
       - name: Image digest
         if: github.event_name != 'pull_request'
-        run: echo ${{ steps.meta.outputs.digest }}
+        run: echo "${{ steps.build.outputs.digest }}"
