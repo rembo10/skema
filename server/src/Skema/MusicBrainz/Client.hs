@@ -183,32 +183,80 @@ pickRepresentativeRelease firstReleaseDate releases =
        <|> viaNonEmpty head dated
        <|> viaNonEmpty head releases
 
--- | Get an artist with their release groups.
+-- | Get an artist with their complete discography.
+--
+-- Release groups come from the browse endpoint, paged until all are fetched.
+-- An artist lookup with @inc=release-groups@ is not used for this because
+-- MusicBrainz caps included entities at 25, which silently truncated the
+-- discography of any artist with more release groups than that.
 --
 -- Automatically retries with exponential backoff via centralized HTTP client.
 getArtist :: MBClientEnv -> ArtistMBID -> IO (Either MBClientError MBArtist)
-getArtist env@MBClientEnv{..} (MBID mbid) = do
-  -- Include release groups to see the artist's discography
-  let includes = "release-groups"
-      params = [("inc", includes), ("fmt", "json")]
-      url = buildMBUrl mbBaseUrl ("artist/" <> mbid) params
-
-  result <- mbGetJSON env url
-  pure $ case result of
-    Left err -> Left $ MBHttpError err
-    Right artist -> Right artist
+getArtist env (MBID mbid) = do
+  result <- mbGetJSON env (releaseGroupPageUrl env mbid 0)
+  case result of
+    Left err -> pure $ Left $ MBHttpError err
+    Right firstPage -> getArtistWithReleaseGroups env mbid firstPage
 
 -- | Get an artist with conditional ETag support.
 -- If the stored ETag matches, returns NotModified without fetching data.
+--
+-- The ETag is the first release-group page's. That page carries the total
+-- release-group count, so an added or removed release group always changes
+-- it; an edit confined to a later page is picked up once the first page
+-- changes.
 getArtistConditional :: MBClientEnv -> ArtistMBID -> Maybe Text -> IO (Either MBClientError (ConditionalResult MBArtist))
-getArtistConditional env@MBClientEnv{..} (MBID mbid) maybeEtag = do
-  let includes = "release-groups"
-      params = [("inc", includes), ("fmt", "json")]
-      url = buildMBUrl mbBaseUrl ("artist/" <> mbid) params
-  result <- mbGetJSONConditional env url maybeEtag
-  pure $ case result of
-    Left err -> Left $ MBHttpError err
-    Right r  -> Right r
+getArtistConditional env (MBID mbid) maybeEtag = do
+  result <- mbGetJSONConditional env (releaseGroupPageUrl env mbid 0) maybeEtag
+  case result of
+    Left err -> pure $ Left $ MBHttpError err
+    Right NotModified -> pure $ Right NotModified
+    Right (Modified firstPage etag) ->
+      fmap (`Modified` etag) <$> getArtistWithReleaseGroups env mbid firstPage
+
+-- | Largest page MusicBrainz serves for browse requests.
+browsePageSize :: Int
+browsePageSize = 100
+
+-- | URL of one page of an artist's release groups.
+releaseGroupPageUrl :: MBClientEnv -> Text -> Int -> Text
+releaseGroupPageUrl MBClientEnv{..} mbid offset =
+  buildMBUrl mbBaseUrl "release-group"
+    [ ("artist", mbid)
+    , ("limit", show browsePageSize)
+    , ("offset", show offset)
+    , ("fmt", "json")
+    ]
+
+-- | Look up the artist and attach every release group, starting from an
+-- already-fetched first page.
+getArtistWithReleaseGroups :: MBClientEnv -> Text -> MBReleaseGroupBrowse -> IO (Either MBClientError MBArtist)
+getArtistWithReleaseGroups env@MBClientEnv{..} mbid firstPage = do
+  artistResult <- mbGetJSON env (buildMBUrl mbBaseUrl ("artist/" <> mbid) [("fmt", "json")])
+  case artistResult of
+    Left err -> pure $ Left $ MBHttpError err
+    Right artist -> do
+      releaseGroups <- fetchRemainingReleaseGroups env mbid firstPage
+      pure $ (\rgs -> artist { mbArtistReleaseGroups = rgs }) <$> releaseGroups
+
+-- | Fetch the pages after the first until the reported count is reached.
+-- Stops early on an empty page so a count that disagrees with the pages
+-- served cannot loop forever.
+fetchRemainingReleaseGroups :: MBClientEnv -> Text -> MBReleaseGroupBrowse -> IO (Either MBClientError [MBReleaseGroup])
+fetchRemainingReleaseGroups env mbid firstPage =
+  go (length firstGroups) [firstGroups] (null firstGroups)
+  where
+    firstGroups = mbBrowseReleaseGroups firstPage
+    total = mbBrowseReleaseGroupCount firstPage
+    go fetched pages exhausted
+      | exhausted || fetched >= total = pure $ Right $ concat (reverse pages)
+      | otherwise = do
+          result <- mbGetJSON env (releaseGroupPageUrl env mbid fetched)
+          case result of
+            Left err -> pure $ Left $ MBHttpError err
+            Right page -> do
+              let groups = mbBrowseReleaseGroups page
+              go (fetched + length groups) (groups : pages) (null groups)
 
 -- | Make a conditional request with appropriate auth based on config
 mbGetJSONConditional :: FromJSON a => MBClientEnv -> Text -> Maybe Text -> IO (Either HttpError (ConditionalResult a))

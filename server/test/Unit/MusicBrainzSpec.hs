@@ -15,15 +15,18 @@ import qualified Data.Aeson as Aeson
 import Data.Aeson ((.=), object)
 
 import qualified Skema.MusicBrainz.Client as MB
-import Skema.MusicBrainz.Types (MBReleaseSearch(..), MBRelease(..), MBID(..))
+import Skema.MusicBrainz.Types (MBReleaseSearch(..), MBRelease(..), MBID(..), MBArtist(..), MBReleaseGroup(..))
 import qualified Skema.HTTP.Client as HTTP
 import Helpers.TestEnv (TestEnv(..), withTestEnvMock)
 import Helpers.MockHttp (respond, hostIs, pathIs, pathStartsWith, (.&.), jsonResponse, statusResponse)
+import qualified Data.ByteString as BS
+import Network.HTTP.Client (Request, queryString)
 
 tests :: TestTree
 tests = testGroup "Unit.MusicBrainz"
   [ searchReleasesTests
   , releaseRoundTripTests
+  , artistDiscographyTests
   ]
 
 releaseRoundTripTests :: TestTree
@@ -105,4 +108,77 @@ searchReleasesTests = testGroup "searchReleases"
           Left (MB.MBHttpError (HTTP.HttpStatusError code _ _)) ->
             assertEqual "status code" 404 code
           Left err -> assertFailure $ "Expected HttpStatusError 404, got: " <> show err
+  ]
+
+-- | Matches requests whose query string contains the given fragment.
+queryHas :: BS.ByteString -> Request -> Bool
+queryHas fragment req = fragment `BS.isInfixOf` queryString req
+
+-- | A release-group browse page holding @n@ groups numbered from @start@.
+releaseGroupPage :: Int -> Int -> Int -> Aeson.Value
+releaseGroupPage total start n = object
+  [ "release-group-count" .= total
+  , "release-group-offset" .= start
+  , "release-groups" .=
+      [ object
+          [ "id" .= ("rg-" <> show i :: Text)
+          , "title" .= ("Release " <> show i :: Text)
+          , "primary-type" .= ("Single" :: Text)
+          ]
+      | i <- [start .. start + n - 1]
+      ]
+  ]
+
+artistBody :: Aeson.Value
+artistBody = object
+  [ "id" .= ("artist-1" :: Text)
+  , "name" .= ("YOASOBI" :: Text)
+  ]
+
+artistDiscographyTests :: TestTree
+artistDiscographyTests = testGroup "artist discography"
+  [ testCase "getArtist pages past MusicBrainz's 25-item include cap" $ do
+      let matchers =
+            [ respond (pathIs "/ws/2/artist/artist-1") (jsonResponse artistBody)
+            , respond (pathIs "/ws/2/release-group" .&. queryHas "artist=artist-1" .&. queryHas "offset=0")
+                (jsonResponse (releaseGroupPage 130 0 100))
+            , respond (pathIs "/ws/2/release-group" .&. queryHas "artist=artist-1" .&. queryHas "offset=100")
+                (jsonResponse (releaseGroupPage 130 100 30))
+            ]
+      withTestEnvMock matchers $ \env -> do
+        result <- MB.getArtist (teMBClientEnv env) (MBID "artist-1")
+        case result of
+          Left err -> assertFailure $ "Expected success, got: " <> show err
+          Right artist -> do
+            assertEqual "name" "YOASOBI" (mbArtistName artist)
+            let groups = mbArtistReleaseGroups artist
+            assertEqual "all release groups" 130 (length groups)
+            assertEqual "last release group" (Just (MBID "rg-129")) (mbrgId <$> viaNonEmpty last groups)
+
+  , testCase "getArtist stops on an empty page even if the count says more" $ do
+      let matchers =
+            [ respond (pathIs "/ws/2/artist/artist-1") (jsonResponse artistBody)
+            , respond (pathIs "/ws/2/release-group" .&. queryHas "offset=0")
+                (jsonResponse (releaseGroupPage 500 0 2))
+            , respond (pathIs "/ws/2/release-group" .&. queryHas "offset=2")
+                (jsonResponse (releaseGroupPage 500 2 0))
+            ]
+      withTestEnvMock matchers $ \env -> do
+        result <- MB.getArtist (teMBClientEnv env) (MBID "artist-1")
+        case result of
+          Left err -> assertFailure $ "Expected success, got: " <> show err
+          Right artist -> assertEqual "groups served" 2 (length (mbArtistReleaseGroups artist))
+
+  , testCase "getArtistConditional makes no further requests when unchanged" $ do
+      -- Only the first page is mocked: any other request fails the test.
+      let matchers =
+            [ respond (pathIs "/ws/2/release-group" .&. queryHas "offset=0")
+                (statusResponse 304 "")
+            ]
+      withTestEnvMock matchers $ \env -> do
+        result <- MB.getArtistConditional (teMBClientEnv env) (MBID "artist-1") (Just "\"etag-1\"")
+        case result of
+          Right MB.NotModified -> pure ()
+          Right (MB.Modified _ _) -> assertFailure "Expected NotModified"
+          Left err -> assertFailure $ "Expected NotModified, got: " <> show err
   ]
