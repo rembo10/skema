@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
-import { formatDate } from '../lib/formatters';
+import { formatDate, pluralizeUnit } from '../lib/formatters';
+import { formatReleaseTypeCounts } from '../lib/releaseTypes';
 import type { CatalogArtist, CatalogAlbum } from '../types/api';
 import { Music, ExternalLink, Disc, UserMinus, RefreshCw, ArrowUp, ArrowDown } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -324,8 +325,11 @@ export default function FollowedArtists() {
                 {artistAlbums.length > 0 && (
                   <div className="px-4 pb-4">
                     <div className="bg-dark-bg-subtle rounded-lg p-3 border border-dark-border">
-                      <div className="text-xs font-medium text-dark-text-secondary mb-2">
-                        Albums ({artistAlbums.length})
+                      <div className="text-xs font-medium text-dark-text-secondary">
+                        {pluralizeUnit(artistAlbums.length, 'Release')} ({artistAlbums.length})
+                      </div>
+                      <div className="text-xs text-dark-text-tertiary mb-2">
+                        {formatReleaseTypeCounts(artistAlbums.map(a => a.type))}
                       </div>
                       <div className="space-y-1">
                         {artistAlbums.slice(0, 3).map((album) => (

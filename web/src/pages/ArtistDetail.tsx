@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import { formatDate, formatTimeAgo } from '../lib/formatters';
+import { formatDate, formatTimeAgo, pluralizeUnit } from '../lib/formatters';
+import { formatReleaseTypeCounts } from '../lib/releaseTypes';
 import type { CatalogArtist, CatalogAlbum, QualityProfile } from '../types/api';
 import { Music, ExternalLink, Calendar, ArrowLeft, Disc, UserMinus, AlertCircle, RefreshCw, X, Award } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -345,6 +346,7 @@ export default function ArtistDetail() {
 
   const albumStats = {
     total: albums.length,
+    typeCounts: formatReleaseTypeCounts(albums.map(a => a.type)),
     inLibrary: albums.filter(a => a.current_quality !== null).length,
     wanted: albums.filter(a => a.wanted).length,
   };
@@ -436,12 +438,15 @@ export default function ArtistDetail() {
             {/* Stats */}
             <div className="mt-6 flex flex-wrap gap-6">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-dark-accent/10 rounded-lg flex items-center justify-center">
+                <div className="w-12 h-12 flex-shrink-0 bg-dark-accent/10 rounded-lg flex items-center justify-center">
                   <Disc className="h-6 w-6 text-dark-accent" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-dark-text">{albumStats.total}</p>
-                  <p className="text-sm text-dark-text-secondary">Total Albums</p>
+                  <p className="text-sm text-dark-text-secondary">{pluralizeUnit(albumStats.total, 'Release')}</p>
+                  {albumStats.typeCounts && (
+                    <p className="text-xs text-dark-text-tertiary">{albumStats.typeCounts}</p>
+                  )}
                 </div>
               </div>
 

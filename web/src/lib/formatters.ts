@@ -137,10 +137,16 @@ export const formatRelativeDate = (dateString: string | null): string | null => 
 };
 
 /**
+ * Pluralize a unit word based on count, without the count: "month", "months"
+ */
+export const pluralizeUnit = (count: number, unit: string): string =>
+  `${unit}${count === 1 ? '' : 's'}`;
+
+/**
  * Pluralize a unit word based on count: "1 month", "2 months"
  */
 export const pluralize = (count: number, unit: string): string =>
-  `${count} ${unit}${count === 1 ? '' : 's'}`;
+  `${count} ${pluralizeUnit(count, unit)}`;
 
 /**
  * Format days until a future date: "Today", "Tomorrow", "5 days", "2 weeks", "1 month"
