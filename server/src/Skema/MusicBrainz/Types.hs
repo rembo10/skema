@@ -20,6 +20,7 @@ module Skema.MusicBrainz.Types
   , MBRecording (..)
   , MBReleaseSearch (..)
   , MBReleaseBrowse (..)
+  , MBReleaseGroupBrowse (..)
   , MBRecordingSearch (..)
   , MBArtistSearch (..)
   , MBReleaseGroupSearch (..)
@@ -295,6 +296,20 @@ newtype MBReleaseBrowse = MBReleaseBrowse
 instance FromJSON MBReleaseBrowse where
   parseJSON = withObject "MBReleaseBrowse" $ \o ->
     MBReleaseBrowse <$> o .: "releases"
+
+-- | One page of an artist's release groups from the browse endpoint
+-- (@release-group?artist=...@).
+data MBReleaseGroupBrowse = MBReleaseGroupBrowse
+  { mbBrowseReleaseGroups :: [MBReleaseGroup]
+  , mbBrowseReleaseGroupCount :: Int
+    -- ^ Total release groups across all pages
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON MBReleaseGroupBrowse where
+  parseJSON = withObject "MBReleaseGroupBrowse" $ \o -> do
+    mbBrowseReleaseGroups <- o .: "release-groups"
+    mbBrowseReleaseGroupCount <- o .: "release-group-count"
+    pure MBReleaseGroupBrowse{..}
 
 -- | MusicBrainz recording search result.
 data MBRecordingSearch = MBRecordingSearch
